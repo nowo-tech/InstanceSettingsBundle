@@ -1,0 +1,54 @@
+settings:
+  title: Instellingen
+  intro: Instellingen voor de hele instantie. Wijzigingen gelden vanaf het volgende verzoek, zonder deploy.
+  empty: Er is nog geen instellingensectie geregistreerd.
+  empty_title: Nog niets te configureren
+  save: Opslaan
+  portability: Importeren / exporteren
+flash:
+  saved: Instellingen opgeslagen.
+  unchanged: Er is niets gewijzigd.
+portability:
+  title: Importeren / exporteren
+  intro: Kopieer de configuratie van de instantie tussen omgevingen als een JSON-bestand met versie.
+  back: Terug naar de instellingen
+  export:
+    title: Exporteren
+    intro: Downloadt alle overdraagbare instellingen. Geheimen worden nooit geëxporteerd.
+    intro_secrets: 'Downloadt alle overdraagbare instellingen. Geheimen blijven weg tenzij je ze verzegeld meeneemt: alleen een instantie met dezelfde sleutel kan ze importeren.'
+    include_secrets: Geheimen meenemen, verzegeld met de sleutel van deze instantie
+    include_secrets_help: 'Houd het bestand privé: wie het heeft samen met de sleutel van deze instantie, kan de geheimen lezen.'
+    submit: JSON downloaden
+  import:
+    title: Importeren
+    intro: 'Het hele bestand wordt gecontroleerd voordat er iets wordt geschreven: een geweigerd bestand verandert niets.'
+    file: Configuratiebestand (JSON)
+    file_help: Een export van deze bundle met hetzelfde schema.
+    dry_run: Alleen controleren (proefdraai)
+    submit: Importeren
+    done: 'Configuratie geïmporteerd: %count% waarde(n) gewijzigd.'
+    dry_run_ok: 'Geldig bestand: %count% waarde(n) zouden worden toegepast. Er is niets geschreven.'
+  error:
+    missing_file: Kies een JSON-bestand.
+    too_large: Het bestand is te groot.
+    invalid_json: Het bestand is geen geldige JSON.
+    not_an_object: Het bestand moet een JSON-object bevatten.
+    invalid_schema: Het bestand is geen export van instantie-instellingen (verkeerd schema).
+    invalid_version: Het bestand heeft geen geldige versie.
+    unsupported_version: Deze exportversie wordt niet ondersteund.
+    unknown_key: 'Onbekende sleutel: %key%.'
+    empty_payload: Het bestand bevat niets om te importeren.
+    invalid_settings: Het blok "settings" is ongeldig.
+    unknown_section: 'Onbekende sectie: %key%.'
+    invalid_section: 'Ongeldige sectie: %key%.'
+    secret_in_clear: 'Geheimen worden alleen verzegeld geaccepteerd: %key%.'
+    not_portable: 'Deze instelling kan niet worden geïmporteerd: %key%.'
+    invalid_value: Ongeldige waarde voor %key%.
+    sealed_secrets_disabled: Verzegelde geheimen zijn uitgeschakeld op deze instantie.
+    invalid_secrets: Het blok "secrets" is ongeldig.
+    invalid_sealed_secret: 'Ongeldig verzegeld geheim: %key%.'
+    failed_unseal_secret: 'De geheimen zijn verzegeld door een andere instantie (andere sleutel): %key%.'
+    invalid_providers: Het blok "providers" is ongeldig.
+    forbidden_key: 'Sleutel die op een inloggegeven lijkt geweigerd: %key%.'
+    export_failed: De export is mislukt.
+    seal_failed: Een geheim kon niet worden verzegeld.

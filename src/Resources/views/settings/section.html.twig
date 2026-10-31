@@ -1,0 +1,9 @@
+{#
+  Instance settings section page (REQ-UI-003): UiKit settings scaffold.
+  Variable: page (View\SettingsPage from SettingsPageFactory::section(): header (title, intro, "Import / export" action),
+  one tab per section the user may open, the current section form (SettingsSectionType; the scaffold renders the
+  REQ-TWIG-003 child loop and the submit button) and the section's extra actions). Also: section (current name).
+  Without any section, SettingsPageFactory::empty() (header only).
+  Data block: nowo_ui_settings_section (`section` in context).
+#}
+{% extends '@NowoUiKit/page/settings.html.twig' %}

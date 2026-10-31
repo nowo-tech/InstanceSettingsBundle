@@ -1,0 +1,54 @@
+settings:
+  title: Paramètres
+  intro: Paramètres de toute l'instance. Les changements s'appliquent à la requête suivante, sans déploiement.
+  empty: Aucune section de paramètres n'est encore enregistrée.
+  empty_title: Rien à configurer pour le moment
+  save: Enregistrer
+  portability: Import / export
+flash:
+  saved: Paramètres enregistrés.
+  unchanged: Rien n'a changé.
+portability:
+  title: Import / export
+  intro: Copiez la configuration de l'instance entre environnements sous forme de fichier JSON versionné.
+  back: Retour aux paramètres
+  export:
+    title: Exporter
+    intro: Télécharge tous les paramètres portables. Les secrets ne sont jamais exportés.
+    intro_secrets: 'Télécharge tous les paramètres portables. Les secrets sont omis sauf si vous les incluez scellés : seule une instance avec la même clé de chiffrement peut les importer.'
+    include_secrets: Inclure les secrets, scellés avec la clé de cette instance
+    include_secrets_help: 'Gardez le fichier privé : toute personne qui le détient avec la clé de cette instance peut lire les secrets.'
+    submit: Télécharger le JSON
+  import:
+    title: Importer
+    intro: 'Tout le fichier est validé avant toute écriture : un fichier refusé ne change rien.'
+    file: Fichier de configuration (JSON)
+    file_help: Un export de ce bundle avec le même schéma.
+    dry_run: Valider seulement (simulation)
+    submit: Importer
+    done: 'Configuration importée : %count% valeur(s) modifiée(s).'
+    dry_run_ok: 'Fichier valide : %count% valeur(s) seraient appliquées. Rien n''a été écrit.'
+  error:
+    missing_file: Choisissez un fichier JSON.
+    too_large: Le fichier est trop volumineux.
+    invalid_json: Le fichier n'est pas un JSON valide.
+    not_an_object: Le fichier doit contenir un objet JSON.
+    invalid_schema: Le fichier n'est pas un export de paramètres d'instance (mauvais schéma).
+    invalid_version: Le fichier n'a pas de version valide.
+    unsupported_version: Cette version d'export n'est pas prise en charge.
+    unknown_key: 'Clé inconnue : %key%.'
+    empty_payload: Le fichier ne contient rien à importer.
+    invalid_settings: Le bloc « settings » est invalide.
+    unknown_section: 'Section inconnue : %key%.'
+    invalid_section: 'Section invalide : %key%.'
+    secret_in_clear: 'Les secrets ne sont acceptés que scellés : %key%.'
+    not_portable: 'Ce paramètre ne peut pas être importé : %key%.'
+    invalid_value: Valeur invalide pour %key%.
+    sealed_secrets_disabled: Les secrets scellés sont désactivés sur cette instance.
+    invalid_secrets: Le bloc « secrets » est invalide.
+    invalid_sealed_secret: 'Secret scellé invalide : %key%.'
+    failed_unseal_secret: 'Les secrets ont été scellés par une autre instance (autre clé de chiffrement) : %key%.'
+    invalid_providers: Le bloc « providers » est invalide.
+    forbidden_key: 'Clé ressemblant à un identifiant refusée : %key%.'
+    export_failed: L'export a échoué.
+    seal_failed: Un secret n'a pas pu être scellé.

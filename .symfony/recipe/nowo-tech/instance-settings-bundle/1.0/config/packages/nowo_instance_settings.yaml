@@ -1,0 +1,17 @@
+# Nowo Instance Settings Bundle — see https://github.com/nowo-tech/InstanceSettingsBundle/blob/main/docs/CONFIGURATION.md
+nowo_instance_settings:
+    doctrine:
+        table_prefix: ''
+    web_ui:
+        enabled: true
+        path_prefix: /admin/settings
+    security:
+        access_roles: [ROLE_ADMIN]
+        # area_roles:
+        #     _portability: [ROLE_SUPER_ADMIN]   # import / export (can download sealed secrets)
+        # DEV/DEMO only — never enable in production (refused without kernel.debug):
+        allow_unauthenticated: false
+    portability:
+        web_ui: true
+        sealed_secrets: true
+        max_upload_bytes: 1048576
