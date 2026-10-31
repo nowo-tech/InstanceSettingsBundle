@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Section;
 
+use Nowo\UiKitBundle\View\Label;
+use Symfony\Component\Translation\TranslatableMessage;
+
 /**
  * Convenience base of a settings section: label `<name>.label`, intro `<name>.intro` off, domain `messages`, no icon.
  * Override what you need; {@see self::getName()} and {@see self::getFields()} remain abstract.
@@ -29,7 +32,7 @@ abstract class AbstractSettingsSection implements SettingsSectionInterface
     /**
      * No intro.
      */
-    public function getIntro(): ?string
+    public function getIntro(): Label|TranslatableMessage|string|null
     {
         return null;
     }

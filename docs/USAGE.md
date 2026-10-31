@@ -87,7 +87,7 @@ Field **labels and help** are translation keys in the section domain (`getTransl
 | `getName()` | — (abstract) | key prefix, URL `/admin/settings/sections/<name>`, export key, `security.area_roles` key |
 | `getLabel()` | `<name>.label` | tab and card title |
 | `getTranslationDomain()` | `messages` | label, intro, field labels / help / choice labels |
-| `getIntro()` | `null` | text under the card title |
+| `getIntro()` | `null` | text under the card title: a key of the section domain, a UiKit `Label`, or a `TranslatableMessage` with parameters (`new TranslatableMessage('mailer.intro', ['%host%' => $host])`, domain defaults to the section's) |
 | `getIcon()` | `null` | UiKit icon of the tab (canonical kind such as `config`, or an icon name) |
 | `getFields()` | — (abstract) | form order and validation |
 

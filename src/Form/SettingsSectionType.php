@@ -68,6 +68,9 @@ final class SettingsSectionType extends AbstractType
                     'current_value'      => $stored ? self::STORED_SECRET_MARKER : null,
                     'hint_visible_last'  => 0,
                     'required'           => false,
+                    // SecretType is compound: by default its errors bubble to the root form, which the settings
+                    // scaffold does not render. Keep them on the field so they show next to it.
+                    'error_bubbling' => false,
                 ], $field->formOptions));
 
                 continue;
