@@ -97,7 +97,7 @@ Open `/admin/settings`: one tab per section, the form built from the fields.
 
 - PHP **8.2+** (`>=8.2 <8.6`; Symfony 8.x requires PHP 8.4+)
 - Symfony **7.4**, **8.0** or **8.1** (FrameworkBundle, Form, Validator, Security CSRF, TwigBundle; SecurityBundle for the admin UI)
-- Doctrine ORM **3.3+** with DoctrineBundle, `nowo-tech/doctrine-encrypt-bundle` **^2.9** (secrets), `nowo-tech/ui-kit-bundle` **^2.17.3** and `nowo-tech/form-kit-bundle` **^2.17** (admin UI), `twig/extra-bundle`
+- Doctrine ORM **3.3+** with DoctrineBundle, `nowo-tech/doctrine-encrypt-bundle` **^2.10** (secrets), `nowo-tech/ui-kit-bundle` **^2.17.3** and `nowo-tech/form-kit-bundle` **^2.17** (admin UI), `twig/extra-bundle`
 
 ## Configuration
 

@@ -6,11 +6,14 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\Secret;
 
 use Nowo\DoctrineEncryptBundle\Encryptors\EncryptorInterface;
 use Nowo\DoctrineEncryptBundle\Encryptors\EncryptorRegistry;
+use Nowo\DoctrineEncryptBundle\Encryptors\MysqlAesEncryptor;
 use Nowo\DoctrineEncryptBundle\Util\EncryptUtil;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityException;
 use Nowo\InstanceSettingsBundle\Secret\DoctrineEncryptSecretSealer;
+use Nowo\InstanceSettingsBundle\Tests\Support\FakeEncryptor;
 use Nowo\InstanceSettingsBundle\Tests\Support\SealerFactory;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use RuntimeException;
 
 final class DoctrineEncryptSecretSealerTest extends TestCase
@@ -97,6 +100,20 @@ final class DoctrineEncryptSecretSealerTest extends TestCase
         $sealer = new DoctrineEncryptSecretSealer(new EncryptUtil(new EncryptorRegistry(['default' => $this->encryptor(static fn (string $d): string => '', static fn (string $d): string => $d)])));
         // EncryptUtil appends the marker to the encryptor output; an empty output still gets the marker only.
         $this->expectFailure('invalid_sealed_secret', static fn (): string => $sealer->unseal($sealer->seal('x', self::CONTEXT), self::CONTEXT));
+    }
+
+    public function testUnauthenticatedMysqlAesProfileIsRefused(): void
+    {
+        // Built without its constructor (which only emits a deprecation): the type is what matters.
+        $mysqlAes = (new ReflectionClass(MysqlAesEncryptor::class))->newInstanceWithoutConstructor();
+        $registry = new EncryptorRegistry(['default' => $mysqlAes, 'halite' => new FakeEncryptor()]);
+        $sealer   = new DoctrineEncryptSecretSealer(new EncryptUtil($registry), null, $registry);
+
+        $this->expectFailure('unsupported_encryptor', static fn (): string => $sealer->seal('x', self::CONTEXT));
+        $this->expectFailure('unsupported_encryptor', static fn (): string => $sealer->unseal('enc:v2:x', self::CONTEXT));
+
+        $named = new DoctrineEncryptSecretSealer(new EncryptUtil($registry), 'halite', $registry);
+        self::assertSame('x', $named->unseal($named->seal('x', self::CONTEXT), self::CONTEXT));
     }
 
     /**

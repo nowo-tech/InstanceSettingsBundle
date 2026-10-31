@@ -19,7 +19,7 @@ Nothing yet beyond the initial 1.0.0 content below.
 ### Requirements
 
 - PHP `>=8.2 <8.6`, Symfony 7.4 / 8.0 / 8.1, Doctrine ORM 3.3+.
-- `nowo-tech/doctrine-encrypt-bundle` ^2.9 registered **and configured** (default profile): the container refuses to
+- `nowo-tech/doctrine-encrypt-bundle` ^2.10 registered **and configured** (default profile): the container refuses to
   compile without it.
 
 ### Enable and configure

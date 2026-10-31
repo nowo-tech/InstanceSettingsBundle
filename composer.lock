@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d180718e7a966e554799553bcc93043d",
+    "content-hash": "9aaa731f0af1924abcdd09b3d0d28056",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -937,16 +937,16 @@
         },
         {
             "name": "nowo-tech/doctrine-encrypt-bundle",
-            "version": "v2.9.0",
+            "version": "v2.10.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/DoctrineEncryptBundle.git",
-                "reference": "c3b4640acd899c6ec40ee2a745d3656c3974c030"
+                "reference": "aadc75dae1339ca1e698e3a0c5a83baa95d43e26"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/DoctrineEncryptBundle/zipball/c3b4640acd899c6ec40ee2a745d3656c3974c030",
-                "reference": "c3b4640acd899c6ec40ee2a745d3656c3974c030",
+                "url": "https://api.github.com/repos/nowo-tech/DoctrineEncryptBundle/zipball/aadc75dae1339ca1e698e3a0c5a83baa95d43e26",
+                "reference": "aadc75dae1339ca1e698e3a0c5a83baa95d43e26",
                 "shasum": ""
             },
             "require": {
@@ -1034,7 +1034,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-28T13:32:44+00:00"
+            "time": "2026-10-31T20:43:53+00:00"
         },
         {
             "name": "nowo-tech/form-kit-bundle",

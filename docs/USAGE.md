@@ -68,13 +68,13 @@ final class SiteSettingsSection extends AbstractSettingsSection
 | `string($name, $default, $label, $help, $required, $constraints)` | `string` | `?string` (trimmed, `''` → null) | `TextType` |
 | `text(...)` | `text` | `?string` (whitespace kept) | `TextareaType` |
 | `email($name, $default, $label, $help, $required)` | `email` | `?string`, `Email` constraint | `EmailType` |
-| `url(...)` | `url` | `?string`, absolute `http(s)://` only | `UrlType` |
+| `url($name, $default, $label, $help, $required, $constraints)` | `url` | `?string`, absolute `http(s)://` only | `UrlType` |
 | `bool($name, $default = false, $label, $help)` | `bool` | `bool` (`"1"`, `"on"`, `"true"` accepted) | `CheckboxType` |
 | `int(...)` / `float(...)` | `int` / `float` | `?int` / `?float` (numeric strings accepted) | `IntegerType` / `NumberType` |
 | `choice($name, $choices, $default, $label, $help, $required)` | `choice` | one of the values of `$choices` (label key => value) | `ChoiceType` |
 | `secret($name, $label, $help, $required, $constraints, $type = String)` | string-like, `secret: true` | encrypted at rest, read with `getSecret()` | DoctrineEncrypt `SecretType` |
 
-Modifiers: `->notPortable()` (left out of exports, refused on imports — for flags that must never travel between instances) and `->withFormOptions([...])` (extra options merged into the admin form field). The full constructor also takes `$portable`, `$constraints` (Symfony Validator constraints, applied on save and import) and `$choices`.
+Every typed factory accepts `$constraints` (for example an `https://` or host allow-list check on a provider URL). Modifiers: `->notPortable()` (left out of exports, refused on imports — for flags that must never travel between instances) and `->withFormOptions([...])` (extra options merged into the admin form field). The full constructor also takes `$portable`, `$constraints` (Symfony Validator constraints, applied on save and import) and `$choices`.
 
 Definition errors fail fast: a field name must be lower snake case (`^[a-z][a-z0-9_]{0,63}$`), a secret must be string-typed and has no default, a choice needs choices, a default must match the type; section names follow the same pattern and must be unique, field names must be unique in their section.
 
@@ -95,15 +95,27 @@ Order: tagged-iterator priority. Use `#[AsSettingsSection(priority: 20)]` on the
 
 ### Extra actions next to the submit button
 
-Implement `SettingsSectionActionsInterface::getActions()` and return UiKit `Action`s; they render on the section page right after **Save**. A mutating action (send a test e-mail, send a test SMS) must be a POST `Action` carrying a CSRF `FormView` (for example FormKit `CsrfOnlyFormFactory`) and be handled by a controller of the contributing bundle that checks the same access (`InstanceSettingsAccessCheckerInterface::canAccess($user, '<section>')`) and the token.
+Implement `SettingsSectionActionsInterface::getActions(SectionActionContext $context)` and return UiKit `Action`s; they render on the section page right after **Save**. The context carries the section name, the current `Request` and the authenticated user (or null).
+
+A mutating action (send a test e-mail, send a test SMS) must be a POST `Action` carrying a CSRF `FormView` and be handled by a controller of the contributing bundle that checks the same access and the token:
+
+- authorise with `InstanceSettingsAccessCheckerInterface::canAccess($user, '<section>')` or `AccessGuard::isGranted('<section>')` — both are registered (public) even when `web_ui.enabled` is false, so kits can protect their own actions and commands;
+- **gotcha:** build the CSRF form **named** (`$formFactory->createNamed('nowo_mail_kit_test', CsrfOnlyType::class, …)`): `handleRequest()` never submits a form whose name is empty, so an unnamed CSRF-only form silently never validates;
+- link back with the public route names of `Routing\InstanceSettingsRoutes` (`SECTION`, `INDEX`, `PORTABILITY`, …), e.g. `redirectToRoute(InstanceSettingsRoutes::SECTION, ['section' => 'mailer'])`.
 
 ```php
+use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\UiKitBundle\View\Action;
 use Nowo\UiKitBundle\View\Label;
 
-public function getActions(): iterable
+public function getActions(SectionActionContext $context): iterable
 {
-    yield new Action('custom', new Label('mailer.send_test', 'NowoMailKitBundle'), $this->urls->generate('nowo_mail_kit_test'), method: 'POST', form: $this->csrfForms->createNamed(...)->createView());
+    if ($context->user === null) {
+        return;
+    }
+    $form = $this->formFactory->createNamed('nowo_mail_kit_test', CsrfOnlyType::class, null, ['csrf_token_id' => 'nowo_mail_kit_test']);
+
+    yield new Action('custom', new Label('mailer.send_test', 'NowoMailKitBundle'), $this->urls->generate('nowo_mail_kit_test'), method: 'POST', form: $form->createView());
 }
 ```
 
@@ -165,7 +177,7 @@ final class MailerSettingsSection extends AbstractSettingsSection implements Set
         yield SettingField::email('test_recipient', null, 'settings.mailer.test_recipient');
     }
 
-    public function getActions(): iterable { /* POST "Send a test e-mail" with a CSRF FormView */ }
+    public function getActions(SectionActionContext $context): iterable { /* POST "Send a test e-mail" with a named CSRF FormView */ }
 }
 ```
 
@@ -260,7 +272,7 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 ```
 
 - **Export**: the effective value (stored or default) of every portable plain field, the providers' data, and — only when asked — the stored secrets, sealed. Non-portable fields are left out. From the admin page, only the sections the user may open are exported (CLI: everything); a provider whose data contains a credential-shaped key makes the export fail (`forbidden_key`).
-- **Import**: the file is read with a size cap (`portability.max_upload_bytes`), then validated **as a whole** — schema (`portability.schema`), version, known top-level keys, known sections and fields, from the admin page only sections the user may open (`forbidden_section`), portable fields only, secrets only under `secrets` and only sealed with this instance key, value types and constraints, credential-shaped keys refused in provider data (keys normalised from camelCase / `-` / `.`; words such as password, passphrase, secret, token, bearer, credential, apikey, privatekey, signature anywhere, or parts such as pwd, pass, key, dsn, auth, holding strings or structures), provider validation. Then everything is applied in **one transaction**. A refused file changes nothing; the error names the key (`invalid_value:site.page_size`), never the value.
+- **Import**: the file is read with a size cap (`portability.max_upload_bytes`), then validated **as a whole** — schema (`portability.schema`), version, known top-level keys, known sections and fields, from the admin page only sections the user may open (`forbidden_section`), portable fields only, secrets only under `secrets` and only sealed with this instance key, value types and constraints, forbidden sections / providers refused from the raw keys first (admin page), credential-shaped keys refused in provider data (keys normalised from camelCase / `-` / `.`; words such as password, passphrase, secret, token, bearer, credential, apikey, privatekey, signature anywhere, or parts such as pwd, pass, key, dsn, auth, jwt, mfa, seed, webhook, holding strings or structures — a heuristic safety net, not a guarantee), provider validation. Then everything is applied in **one transaction**. A refused file changes nothing; the error names the key (`invalid_value:site.page_size`), never the value.
 - **Dry run** (checkbox / `--dry-run`): validation only, lists the keys that would be applied.
 
 ### CLI

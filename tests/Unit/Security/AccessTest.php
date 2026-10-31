@@ -48,6 +48,7 @@ final class AccessTest extends TestCase
 
         self::assertFalse((new ConfigurableInstanceSettingsAccessChecker($authorization, []))->canAccess($user));
         self::assertTrue((new AllowAllInstanceSettingsAccessChecker())->canAccess(null, 'x'));
+        self::assertFalse((new ConfigurableInstanceSettingsAccessChecker(null, ['ROLE_ADMIN']))->canAccess($user), 'no SecurityBundle: deny');
     }
 
     public function testGuardTrustsTheTokenOnlyWithAFirewallContext(): void

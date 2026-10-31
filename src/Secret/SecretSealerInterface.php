@@ -23,7 +23,7 @@ interface SecretSealerInterface
      *
      * @param string $context binding context, e.g. `nowo-instance-settings|mailer.dsn` (no line break)
      *
-     * @throws PortabilityException `seal_failed`
+     * @throws PortabilityException `seal_failed`, `unsupported_encryptor` (MysqlAes profile)
      */
     public function seal(string $plaintext, string $context): string;
 
@@ -31,7 +31,8 @@ interface SecretSealerInterface
      * Plaintext of a sealed value, checked against `$context`.
      *
      * @throws PortabilityException `invalid_sealed_secret` (not sealed / malformed), `failed_unseal_secret` (wrong key)
-     *                              or `secret_context_mismatch` (sealed for another field / schema)
+     *                              `secret_context_mismatch` (sealed for another field / schema)
+     *                              or `unsupported_encryptor` (MysqlAes profile)
      */
     public function unseal(string $sealed, string $context): string;
 

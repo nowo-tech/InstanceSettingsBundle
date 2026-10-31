@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\DependencyInjection;
 
 use LogicException;
+use Nowo\DoctrineEncryptBundle\Encryptors\EncryptorRegistry;
 use Nowo\DoctrineEncryptBundle\Util\EncryptUtil;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
 use Nowo\InstanceSettingsBundle\Command\ExportSettingsCommand;
@@ -127,6 +128,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 
         $this->registerStore($container, $config['doctrine']);
         $this->registerPortability($container, $portability);
+        // The access checker / guard also serve kits (their own actions, CLI) when the admin UI is off.
+        $this->registerAccess($container, $config['security']);
         $this->registerWebUi($container, $config);
     }
 
@@ -193,6 +196,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     {
         $container->setDefinition(DoctrineEncryptSecretSealer::class, new Definition(DoctrineEncryptSecretSealer::class, [
             new Reference(EncryptUtil::class),
+            null,
+            new Reference(EncryptorRegistry::class),
         ]));
         $container->setAlias(SecretSealerInterface::class, DoctrineEncryptSecretSealer::class);
 
@@ -228,30 +233,30 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     {
         $customId = $security['access_checker'];
         if (is_string($customId) && $customId !== '') {
-            $container->setAlias(InstanceSettingsAccessCheckerInterface::class, $customId);
+            $container->setAlias(InstanceSettingsAccessCheckerInterface::class, $customId)->setPublic(true);
         } elseif ($security['allow_unauthenticated']) {
             $container->setDefinition(AllowAllInstanceSettingsAccessChecker::class, new Definition(AllowAllInstanceSettingsAccessChecker::class));
-            $container->setAlias(InstanceSettingsAccessCheckerInterface::class, AllowAllInstanceSettingsAccessChecker::class);
+            $container->setAlias(InstanceSettingsAccessCheckerInterface::class, AllowAllInstanceSettingsAccessChecker::class)->setPublic(true);
         } else {
             $areaRoles = [];
             foreach ($security['area_roles'] as $area => $roles) {
                 $areaRoles[(string) $area] = Configuration::roles($roles);
             }
             $container->setDefinition(ConfigurableInstanceSettingsAccessChecker::class, new Definition(ConfigurableInstanceSettingsAccessChecker::class, [
-                new Reference('security.authorization_checker'),
+                new Reference('security.authorization_checker', ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 Configuration::roles($security['access_roles']),
                 $areaRoles,
             ]));
-            $container->setAlias(InstanceSettingsAccessCheckerInterface::class, ConfigurableInstanceSettingsAccessChecker::class);
+            $container->setAlias(InstanceSettingsAccessCheckerInterface::class, ConfigurableInstanceSettingsAccessChecker::class)->setPublic(true);
         }
 
-        $container->setDefinition(AccessGuard::class, new Definition(AccessGuard::class, [
+        $container->setDefinition(AccessGuard::class, (new Definition(AccessGuard::class, [
             new Reference(InstanceSettingsAccessCheckerInterface::class),
             $security['allow_unauthenticated'],
             new Reference('security.token_storage', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('security.firewall.map', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-        ]));
+        ]))->setPublic(true));
     }
 
     /**
@@ -271,8 +276,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         if (!$webUi['enabled']) {
             return;
         }
-
-        $this->registerAccess($container, $config['security']);
 
         foreach ([SettingsSectionType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
             $container->setDefinition($type, (new Definition($type))->addTag('form.type'));

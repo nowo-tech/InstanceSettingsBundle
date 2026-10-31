@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Ui;
 
+use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\UiKitBundle\View\Action;
 use Nowo\UiKitBundle\View\BackLink;
@@ -21,14 +22,14 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
  */
 final readonly class SettingsPageFactory
 {
-    /** Route of a section page. */
-    public const ROUTE_SECTION = 'nowo_instance_settings_section';
+    /** Route of a section page (alias of {@see InstanceSettingsRoutes::SECTION}). */
+    public const ROUTE_SECTION = InstanceSettingsRoutes::SECTION;
 
-    /** Route of the import / export page. */
-    public const ROUTE_PORTABILITY = 'nowo_instance_settings_portability';
+    /** Route of the import / export page (alias of {@see InstanceSettingsRoutes::PORTABILITY}). */
+    public const ROUTE_PORTABILITY = InstanceSettingsRoutes::PORTABILITY;
 
-    /** Route of the settings index. */
-    public const ROUTE_INDEX = 'nowo_instance_settings_index';
+    /** Route of the settings index (alias of {@see InstanceSettingsRoutes::INDEX}). */
+    public const ROUTE_INDEX = InstanceSettingsRoutes::INDEX;
 
     /**
      * @param UrlGeneratorInterface $urlGenerator route URLs

@@ -54,3 +54,4 @@ portability:
     seal_failed: Non è stato possibile sigillare un segreto.
     forbidden_section: 'Non puoi modificare questa sezione: %key%.'
     secret_context_mismatch: 'Il segreto sigillato appartiene a un altro campo o a un''altra applicazione: %key%.'
+    unsupported_encryptor: I segreti sigillati richiedono un profilo di cifratura autenticato (Halite o Defuse), non MysqlAes.

@@ -12,6 +12,7 @@ use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
+use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
@@ -67,7 +68,8 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
 
         self::assertFalse($container->hasDefinition(SettingsController::class));
         self::assertFalse($container->hasDefinition(InstanceSettingsAccessListener::class));
-        self::assertFalse($container->hasAlias(InstanceSettingsAccessCheckerInterface::class));
+        self::assertSame(ConfigurableInstanceSettingsAccessChecker::class, (string) $container->getAlias(InstanceSettingsAccessCheckerInterface::class), 'kits authorise their own actions');
+        self::assertTrue($container->hasDefinition(AccessGuard::class));
     }
 
     public function testUiWithoutSecurityFails(): void

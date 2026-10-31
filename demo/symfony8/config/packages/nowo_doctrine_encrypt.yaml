@@ -2,6 +2,8 @@
 # secrets in exports. The key file is generated on first start (docker/entrypoint.sh) and never committed.
 nowo_doctrine_encrypt:
     default_profile: default
+    # An undecryptable value (wrong / lost key) becomes null instead of handing ciphertext to consumers.
+    on_decrypt_failure: 'null'
     profiles:
         default:
             encryptor_class: Halite

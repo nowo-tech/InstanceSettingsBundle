@@ -41,7 +41,7 @@ own cryptography and key storage, or what consumers do with a setting value.
 
 | Threat | Mitigation |
 | --- | --- |
-| **Unauthorized access to settings / secrets** | UI private by default (`ROLE_ADMIN`); empty role lists are refused at compile time and deny at runtime (pattern P1); per-area roles (`security.area_roles`) for sensitive sections and for import / export — when sections are restricted, `_portability` must be set explicitly (compile error otherwise), and the web export / import only covers the sections the user may open (an import touching another section is refused as a whole; the CLI keeps full operator access); a listener guards every request under the prefix **and** every bundle controller wherever it is mounted (other prefix, sub-request); every action re-checks its area. The token is trusted only when a firewall matched the main request (no stale worker token). Anonymous users inside a firewall get the entry point (401 / login). |
+| **Unauthorized access to settings / secrets** | UI private by default (`ROLE_ADMIN`); empty role lists are refused at compile time and deny at runtime (pattern P1); per-area roles (`security.area_roles`) for sensitive sections and for import / export — when sections are restricted, `_portability` must be set explicitly (compile error otherwise), and the web export / import only covers the sections the user may open (an import touching another section is refused as a whole, from its raw keys, before any value is validated or unsealed; the CLI keeps full operator access); a listener guards every request under the prefix **and** every bundle controller wherever it is mounted (other prefix, sub-request); every action re-checks its area. The token is trusted only when a firewall matched the main request (no stale worker token). Anonymous users inside a firewall get the entry point (401 / login). |
 | **CSRF** on saves, export, import | Every mutation is a Symfony Form with CSRF (`nowo_instance_settings_section_<name>`, `…_export`, `…_import`); the container refuses to compile the UI without form CSRF or a token manager (pattern P2). Export is a POST (it can contain sealed secrets). |
 | **Secret disclosure in HTML** | The section form never receives a stored secret (only "stored: yes / no"); the secret input is a password field rendered empty; secrets are refused by `get()`, `getSection()` and the Twig function. Contract and functional tests assert a stored secret never appears in the page. |
 | **Secret disclosure at rest** | `#[Encrypted]` column through DoctrineEncryptBundle (default profile); the container refuses to compile without DoctrineEncrypt (secrets would be stored in clear). Every stored secret carries a terminator, so its plaintext never ends with DoctrineEncrypt's `<ENC>` marker (which would skip encryption) and is never `''` / `'0'`; a loaded value without the terminator (not decrypted: wrong or lost key) counts as no secret instead of handing ciphertext to consumers. |
@@ -70,8 +70,8 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
   Rotate with `doctrine:encrypt:rotate-keys`.
 - Sealed values: `enc:v2:` + base64 of the DoctrineEncrypt ciphertext of `<schema>|<section>.<field>\n<plaintext>`;
   unsealing refuses values without the marker, any decryption failure, a "decryption" that returns its input (no
-  plaintext pass-through) and a context mismatch. Use an authenticated profile (Halite or Defuse) for the default
-  DoctrineEncrypt profile; the deprecated MysqlAes (AES-ECB) is not suitable for portable secrets.
+  plaintext pass-through) and a context mismatch. The sealer refuses the deprecated, unauthenticated MysqlAes (AES-ECB) profile
+  (`unsupported_encryptor`): use Halite or Defuse.
 - Fixtures and the demo use obvious placeholders (`REDACTED-TEST`, `REDACTED-DEMO`).
 
 ## Logging
@@ -120,10 +120,9 @@ fail-closed container check, no `csrf_protection: false` on bundle forms. The CL
 | Date | Revision | Auditor | Grade | Findings |
 | --- | --- | --- | --- | --- |
 | 2026-10-31 | `94a1569` (PR #1) | Independent AI audit, Appendix BY | **Pass (conditional) / Medium** | M1 portability bypassed per-section `area_roles`; L1 secrets ending with `<ENC>` stored in clear; L2 sealed values not bound to their field; L3 credential-key filter bypassable and export unfiltered; L4 CLI export file briefly world-readable / symlinks followed; Info I1–I8 |
-| 2026-10-31 | branch `fix/by-audit` | Fixes of M1, L1–L4, I3, I4, I7, I8; I1, I2, I5, I6 documented below | Re-audit pending (expected Pass (good) / Low) | — |
+| 2026-10-31 | `1fec7a3` (PR #3) | Re-verification, Appendix BY | **Pass (good) / Low** | Residuals R1 (forbidden sections checked after value validation), R2 (credential filter heuristic), R4 (DoctrineEncrypt 2.10 options, MysqlAes) — fixed on branch `fix/by-residuals` |
 
-Recorded in the monorepo `BUNDLES_SECURITY_ANALYSIS.md` (Appendix BY). The first release (1.0.0) is tagged only after
-the re-audit confirms the fixes.
+Recorded in the monorepo `BUNDLES_SECURITY_ANALYSIS.md` (Appendix BY).
 
 ## Residual risks and host guidance
 
@@ -137,8 +136,15 @@ the re-audit confirms the fixes.
   start until `kernel.reset` (between messages) or the end of the command.
 - **I6 — section names.** An unknown section answers 404, a known but denied one 403; only users who already pass the UI
   gate see the difference.
-- **DoctrineEncrypt.** A missing key file makes Halite / Defuse generate a new key silently; stored secrets then read
-  as "not set" (terminator check) and sealed imports fail closed. Keep the key in a persistent, backed-up location.
+- **DoctrineEncrypt key.** Keep the key in a persistent, backed-up location; with the terminator check an undecryptable
+  value reads as "not set" whatever `on_decrypt_failure` is, and sealed imports fail closed.
+- **Credential-key filter (R2) is a heuristic.** It normalises keys and matches English credential words / key parts
+  (password, secret, token, bearer, credential, apikey, privatekey, signature, pwd, pass, key, dsn, auth, otp, pin,
+  salt, session, jwt, mfa, seed, webhook…). Keys in other languages, homoglyphs or unusual names pass: providers must
+  still export no secrets — the filter is a safety net, not the contract.
+- **DoctrineEncrypt profile.** Use Halite or Defuse for the default profile (the sealer refuses MysqlAes with
+  `unsupported_encryptor`), set `on_decrypt_failure: 'null'` (or `throw`) and leave `generate_missing_key` off in
+  production (DoctrineEncrypt 2.10).
 - **Demo tooling.** The Playwright screenshot converter (`sharp`, dev only, not shipped) may carry upstream image-library
   advisories; it never processes untrusted images.
 

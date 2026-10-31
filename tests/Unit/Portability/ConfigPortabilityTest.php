@@ -265,7 +265,7 @@ final class ConfigPortabilityTest extends TestCase
 
     public function testCredentialKeys(): void
     {
-        foreach (['password', 'Client_Secret', 'smtp_password', 'api_token', 'private_key', 'mailer_dsn', 'clientSecret', 'smtpPassword', 'api-key', 'apiKey', 'bearer', 'credentials', 'pwd', 'passphrase', 'x.auth', 'AccessToken', 'db.dsn', 'webhookSignature'] as $key) {
+        foreach (['password', 'Client_Secret', 'smtp_password', 'api_token', 'private_key', 'mailer_dsn', 'clientSecret', 'smtpPassword', 'api-key', 'apiKey', 'bearer', 'credentials', 'pwd', 'passphrase', 'x.auth', 'AccessToken', 'db.dsn', 'webhookSignature', 'jwt', 'mfa_code', 'seedPhrase', 'webhook_url'] as $key) {
             self::assertTrue(ConfigPortability::isCredentialKey($key), $key);
         }
         foreach (['color', 'keyboard', 'monkey', 'accent_color', 'page_size'] as $key) {
@@ -312,6 +312,37 @@ final class ConfigPortabilityTest extends TestCase
         unset($payload['settings']['mailer'], $payload['secrets']);
         self::assertContains('general.page_size', $portability->import($payload, true, ['general'])->changedKeys());
         self::assertSame(['appearance'], $portability->providerNames());
+    }
+
+    /**
+     * Re-verification R1: forbidden sections are refused from the raw keys, before any value is validated or any
+     * secret unsealed, so a refused file reveals nothing about their fields.
+     */
+    public function testForbiddenSectionsAreRefusedBeforeValidation(): void
+    {
+        $portability = $this->portability();
+        $base        = ['schema' => 'nowo-instance-settings', 'version' => 1];
+        foreach ([
+            $base + ['settings' => ['mailer' => ['no_such_field' => 'x'], 'general' => ['page_size' => 5000]]],
+            $base + ['settings' => ['mailer' => 'not-an-array']],
+            $base + ['secrets' => ['sealed' => true, 'values' => ['mailer' => ['dsn' => 'enc:v2:garbage']]]],
+            $base + ['providers' => ['unknown_provider' => ['x' => 1]]],
+        ] as $payload) {
+            try {
+                $portability->import($payload, true, ['general']);
+                self::fail('Expected forbidden_section');
+            } catch (PortabilityException $e) {
+                self::assertStringStartsWith('forbidden_section:', $e->getMessage());
+            }
+        }
+
+        // Allowed sections and the registered providers still go through the normal validation.
+        try {
+            $portability->import($base + ['settings' => ['general' => ['page_size' => 5000]], 'providers' => ['appearance' => ['color' => '#000000']], 'secrets' => 'x'], true, ['general']);
+            self::fail('Expected invalid_value');
+        } catch (PortabilityException $e) {
+            self::assertSame('invalid_value:general.page_size', $e->getMessage());
+        }
     }
 
     /**

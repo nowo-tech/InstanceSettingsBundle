@@ -54,3 +54,4 @@ portability:
     seal_failed: A secret could not be sealed.
     forbidden_section: 'You may not change this section: %key%.'
     secret_context_mismatch: 'The sealed secret belongs to another field or application: %key%.'
+    unsupported_encryptor: Sealed secrets need an authenticated encryption profile (Halite or Defuse), not MysqlAes.
