@@ -1,0 +1,54 @@
+settings:
+  title: Settings
+  intro: Instance-wide settings. Changes apply on the next request, without a deploy.
+  empty: No settings section is registered yet.
+  empty_title: Nothing to configure yet
+  save: Save
+  portability: Import / export
+flash:
+  saved: Settings saved.
+  unchanged: Nothing changed.
+portability:
+  title: Import / export
+  intro: Copy the instance configuration between environments as a versioned JSON file.
+  back: Back to the settings
+  export:
+    title: Export
+    intro: Downloads every portable setting. Secrets are never exported.
+    intro_secrets: 'Downloads every portable setting. Secrets are left out unless you include them sealed: only an instance with the same encryption key can import them.'
+    include_secrets: Include the secrets, sealed with this instance key
+    include_secrets_help: 'Keep the file private: anyone holding it and this instance key can read the secrets.'
+    submit: Download JSON
+  import:
+    title: Import
+    intro: 'The whole file is validated before anything is written: a refused file changes nothing.'
+    file: Configuration file (JSON)
+    file_help: An export of this bundle with the same schema.
+    dry_run: Only validate (dry run)
+    submit: Import
+    done: 'Configuration imported: %count% value(s) changed.'
+    dry_run_ok: 'Valid file: %count% value(s) would be applied. Nothing was written.'
+  error:
+    missing_file: Choose a JSON file.
+    too_large: The file is too large.
+    invalid_json: The file is not valid JSON.
+    not_an_object: The file must contain a JSON object.
+    invalid_schema: The file is not an instance settings export (wrong schema).
+    invalid_version: The file has no valid version.
+    unsupported_version: This export version is not supported.
+    unknown_key: 'Unknown key: %key%.'
+    empty_payload: The file contains nothing to import.
+    invalid_settings: The "settings" block is invalid.
+    unknown_section: 'Unknown section: %key%.'
+    invalid_section: 'Invalid section: %key%.'
+    secret_in_clear: 'Secrets are only accepted sealed: %key%.'
+    not_portable: 'This setting cannot be imported: %key%.'
+    invalid_value: Invalid value for %key%.
+    sealed_secrets_disabled: Sealed secrets are disabled on this instance.
+    invalid_secrets: The "secrets" block is invalid.
+    invalid_sealed_secret: 'Invalid sealed secret: %key%.'
+    failed_unseal_secret: 'The secrets were sealed by another instance (different encryption key): %key%.'
+    invalid_providers: The "providers" block is invalid.
+    forbidden_key: 'Credential-like key refused: %key%.'
+    export_failed: The export failed.
+    seal_failed: A secret could not be sealed.

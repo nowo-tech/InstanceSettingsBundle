@@ -1,0 +1,3 @@
+nowo_instance_settings:
+    resource: .
+    type: nowo_instance_settings

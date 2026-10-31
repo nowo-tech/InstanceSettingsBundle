@@ -1,0 +1,54 @@
+settings:
+  title: Einstellungen
+  intro: Instanzweite Einstellungen. Änderungen gelten ab der nächsten Anfrage, ohne Deployment.
+  empty: Es ist noch kein Einstellungsbereich registriert.
+  empty_title: Noch nichts zu konfigurieren
+  save: Speichern
+  portability: Import / Export
+flash:
+  saved: Einstellungen gespeichert.
+  unchanged: Nichts geändert.
+portability:
+  title: Import / Export
+  intro: Kopieren Sie die Instanzkonfiguration als versionierte JSON-Datei zwischen Umgebungen.
+  back: Zurück zu den Einstellungen
+  export:
+    title: Exportieren
+    intro: Lädt alle portablen Einstellungen herunter. Geheimnisse werden nie exportiert.
+    intro_secrets: 'Lädt alle portablen Einstellungen herunter. Geheimnisse werden ausgelassen, außer Sie fügen sie versiegelt hinzu: Nur eine Instanz mit demselben Schlüssel kann sie importieren.'
+    include_secrets: Geheimnisse einschließen, mit dem Schlüssel dieser Instanz versiegelt
+    include_secrets_help: 'Halten Sie die Datei privat: Wer sie und den Schlüssel dieser Instanz besitzt, kann die Geheimnisse lesen.'
+    submit: JSON herunterladen
+  import:
+    title: Importieren
+    intro: 'Die ganze Datei wird geprüft, bevor etwas geschrieben wird: Eine abgelehnte Datei ändert nichts.'
+    file: Konfigurationsdatei (JSON)
+    file_help: Ein Export dieses Bundles mit demselben Schema.
+    dry_run: Nur prüfen (Probelauf)
+    submit: Importieren
+    done: 'Konfiguration importiert: %count% Wert(e) geändert.'
+    dry_run_ok: 'Gültige Datei: %count% Wert(e) würden übernommen. Es wurde nichts geschrieben.'
+  error:
+    missing_file: Wählen Sie eine JSON-Datei.
+    too_large: Die Datei ist zu groß.
+    invalid_json: Die Datei ist kein gültiges JSON.
+    not_an_object: Die Datei muss ein JSON-Objekt enthalten.
+    invalid_schema: Die Datei ist kein Export von Instanzeinstellungen (falsches Schema).
+    invalid_version: Die Datei hat keine gültige Version.
+    unsupported_version: Diese Exportversion wird nicht unterstützt.
+    unknown_key: 'Unbekannter Schlüssel: %key%.'
+    empty_payload: Die Datei enthält nichts zu importieren.
+    invalid_settings: Der Block „settings“ ist ungültig.
+    unknown_section: 'Unbekannter Bereich: %key%.'
+    invalid_section: 'Ungültiger Bereich: %key%.'
+    secret_in_clear: 'Geheimnisse werden nur versiegelt akzeptiert: %key%.'
+    not_portable: 'Diese Einstellung kann nicht importiert werden: %key%.'
+    invalid_value: Ungültiger Wert für %key%.
+    sealed_secrets_disabled: Versiegelte Geheimnisse sind auf dieser Instanz deaktiviert.
+    invalid_secrets: Der Block „secrets“ ist ungültig.
+    invalid_sealed_secret: 'Ungültiges versiegeltes Geheimnis: %key%.'
+    failed_unseal_secret: 'Die Geheimnisse wurden von einer anderen Instanz versiegelt (anderer Schlüssel): %key%.'
+    invalid_providers: Der Block „providers“ ist ungültig.
+    forbidden_key: 'Zugangsdatenähnlicher Schlüssel abgelehnt: %key%.'
+    export_failed: Der Export ist fehlgeschlagen.
+    seal_failed: Ein Geheimnis konnte nicht versiegelt werden.

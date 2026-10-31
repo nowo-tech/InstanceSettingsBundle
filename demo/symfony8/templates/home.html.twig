@@ -1,0 +1,44 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Home - Instance Settings Demo{% endblock %}
+
+{% block body %}
+<div class="card shadow-sm mb-4">
+    <div class="card-header">
+        <h2 class="mb-0">{{ instance_setting('site.name') }}</h2>
+    </div>
+    <div class="card-body">
+        <p>
+            Instance-wide settings split into <strong>sections</strong> contributed by the host or by other bundles
+            (site, mailer, SMS here). Values live in MySQL; secrets are encrypted at rest with
+            <code>nowo-tech/doctrine-encrypt-bundle</code> and never rendered back.
+        </p>
+        <p class="mb-0">
+            FrankenPHP mode: <strong>worker</strong> by default (<code>FRANKENPHP_MODE</code>). A saved change applies on the
+            next request without restarting the worker.
+        </p>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-4" data-testid="demo-values">
+    <div class="card-header"><h3 class="mb-0">Read by the application</h3></div>
+    <div class="card-body">
+        <dl class="row mb-0">
+            <dt class="col-sm-4">Footer</dt><dd class="col-sm-8">{{ site.footer ?? '—' }}</dd>
+            <dt class="col-sm-4">Rows per page</dt><dd class="col-sm-8" data-testid="demo-page-size">{{ site.page_size }}</dd>
+            <dt class="col-sm-4">Theme</dt><dd class="col-sm-8">{{ site.theme }}</dd>
+            <dt class="col-sm-4">Mailer sender</dt><dd class="col-sm-8">{{ mailer_from }}</dd>
+            <dt class="col-sm-4">Mailer DSN</dt><dd class="col-sm-8">{{ dsn_stored ? 'stored (encrypted)' : 'not set' }}</dd>
+            <dt class="col-sm-4">SMS provider</dt><dd class="col-sm-8">{{ sms_provider }} — token {{ token_stored ? 'stored' : 'not set' }}</dd>
+        </dl>
+    </div>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-header"><h3 class="mb-0">Manage</h3></div>
+    <div class="card-body">
+        <a class="btn btn-primary" href="{{ path('nowo_instance_settings_index') }}">Open the settings</a>
+        <a class="btn btn-outline-secondary" href="{{ path('nowo_instance_settings_portability') }}">Import / export</a>
+    </div>
+</div>
+{% endblock %}

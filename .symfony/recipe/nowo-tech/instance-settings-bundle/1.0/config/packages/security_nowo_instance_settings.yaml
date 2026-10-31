@@ -1,0 +1,5 @@
+# Host firewall rule for the instance settings admin UI (REQ-UI-002, layer 1).
+# Adjust the path if you change nowo_instance_settings.web_ui.path_prefix.
+security:
+    access_control:
+        - { path: ^/admin/settings, roles: ROLE_ADMIN }

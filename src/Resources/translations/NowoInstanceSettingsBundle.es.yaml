@@ -1,0 +1,54 @@
+settings:
+  title: Ajustes
+  intro: Ajustes de toda la instancia. Los cambios se aplican en la siguiente petición, sin despliegue.
+  empty: Todavía no hay ninguna sección de ajustes registrada.
+  empty_title: Todavía no hay nada que configurar
+  save: Guardar
+  portability: Importar / exportar
+flash:
+  saved: Ajustes guardados.
+  unchanged: No ha cambiado nada.
+portability:
+  title: Importar / exportar
+  intro: Copia la configuración de la instancia entre entornos como un archivo JSON versionado.
+  back: Volver a los ajustes
+  export:
+    title: Exportar
+    intro: Descarga todos los ajustes portables. Los secretos nunca se exportan.
+    intro_secrets: 'Descarga todos los ajustes portables. Los secretos se omiten salvo que los incluyas sellados: solo una instancia con la misma clave de cifrado puede importarlos.'
+    include_secrets: Incluir los secretos, sellados con la clave de esta instancia
+    include_secrets_help: 'Mantén el archivo en privado: quien lo tenga junto con la clave de esta instancia puede leer los secretos.'
+    submit: Descargar JSON
+  import:
+    title: Importar
+    intro: 'Todo el archivo se valida antes de escribir nada: un archivo rechazado no cambia nada.'
+    file: Archivo de configuración (JSON)
+    file_help: Una exportación de este bundle con el mismo esquema.
+    dry_run: Solo validar (simulación)
+    submit: Importar
+    done: 'Configuración importada: %count% valor(es) cambiado(s).'
+    dry_run_ok: 'Archivo válido: se aplicarían %count% valor(es). No se ha escrito nada.'
+  error:
+    missing_file: Elige un archivo JSON.
+    too_large: El archivo es demasiado grande.
+    invalid_json: El archivo no es JSON válido.
+    not_an_object: El archivo debe contener un objeto JSON.
+    invalid_schema: El archivo no es una exportación de ajustes de instancia (esquema incorrecto).
+    invalid_version: El archivo no tiene una versión válida.
+    unsupported_version: Esta versión de exportación no está soportada.
+    unknown_key: 'Clave desconocida: %key%.'
+    empty_payload: El archivo no contiene nada que importar.
+    invalid_settings: El bloque "settings" no es válido.
+    unknown_section: 'Sección desconocida: %key%.'
+    invalid_section: 'Sección no válida: %key%.'
+    secret_in_clear: 'Los secretos solo se aceptan sellados: %key%.'
+    not_portable: 'Este ajuste no se puede importar: %key%.'
+    invalid_value: Valor no válido para %key%.
+    sealed_secrets_disabled: Los secretos sellados están desactivados en esta instancia.
+    invalid_secrets: El bloque "secrets" no es válido.
+    invalid_sealed_secret: 'Secreto sellado no válido: %key%.'
+    failed_unseal_secret: 'Los secretos se sellaron en otra instancia (otra clave de cifrado): %key%.'
+    invalid_providers: El bloque "providers" no es válido.
+    forbidden_key: 'Clave con aspecto de credencial rechazada: %key%.'
+    export_failed: La exportación ha fallado.
+    seal_failed: No se ha podido sellar un secreto.

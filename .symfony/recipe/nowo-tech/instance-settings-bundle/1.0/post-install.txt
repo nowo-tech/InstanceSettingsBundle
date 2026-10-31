@@ -1,0 +1,10 @@
+Nowo Instance Settings Bundle installed.
+
+1. Configure nowo-tech/doctrine-encrypt-bundle (default profile, Halite key) — required for secret settings:
+   php bin/console doctrine:encrypt:generate-secret-key
+2. Create the table with a migration: php bin/console doctrine:migrations:diff && php bin/console doctrine:migrations:migrate
+3. Protect /admin/settings with security.access_control (recipe example added).
+4. Contribute sections (SettingsSectionInterface) and read values with InstanceSettingsInterface or Twig instance_setting().
+5. Run php bin/console assets:install once (UiKit assets of the admin pages).
+
+Docs: https://github.com/nowo-tech/InstanceSettingsBundle/tree/main/docs

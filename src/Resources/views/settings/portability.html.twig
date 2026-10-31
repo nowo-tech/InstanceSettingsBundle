@@ -1,0 +1,8 @@
+{#
+  Instance settings import / export page (REQ-UI-003): UiKit settings scaffold with two stacked sections.
+  Variable: page (View\SettingsPage from SettingsPageFactory::portability(): header with a back link to the settings,
+  section "export" (PortabilityExportType, POST + CSRF, optional sealed secrets) and section "import"
+  (PortabilityImportType, multipart + CSRF, dry-run checkbox)).
+  Data block: nowo_ui_settings_section (`section` in context).
+#}
+{% extends '@NowoUiKit/page/settings.html.twig' %}

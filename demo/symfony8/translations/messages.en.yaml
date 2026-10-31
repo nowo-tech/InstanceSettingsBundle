@@ -1,0 +1,33 @@
+site:
+  label: Site
+  intro: Site-wide values read by the application on every request.
+  name: Site name
+  footer: Footer text
+  footer_help: Shown at the bottom of every page.
+  support_url: Support URL
+  page_size: Rows per page
+  page_size_help: Between 5 and 200.
+  theme: Theme
+  theme_light: Light
+  theme_dark: Dark
+  theme_auto: Follow the system
+  maintenance_banner: Show the maintenance banner (instance-only, never exported)
+mailer:
+  label: Mailer
+  intro: Outgoing e-mail. The transport DSN is stored encrypted and never shown again.
+  from: Sender address
+  from_name: Sender name
+  dsn: Transport DSN
+  dsn_help: For example smtp://user:pass@host:25. Stored encrypted.
+  test_recipient: Test recipient
+  preview: See the values on the home page
+sms:
+  label: SMS
+  intro: SMS provider and its encrypted credentials.
+  provider: Provider
+  provider_null: Disabled (null transport)
+  provider_twilio: Twilio
+  provider_bridge: SMS Bridge
+  sender: Sender id
+  account_id: Account id
+  auth_token: Auth token

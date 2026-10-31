@@ -1,0 +1,21 @@
+mailer:
+  label: Mailer
+  intro: Outgoing e-mail.
+  from: Sender address
+  from_help: Address the messages are sent from.
+  from_name: Sender name
+  dsn: Mailer DSN
+  dsn_help: Transport DSN; stored encrypted.
+  test_recipient: Test recipient
+  enabled: Send e-mail
+general:
+  label: General
+  site_name: Site name
+  footer: Footer text
+  homepage: Homepage
+  page_size: Page size
+  ratio: Ratio
+  mode: Mode
+  mode_light: Light
+  mode_dark: Dark
+  maintenance_lock: Maintenance lock

@@ -1,0 +1,54 @@
+settings:
+  title: Impostazioni
+  intro: Impostazioni dell'intera istanza. Le modifiche valgono dalla richiesta successiva, senza deploy.
+  empty: Nessuna sezione di impostazioni è ancora registrata.
+  empty_title: Ancora niente da configurare
+  save: Salva
+  portability: Importa / esporta
+flash:
+  saved: Impostazioni salvate.
+  unchanged: Nessuna modifica.
+portability:
+  title: Importa / esporta
+  intro: Copia la configurazione dell'istanza tra ambienti come file JSON con versione.
+  back: Torna alle impostazioni
+  export:
+    title: Esporta
+    intro: Scarica tutte le impostazioni portabili. I segreti non vengono mai esportati.
+    intro_secrets: 'Scarica tutte le impostazioni portabili. I segreti sono esclusi a meno che non li includa sigillati: solo un''istanza con la stessa chiave di cifratura può importarli.'
+    include_secrets: Includi i segreti, sigillati con la chiave di questa istanza
+    include_secrets_help: 'Mantieni il file privato: chi lo possiede insieme alla chiave di questa istanza può leggere i segreti.'
+    submit: Scarica JSON
+  import:
+    title: Importa
+    intro: 'Il file viene validato per intero prima di scrivere: un file rifiutato non cambia nulla.'
+    file: File di configurazione (JSON)
+    file_help: Un export di questo bundle con lo stesso schema.
+    dry_run: Solo validare (simulazione)
+    submit: Importa
+    done: 'Configurazione importata: %count% valore/i modificato/i.'
+    dry_run_ok: 'File valido: verrebbero applicati %count% valore/i. Non è stato scritto nulla.'
+  error:
+    missing_file: Scegli un file JSON.
+    too_large: Il file è troppo grande.
+    invalid_json: Il file non è un JSON valido.
+    not_an_object: Il file deve contenere un oggetto JSON.
+    invalid_schema: Il file non è un export delle impostazioni dell'istanza (schema errato).
+    invalid_version: Il file non ha una versione valida.
+    unsupported_version: Questa versione di export non è supportata.
+    unknown_key: 'Chiave sconosciuta: %key%.'
+    empty_payload: Il file non contiene nulla da importare.
+    invalid_settings: Il blocco "settings" non è valido.
+    unknown_section: 'Sezione sconosciuta: %key%.'
+    invalid_section: 'Sezione non valida: %key%.'
+    secret_in_clear: 'I segreti sono accettati solo sigillati: %key%.'
+    not_portable: 'Questa impostazione non può essere importata: %key%.'
+    invalid_value: Valore non valido per %key%.
+    sealed_secrets_disabled: I segreti sigillati sono disattivati su questa istanza.
+    invalid_secrets: Il blocco "secrets" non è valido.
+    invalid_sealed_secret: 'Segreto sigillato non valido: %key%.'
+    failed_unseal_secret: 'I segreti sono stati sigillati da un''altra istanza (chiave diversa): %key%.'
+    invalid_providers: Il blocco "providers" non è valido.
+    forbidden_key: 'Chiave simile a una credenziale rifiutata: %key%.'
+    export_failed: L'export non è riuscito.
+    seal_failed: Non è stato possibile sigillare un segreto.
