@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\Ui;
 
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\GeneralFixtureSection;
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\IntroFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\MailerFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Support\PageFixtures;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
@@ -13,6 +14,7 @@ use Nowo\UiKitBundle\View\Label;
 use Nowo\UiKitBundle\View\SettingsSection;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Form\FormView;
+use Symfony\Component\Translation\TranslatableMessage;
 
 final class SettingsPageFactoryTest extends TestCase
 {
@@ -39,6 +41,23 @@ final class SettingsPageFactoryTest extends TestCase
         self::assertSame('NowoInstanceSettingsBundle', $page->bundle);
 
         self::assertSame([], PageFixtures::factory()->section(['mailer' => new MailerFixtureSection()], 'mailer', $form)->header->actions);
+    }
+
+    public function testParameterisedIntros(): void
+    {
+        $sections = [
+            'a' => new IntroFixtureSection('a', new TranslatableMessage('mailer.intro_host', ['%host%' => 'smtp.example.test'])),
+            'b' => new IntroFixtureSection('b', new TranslatableMessage('x.intro', ['%n%' => 2], 'other')),
+            'c' => new IntroFixtureSection('c', new Label('y.intro', 'third', ['%m%' => 3])),
+            'd' => new IntroFixtureSection('d', 'plain.intro'),
+        ];
+        $page = PageFixtures::factory()->section($sections, 'a', new FormView());
+
+        $intros = array_map(static fn (SettingsSection $s): ?Label => $s->intro instanceof Label ? $s->intro : null, $page->sections);
+        self::assertSame(['mailer.intro_host', 'app', ['%host%' => 'smtp.example.test']], [$intros[0]?->key, $intros[0]?->domain, $intros[0]?->params]);
+        self::assertSame(['x.intro', 'other', ['%n%' => 2]], [$intros[1]?->key, $intros[1]?->domain, $intros[1]?->params]);
+        self::assertSame(['y.intro', 'third'], [$intros[2]?->key, $intros[2]?->domain]);
+        self::assertSame(['plain.intro', 'app'], [$intros[3]?->key, $intros[3]?->domain]);
     }
 
     public function testEmptyAndPortabilityPages(): void

@@ -14,6 +14,7 @@ use Nowo\UiKitBundle\View\SettingsPage;
 use Nowo\UiKitBundle\View\SettingsSection;
 use Symfony\Component\Form\FormView;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
+use Symfony\Component\Translation\TranslatableMessage;
 
 /**
  * Builds the UiKit view models of the settings pages (REQ-UI-003): one settings scaffold page per section (tabs for
@@ -67,7 +68,7 @@ final readonly class SettingsPageFactory
                 label: new Label($section->getLabel(), $domain),
                 href: $this->urlGenerator->generate(self::ROUTE_SECTION, ['section' => $name]),
                 form: $name === $current ? $form : null,
-                intro: $intro === null ? null : new Label($intro, $domain),
+                intro: $this->intro($intro, $domain),
                 submitLabel: SettingsPages::label('settings.save'),
                 actions: $name === $current ? $actions : [],
                 icon: $section->getIcon(),
@@ -133,6 +134,21 @@ final readonly class SettingsPageFactory
             layout: $this->pages->layout(),
             attributes: ['data-testid' => 'instance-settings-portability'],
         );
+    }
+
+    /**
+     * UiKit label of a section intro (string key in the section domain, Label as is, TranslatableMessage mapped).
+     */
+    private function intro(Label|TranslatableMessage|string|null $intro, string $domain): ?Label
+    {
+        if ($intro === null || $intro instanceof Label) {
+            return $intro;
+        }
+        if ($intro instanceof TranslatableMessage) {
+            return new Label($intro->getMessage(), $intro->getDomain() ?? $domain, $intro->getParameters());
+        }
+
+        return new Label($intro, $domain);
     }
 
     private function header(bool $portability): PageHeader

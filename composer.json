@@ -90,7 +90,8 @@
     },
     "suggest": {
         "symfony/flex": "For automatic recipe installation",
-        "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)"
+        "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
+        "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()"
     },
     "autoload": {
         "psr-4": {

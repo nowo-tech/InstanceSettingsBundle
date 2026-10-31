@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Section;
 
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
+use Nowo\UiKitBundle\View\Label;
+use Symfony\Component\Translation\TranslatableMessage;
 
 /**
  * A group of instance settings contributed by the host or by another bundle (mailer, SMS provider, Mercure hub, …).
@@ -33,9 +35,11 @@ interface SettingsSectionInterface
     public function getTranslationDomain(): string;
 
     /**
-     * Translation key of the optional intro shown under the section title.
+     * Optional intro shown under the section title: a translation key of the section domain, a UiKit {@see Label} (key,
+     * domain, parameters) or a Symfony {@see TranslatableMessage} (key, parameters, domain — null = the section domain),
+     * e.g. `new TranslatableMessage('mailer.intro', ['%host%' => $host])`. Implementations returning `?string` stay valid.
      */
-    public function getIntro(): ?string;
+    public function getIntro(): Label|TranslatableMessage|string|null;
 
     /**
      * Optional UiKit icon kind / name of the section tab.

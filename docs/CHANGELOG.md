@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `SettingsSectionInterface::getIntro()` may return a UiKit `Label` or a Symfony `TranslatableMessage` (key +
+  parameters, optional domain) besides a translation key; implementations returning `?string` stay valid.
+
+### Fixed
+
+- A violation on a secret field (e.g. a refused DSN) is now shown next to the field. DoctrineEncrypt's `SecretType` is
+  compound, so its errors bubbled to the root form, which the settings scaffold does not render (the page answered 422
+  without a visible message); the section form sets `error_bubbling: false` on secret fields.
+
 ## [1.0.0] - 2026-10-31
 
 First release: settings store with tagged sections, encrypted secrets (DoctrineEncrypt ^2.10), UiKit/FormKit admin with per-section access, context-bound sealed config portability (export/import, CLI). See [UPGRADING](UPGRADING.md#to-100).
