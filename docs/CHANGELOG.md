@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-31
+
+First release: settings store with tagged sections, encrypted secrets (DoctrineEncrypt ^2.10), UiKit/FormKit admin with per-section access, context-bound sealed config portability (export/import, CLI). See [UPGRADING](UPGRADING.md#to-100).
+
 First release candidate (1.0.0): instance settings extracted and generalised from the symfony-beacon host app
 (`src/Shared/Settings`, config portability).
 
