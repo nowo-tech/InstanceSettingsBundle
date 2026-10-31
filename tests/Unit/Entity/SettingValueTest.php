@@ -22,7 +22,8 @@ final class SettingValueTest extends TestCase
 
         $later = new DateTimeImmutable('2026-01-02');
         $row->storeSecret('REDACTED-TEST', $later);
-        self::assertSame('REDACTED-TEST', $row->getSecretValue());
+        self::assertSame('REDACTED-TEST', $row->getSecret());
+        self::assertSame('REDACTED-TEST|', $row->getSecretValue(), 'stored with its terminator (never ends with <ENC>, never "0")');
         self::assertNull($row->getValue());
         self::assertSame($later, $row->getUpdatedAt());
 
@@ -30,7 +31,13 @@ final class SettingValueTest extends TestCase
         self::assertTrue($row->getValue());
         self::assertNull($row->getSecretValue());
 
-        $row->setSecretValue('x');
-        self::assertSame('x', $row->getSecretValue());
+        self::assertNull($row->getSecret());
+
+        // A value DoctrineEncrypt could not decrypt (no terminator) is no secret.
+        $row->setSecretValue('def502-ciphertext');
+        self::assertSame('def502-ciphertext', $row->getSecretValue());
+        self::assertNull($row->getSecret());
+        $row->storeSecret('a<ENC>', $created);
+        self::assertSame('a<ENC>', $row->getSecret());
     }
 }

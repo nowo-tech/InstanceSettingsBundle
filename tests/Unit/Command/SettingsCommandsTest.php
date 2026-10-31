@@ -61,8 +61,27 @@ final class SettingsCommandsTest extends TestCase
         self::assertSame(Command::SUCCESS, $tester->execute(['--include-secrets' => true, '--output' => $file]));
         self::assertSame(0o600, fileperms($file) & 0o777);
         $content = (string) file_get_contents($file);
-        self::assertStringContainsString('enc:v1:', $content);
+        self::assertStringContainsString('enc:v2:', $content);
         self::assertStringNotContainsString('REDACTED', $content);
+
+        // Audit BY L4: never overwrite silently, never follow a symlink, create 0600 before writing.
+        self::assertSame(Command::FAILURE, $tester->execute(['--output' => $file]));
+        self::assertStringContainsString('already exists', $tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $tester->execute(['--output' => $file, '--force' => true]));
+        self::assertStringNotContainsString('enc:v2:', (string) file_get_contents($file));
+        self::assertSame('600', decoct(fileperms($file) & 0o777));
+        self::assertSame([], glob($this->dir . '/.nowo-instance-settings-*') ?: [], 'temporary directory removed');
+
+        $link = $this->dir . '/link.json';
+        symlink($this->dir . '/target.json', $link);
+        self::assertSame(Command::FAILURE, $tester->execute(['--output' => $link, '--force' => true]));
+        self::assertStringContainsString('symbolic link', $tester->getDisplay());
+        self::assertFileDoesNotExist($this->dir . '/target.json');
+        unlink($link);
+
+        self::assertSame(Command::FAILURE, $tester->execute(['--output' => $this->dir, '--force' => true]));
+        self::assertSame(Command::FAILURE, $tester->execute(['--output' => $this->dir . '/missing/dir/x.json']));
+        self::assertStringContainsString('cannot be created', $tester->getDisplay());
 
         self::assertSame(Command::FAILURE, $tester->execute(['--section' => ['nope']]));
         self::assertStringContainsString('unknown_section:nope', $tester->getDisplay());

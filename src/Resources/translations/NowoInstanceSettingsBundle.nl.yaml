@@ -52,3 +52,5 @@ portability:
     forbidden_key: 'Sleutel die op een inloggegeven lijkt geweigerd: %key%.'
     export_failed: De export is mislukt.
     seal_failed: Een geheim kon niet worden verzegeld.
+    forbidden_section: 'Je mag deze sectie niet wijzigen: %key%.'
+    secret_context_mismatch: 'Het verzegelde geheim hoort bij een ander veld of een andere applicatie: %key%.'

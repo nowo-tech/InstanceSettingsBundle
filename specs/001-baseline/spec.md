@@ -94,8 +94,8 @@ route exists; the `nowo_instance_settings` loader import mounts them under `web_
 - **FR-STORE-001**: `InstanceSettings` returns stored values else defaults (stale types fall back to the default), typed getters throw `LogicException` on a type mismatch, `get()` refuses secrets and `getSecret()` refuses plain fields, `getSection()` omits secrets.
 - **FR-STORE-002**: Reads load every row in one query, memoized for the current main request (weak reference), reloaded for a new main request, cleared by `reset()` and after saves.
 - **FR-STORE-003**: `save()` validates all values (`ValueNormalizer`) before writing, throws `InvalidSettingValueException` (field => messages, no values), removes rows for null values (default again), writes only changes with one flush, logs names, dispatches `SettingsChangedEvent` (section, changed fields, secret fields, origin).
-- **FR-STORE-004**: `ValueNormalizer` trims strings (not text), maps blank to null, coerces numeric and boolean strings, enforces required-without-default, http(s) URLs, e-mail / URL / choice constraints and field constraints (when a validator is present).
-- **FR-ORM-001**: `SettingValue` (section, name, JSON value, `#[Encrypted]` secret value, updated at, unique section+name) and `DoctrineSettingValueRepository` (EM per call, closed EM reset, `HINT_REFRESH`, single-flush apply, transactional).
+- **FR-STORE-004**: `ValueNormalizer` trims strings (not text), maps blank to null, coerces numeric and boolean strings, enforces required-without-default, http(s) URLs, non-finite floats refused, e-mail / URL / choice constraints and field constraints (when a validator is present).
+- **FR-ORM-001**: `SettingValue` (section, name, JSON value, `#[Encrypted]` secret value stored with a terminator so it never ends with `<ENC>` nor equals `''` / `'0'`, undecrypted values read as no secret, updated at, unique section+name) and `DoctrineSettingValueRepository` (EM per call, closed EM reset, `HINT_REFRESH`, single-flush apply, transactional).
 - **FR-ORM-002**: `TablePrefixListener` prefixes the bundle table and index names only, no-op without prefix.
 - **FR-TWIG-002**: `instance_setting()` returns plain values and refuses secrets.
 
@@ -105,16 +105,16 @@ route exists; the `nowo_instance_settings` loader import mounts them under `web_
 - **FR-UI-002**: `SettingsController`: index redirects to the first accessible section (empty state otherwise); section page builds `SettingsSectionType`, saves with CSRF, maps violations to fields, 404 for unknown sections, 403 per area; portability page; export (POST + CSRF, attachment, `private, no-store`, export failure flash); import (form validation, reader, dry run, reason-coded flashes); portability actions 404 when disabled.
 - **FR-UI-003**: Form types are FormKit types (profile `instance_settings`): `SettingsSectionType` (widgets per type, secrets via DoctrineEncrypt `SecretType` with only a stored flag), `PortabilityExportType` (`include_secrets` when allowed), `PortabilityImportType` (JSON `FileType` with size cap, dry run).
 - **FR-UI-004**: `SettingsPageFactory` / `SettingsPages` build UiKit `SettingsPage` view models (tabs, current form, actions, header portability action, empty state, portability page) and resolve layout / template overrides; templates extend the UiKit settings scaffold.
-- **FR-ACC-001**: `ConfigurableInstanceSettingsAccessChecker` (any role; area roles replace; empty or anonymous deny), `AllowAllInstanceSettingsAccessChecker`, custom checker alias; `AccessGuard` trusts the token only with a firewall context and denies with a Security exception inside a firewall, 403 otherwise; `InstanceSettingsAccessListener` (kernel.request, priority 7) guards the prefix and bundle controllers anywhere.
+- **FR-ACC-001**: `ConfigurableInstanceSettingsAccessChecker` (any role; area roles replace; empty or anonymous deny), `AllowAllInstanceSettingsAccessChecker`, custom checker alias; `AccessGuard` trusts the token only with a firewall context and denies with a Security exception inside an enabled firewall, 403 otherwise (no firewall or `security: false`); the web export / import only covers the sections the user may open; `area_roles` restricting sections requires an explicit `_portability` area when the import / export page is on; `InstanceSettingsAccessListener` (kernel.request, priority 7) guards the prefix and bundle controllers anywhere.
 
 ### Portability
 
 - **FR-PORT-001**: `PortabilityEnvelope` header and validation (schema, version 1, known keys).
 - **FR-PORT-002**: `ConfigPortability::export()` (portable plain values, providers, optional sealed secrets, section filter, logging).
-- **FR-PORT-003**: `ConfigPortability::import()` (validate all — sections, fields, secrets in clear, non-portable, values, sealed secrets, credential-shaped provider keys, provider validation — then one transaction; dry run; `ImportResult`).
-- **FR-PORT-004**: `DoctrineEncryptSecretSealer` seals with `EncryptUtil` (`enc:v1:`) and fails closed on malformed, unmarked or foreign-key values; `SecretSealerInterface`.
+- **FR-PORT-003**: `ConfigPortability::import()` (validate all — sections (optionally restricted to the caller's sections: `forbidden_section`), fields, secrets in clear, non-portable, values, sealed secrets, credential-shaped provider keys (normalised keys, words anywhere; also checked on provider exports), provider validation — then one transaction; dry run; `ImportResult`).
+- **FR-PORT-004**: `DoctrineEncryptSecretSealer` seals `<schema>|<section>.<field>\n<plaintext>` with `EncryptUtil` (`enc:v2:`) and fails closed on malformed, unmarked, pass-through, foreign-key or other-context values; `SecretSealerInterface`.
 - **FR-PORT-005**: `JsonUploadReader` reads at most `max + 1` bytes from an upload or a path, depth 64, object root; `PortabilityException` reason codes with optional key.
-- **FR-PORT-006**: CLI `nowo:instance-settings:export` (sections, sealed secrets, output file 0600) and `nowo:instance-settings:import` (dry run), non-zero exit with the reason code.
+- **FR-PORT-006**: CLI `nowo:instance-settings:export` (sections, sealed secrets, output file created 0600 in a private directory and renamed into place, symlinks refused, `--force` to replace a regular file) and `nowo:instance-settings:import` (dry run), non-zero exit with the reason code.
 
 ---
 

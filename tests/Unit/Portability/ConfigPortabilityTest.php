@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\Portability;
 
 use LogicException;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
+use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityException;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
@@ -76,7 +77,7 @@ final class ConfigPortabilityTest extends TestCase
         self::assertArrayNotHasKey('providers', $payload);
         self::assertTrue($payload['secrets']['sealed']);
         self::assertSame('doctrine_encrypt:default', $payload['secrets']['algorithm']);
-        self::assertStringStartsWith('enc:v1:', $payload['secrets']['values']['mailer']['dsn']);
+        self::assertStringStartsWith('enc:v2:', $payload['secrets']['values']['mailer']['dsn']);
         self::assertStringNotContainsString('REDACTED', (string) json_encode($payload));
 
         self::assertSame(['appearance'], array_keys($portability->export(['appearance'])['providers']));
@@ -174,7 +175,7 @@ final class ConfigPortabilityTest extends TestCase
     public function testSecretsFromAnotherInstanceOrInvalidAreRefused(): void
     {
         $other   = SealerFactory::create('k2');
-        $payload = ['schema' => 'nowo-instance-settings', 'version' => 1, 'secrets' => ['sealed' => true, 'values' => ['mailer' => ['dsn' => $other->seal('smtp://x')]]]];
+        $payload = ['schema' => 'nowo-instance-settings', 'version' => 1, 'secrets' => ['sealed' => true, 'values' => ['mailer' => ['dsn' => $other->seal('smtp://x', 'nowo-instance-settings|mailer.dsn')]]]];
 
         try {
             $this->portability()->import($payload);
@@ -184,7 +185,7 @@ final class ConfigPortabilityTest extends TestCase
         }
 
         $sealer                                        = SealerFactory::create();
-        $payload['secrets']['values']['mailer']['dsn'] = $sealer->seal('   ');
+        $payload['secrets']['values']['mailer']['dsn'] = $sealer->seal('   ', 'nowo-instance-settings|mailer.dsn');
         $section                                       = new class extends MailerFixtureSection {
             public function getFields(): iterable
             {
@@ -203,7 +204,7 @@ final class ConfigPortabilityTest extends TestCase
         }
 
         try {
-            $portability->import(['schema' => 'nowo-instance-settings', 'version' => 1, 'secrets' => ['sealed' => true, 'values' => ['mailer' => ['locked' => $sealer->seal('x')]]]]);
+            $portability->import(['schema' => 'nowo-instance-settings', 'version' => 1, 'secrets' => ['sealed' => true, 'values' => ['mailer' => ['locked' => $sealer->seal('x', 'nowo-instance-settings|mailer.locked')]]]]);
             self::fail('Expected not_portable');
         } catch (PortabilityException $e) {
             self::assertSame('not_portable:mailer.locked', $e->getMessage());
@@ -264,10 +265,10 @@ final class ConfigPortabilityTest extends TestCase
 
     public function testCredentialKeys(): void
     {
-        foreach (['password', 'Client_Secret', 'smtp_password', 'api_token', 'private_key', 'mailer_dsn'] as $key) {
+        foreach (['password', 'Client_Secret', 'smtp_password', 'api_token', 'private_key', 'mailer_dsn', 'clientSecret', 'smtpPassword', 'api-key', 'apiKey', 'bearer', 'credentials', 'pwd', 'passphrase', 'x.auth', 'AccessToken', 'db.dsn', 'webhookSignature'] as $key) {
             self::assertTrue(ConfigPortability::isCredentialKey($key), $key);
         }
-        foreach (['color', 'token_required', 'keyboard'] as $key) {
+        foreach (['color', 'keyboard', 'monkey', 'accent_color', 'page_size'] as $key) {
             self::assertFalse(ConfigPortability::isCredentialKey($key), $key);
         }
     }
@@ -285,6 +286,88 @@ final class ConfigPortabilityTest extends TestCase
             'providers' => ['appearance' => ['color' => '#000000', 'api_token' => true, 'list' => [1, 2]]],
         ]);
         self::assertSame(['appearance.color', 'appearance.api_token', 'appearance.list'], $result->changedKeys());
+    }
+
+    /**
+     * Audit BY M1: an import restricted to the caller's sections refuses a payload touching another section (settings
+     * or sealed secrets) as a whole.
+     */
+    public function testImportRestrictedToAllowedSections(): void
+    {
+        $this->settings->save('mailer', ['dsn' => 'smtp://REDACTED-TEST']);
+        $portability                           = $this->portability();
+        $payload                               = $portability->export(null, true);
+        $payload['settings']['mailer']['from'] = 'attacker@evil.test';
+
+        foreach ([$payload, ['schema' => 'nowo-instance-settings', 'version' => 1, 'secrets' => $payload['secrets']]] as $candidate) {
+            try {
+                $portability->import($candidate, false, ['general']);
+                self::fail('Expected forbidden_section');
+            } catch (PortabilityException $e) {
+                self::assertSame('forbidden_section:mailer', $e->getMessage());
+            }
+        }
+        self::assertSame('noreply@example.test', $this->settings->get('mailer.from'));
+
+        unset($payload['settings']['mailer'], $payload['secrets']);
+        self::assertContains('general.page_size', $portability->import($payload, true, ['general'])->changedKeys());
+        self::assertSame(['appearance'], $portability->providerNames());
+    }
+
+    /**
+     * Audit BY L2: a sealed value only imports into the field (and schema) it was sealed for.
+     */
+    public function testSealedSecretCannotMoveToAnotherField(): void
+    {
+        $section = new class extends MailerFixtureSection {
+            public function getFields(): iterable
+            {
+                yield SettingField::secret('dsn');
+                yield SettingField::secret('token');
+            }
+        };
+        $registry    = new SettingsSectionRegistry([$section]);
+        $settings    = new InstanceSettings($this->repository, $registry);
+        $portability = new ConfigPortability($registry, $settings, $this->repository, SealerFactory::create());
+        $settings->save('mailer', ['dsn' => 'smtp://REDACTED-TEST']);
+        $sealed = $portability->export(null, true)['secrets']['values']['mailer']['dsn'];
+
+        $this->expectExceptionMessage('secret_context_mismatch:mailer.token');
+        $portability->import(['schema' => 'nowo-instance-settings', 'version' => 1, 'secrets' => ['sealed' => true, 'values' => ['mailer' => ['token' => $sealed]]]]);
+    }
+
+    /**
+     * Audit BY L3: provider exports are filtered too; the whole export is refused.
+     */
+    public function testProviderExportWithCredentialKeyIsRefused(): void
+    {
+        $this->provider->data = ['color' => '#112233', 'nested' => ['smtpPassword' => 'REDACTED-EXPORTED']];
+
+        $this->expectExceptionMessage('forbidden_key:appearance.nested.smtpPassword');
+        $this->portability()->export();
+    }
+
+    /**
+     * Audit BY I4 / I7: non-finite floats are refused; a secret "0" round-trips.
+     */
+    public function testNonFiniteFloatAndZeroSecret(): void
+    {
+        $portability = $this->portability();
+        $payload     = (new JsonUploadReader())->fromString('{"schema":"nowo-instance-settings","version":1,"settings":{"general":{"ratio":1e999}}}');
+
+        try {
+            $portability->import($payload);
+            self::fail('Expected invalid_value');
+        } catch (PortabilityException $e) {
+            self::assertSame('invalid_value:general.ratio', $e->getMessage());
+        }
+
+        $this->settings->save('mailer', ['dsn' => '0']);
+        self::assertSame('0', $this->settings->getSecret('mailer.dsn'));
+        $export = $portability->export(['mailer'], true);
+        $this->settings->save('mailer', ['dsn' => null]);
+        $portability->import($export);
+        self::assertSame('0', $this->settings->getSecret('mailer.dsn'));
     }
 
     private function registry(): SettingsSectionRegistry

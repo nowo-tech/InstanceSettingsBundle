@@ -15,6 +15,7 @@ Bundle-specific security analysis. The short GitHub reporting policy lives in [`
 - [Dependencies and updates](#dependencies-and-updates)
 - [Release security checklist (12.4.1)](#release-security-checklist-1241)
 - [AI security audit (REQ-SEC-004)](#ai-security-audit-req-sec-004)
+- [Residual risks and host guidance](#residual-risks-and-host-guidance)
 - [Reporting a vulnerability](#reporting-a-vulnerability)
 
 ## Scope
@@ -40,16 +41,17 @@ own cryptography and key storage, or what consumers do with a setting value.
 
 | Threat | Mitigation |
 | --- | --- |
-| **Unauthorized access to settings / secrets** | UI private by default (`ROLE_ADMIN`); empty role lists are refused at compile time and deny at runtime (pattern P1); per-area roles (`security.area_roles`) for sensitive sections and for import / export; a listener guards every request under the prefix **and** every bundle controller wherever it is mounted (other prefix, sub-request); every action re-checks its area. The token is trusted only when a firewall matched the main request (no stale worker token). Anonymous users inside a firewall get the entry point (401 / login). |
+| **Unauthorized access to settings / secrets** | UI private by default (`ROLE_ADMIN`); empty role lists are refused at compile time and deny at runtime (pattern P1); per-area roles (`security.area_roles`) for sensitive sections and for import / export — when sections are restricted, `_portability` must be set explicitly (compile error otherwise), and the web export / import only covers the sections the user may open (an import touching another section is refused as a whole; the CLI keeps full operator access); a listener guards every request under the prefix **and** every bundle controller wherever it is mounted (other prefix, sub-request); every action re-checks its area. The token is trusted only when a firewall matched the main request (no stale worker token). Anonymous users inside a firewall get the entry point (401 / login). |
 | **CSRF** on saves, export, import | Every mutation is a Symfony Form with CSRF (`nowo_instance_settings_section_<name>`, `…_export`, `…_import`); the container refuses to compile the UI without form CSRF or a token manager (pattern P2). Export is a POST (it can contain sealed secrets). |
 | **Secret disclosure in HTML** | The section form never receives a stored secret (only "stored: yes / no"); the secret input is a password field rendered empty; secrets are refused by `get()`, `getSection()` and the Twig function. Contract and functional tests assert a stored secret never appears in the page. |
-| **Secret disclosure at rest** | `#[Encrypted]` column through DoctrineEncryptBundle (default profile); the container refuses to compile without DoctrineEncrypt (secrets would be stored in clear). |
-| **Secret disclosure in exports** | Secrets are exported only on request (`include_secrets` / `--include-secrets`, gated by `portability.sealed_secrets` and the `_portability` area) and only **sealed** with the instance key (`enc:v1:`); an import from another instance fails closed (`failed_unseal_secret`). Plain fields cannot carry secrets: secret fields are refused under `settings`, and credential-shaped keys (`password`, `secret`, `dsn`, `token`, `*_password`, `*_secret`, `*_token`, `*_key`, `*_dsn` with string / structure values) are refused in provider data. CLI export files are written with mode `0600`; export responses are `private, no-store`. |
-| **Malicious import** (type confusion, mass assignment, weakening flags) | Strict envelope (known top-level keys, schema, version), known sections / fields only, `notPortable()` fields refused, every value normalized and validated with the field type and constraints, provider `validate()` before anything is written, single transaction; a refused file changes nothing and the error names the key, never the value. Hosts mark security-sensitive toggles `notPortable()`. |
+| **Secret disclosure at rest** | `#[Encrypted]` column through DoctrineEncryptBundle (default profile); the container refuses to compile without DoctrineEncrypt (secrets would be stored in clear). Every stored secret carries a terminator, so its plaintext never ends with DoctrineEncrypt's `<ENC>` marker (which would skip encryption) and is never `''` / `'0'`; a loaded value without the terminator (not decrypted: wrong or lost key) counts as no secret instead of handing ciphertext to consumers. |
+| **Secret disclosure in exports** | Secrets are exported only on request (`include_secrets` / `--include-secrets`, gated by `portability.sealed_secrets` and the `_portability` area) and only **sealed** with the instance key (`enc:v2:`), each value bound to its schema and `<section>.<field>` (a sealed value moved to another field or application is refused: `secret_context_mismatch`); an import from another instance fails closed (`failed_unseal_secret`). Plain fields cannot carry secrets: secret fields are refused under `settings`, and credential-shaped keys are refused in provider data on import **and** export (keys normalised — camelCase, `-`, `.` — and matched on words such as password, passwd, passphrase, secret, token, bearer, credential, apikey, privatekey, signature, or parts such as pwd, pass, key, dsn, auth). CLI export files are written in a private 0700 directory, set to `0600` and renamed into place (no world-readable window, symbolic links refused, existing files only with `--force`); export responses are `private, no-store`. |
+| **Malicious import** (type confusion, mass assignment, weakening flags) | Strict envelope (known top-level keys, schema, version), known sections / fields only, sections the user may not open refused, `notPortable()` fields refused, every value normalized and validated with the field type and constraints (non-finite floats such as `1e999` refused), provider `validate()` before anything is written, single transaction; a refused file changes nothing and the error names the key, never the value. Hosts mark security-sensitive toggles `notPortable()`. |
 | **Oversized / malformed upload** | `File` constraint (`max_upload_bytes`, JSON / text MIME) plus a reader that stops at `max + 1` bytes, `json_decode` depth 64, root must be an object. |
 | **Injection** | Doctrine ORM with bound parameters only; no SQL / DQL concatenation with input; JSON responses encoded with `JSON_THROW_ON_ERROR`. |
 | **Accidental route exposure** | The controller is not autoconfigured, so `routing.controllers` never loads it; routes come only from the `nowo_instance_settings` loader import (REQ-SF-004 rule 7, integration test). |
-| **Demo configuration in production** | `security.allow_unauthenticated: true` is refused unless `kernel.debug` is true. |
+| **Demo configuration in production** | `security.allow_unauthenticated: true` is refused unless `kernel.debug` is true. The demo publishes its port on `127.0.0.1` only. |
+| **`security: false` firewall on the prefix** | No token is trusted; the bundle answers a plain 403 (a Security exception is used only inside an enabled firewall, where it becomes the entry point). |
 | **Cross-request state leaks (FrankenPHP worker)** | The settings memo is bound to the main request (`WeakReference`) and cleared by `kernel.reset` and after saves; other services are stateless. See [FRANKENPHP-WORKER-AUDIT.md](FRANKENPHP-WORKER-AUDIT.md). |
 | **XSS** | Twig auto-escaping; labels come from translation catalogues; no `|raw`. |
 
@@ -58,16 +60,18 @@ own cryptography and key storage, or what consumers do with a setting value.
 The admin UI edits instance-wide behaviour and secrets: keep it behind the firewall (`access_control` on
 `web_ui.path_prefix`) **and** the bundle checker. `security.allow_unauthenticated: true` is a demo / local switch only;
 the container refuses it without `kernel.debug`, but never set it in a shared or staging environment either. Restrict
-the import / export page (`security.area_roles._portability`) to the people allowed to read every secret: a sealed
-export plus the instance key reveals them.
+the import / export page (`security.area_roles._portability`); its web export / import covers only the sections the
+user may open, but a sealed export plus the instance key reveals the secrets of those sections.
 
 ## Secrets and cryptography
 
 - Encryption at rest and sealing use DoctrineEncryptBundle (Halite by default). Keep the key out of the repository
   (`secret_key_env_var` or a key file under `var/` with mode `0600`; DoctrineEncrypt hardens key file permissions).
   Rotate with `doctrine:encrypt:rotate-keys`.
-- Sealed values: `enc:v1:` + base64 of the DoctrineEncrypt ciphertext; unsealing refuses values without the marker
-  and any decryption failure (no plaintext pass-through).
+- Sealed values: `enc:v2:` + base64 of the DoctrineEncrypt ciphertext of `<schema>|<section>.<field>\n<plaintext>`;
+  unsealing refuses values without the marker, any decryption failure, a "decryption" that returns its input (no
+  plaintext pass-through) and a context mismatch. Use an authenticated profile (Halite or Defuse) for the default
+  DoctrineEncrypt profile; the deprecated MysqlAes (AES-ECB) is not suitable for portable secrets.
 - Fixtures and the demo use obvious placeholders (`REDACTED-TEST`, `REDACTED-DEMO`).
 
 ## Logging
@@ -113,8 +117,30 @@ fail-closed container check, no `csrf_protection: false` on bundle forms. The CL
 
 ## AI security audit (REQ-SEC-004)
 
-Not yet audited. The first release (1.0.0) is blocked until an independent AI security audit records a passing grade
-in the monorepo `BUNDLES_SECURITY_ANALYSIS.md`.
+| Date | Revision | Auditor | Grade | Findings |
+| --- | --- | --- | --- | --- |
+| 2026-10-31 | `94a1569` (PR #1) | Independent AI audit, Appendix BY | **Pass (conditional) / Medium** | M1 portability bypassed per-section `area_roles`; L1 secrets ending with `<ENC>` stored in clear; L2 sealed values not bound to their field; L3 credential-key filter bypassable and export unfiltered; L4 CLI export file briefly world-readable / symlinks followed; Info I1–I8 |
+| 2026-10-31 | branch `fix/by-audit` | Fixes of M1, L1–L4, I3, I4, I7, I8; I1, I2, I5, I6 documented below | Re-audit pending (expected Pass (good) / Low) | — |
+
+Recorded in the monorepo `BUNDLES_SECURITY_ANALYSIS.md` (Appendix BY). The first release (1.0.0) is tagged only after
+the re-audit confirms the fixes.
+
+## Residual risks and host guidance
+
+- **I1 — endpoint retargeting.** Whoever may edit a section can change its plain endpoint fields (host, base URL,
+  webhook) and have the stored secret of the same section sent there without reading it. Put an endpoint and its
+  credential in one secret field (as a mailer DSN does), or restrict such sections with `area_roles` and mark endpoint
+  fields `notPortable()`, or clear the secret when its endpoint changes (`SettingsChangedEvent`).
+- **I2 — debug switch.** `allow_unauthenticated` is refused unless `kernel.debug`; `APP_ENV=prod` with `APP_DEBUG=1`
+  is still accepted — never run production with debug on.
+- **I5 — memo outside HTTP.** CLI commands and Messenger messages keep the values (and decrypted secrets) read at their
+  start until `kernel.reset` (between messages) or the end of the command.
+- **I6 — section names.** An unknown section answers 404, a known but denied one 403; only users who already pass the UI
+  gate see the difference.
+- **DoctrineEncrypt.** A missing key file makes Halite / Defuse generate a new key silently; stored secrets then read
+  as "not set" (terminator check) and sealed imports fail closed. Keep the key in a persistent, backed-up location.
+- **Demo tooling.** The Playwright screenshot converter (`sharp`, dev only, not shipped) may carry upstream image-library
+  advisories; it never processes untrusted images.
 
 ## Reporting a vulnerability
 

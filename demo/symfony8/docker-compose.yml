@@ -8,7 +8,8 @@ services:
     working_dir: /app
     restart: unless-stopped
     ports:
-      - "${PORT:-8079}:80"
+      # Loopback only: the demo opens the settings UI without login (security audit I8).
+      - "127.0.0.1:${PORT:-8079}:80"
     volumes:
       - .:/app
       - ../..:/var/instance-settings-bundle

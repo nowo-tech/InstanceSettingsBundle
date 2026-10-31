@@ -18,7 +18,7 @@ use function is_string;
  * ```json
  * {"schema": "nowo-instance-settings", "version": 1, "exported_at": "2026-10-31T10:00:00+00:00",
  *  "settings": {"<section>": {"<field>": value}},
- *  "secrets": {"sealed": true, "algorithm": "doctrine_encrypt:default", "values": {"<section>": {"<field>": "enc:v1:…"}}},
+ *  "secrets": {"sealed": true, "algorithm": "doctrine_encrypt:default", "values": {"<section>": {"<field>": "enc:v2:…"}}},
  *  "providers": {"<name>": {…}}}
  * ```
  */

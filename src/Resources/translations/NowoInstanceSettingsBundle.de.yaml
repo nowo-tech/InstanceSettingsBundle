@@ -52,3 +52,5 @@ portability:
     forbidden_key: 'Zugangsdatenähnlicher Schlüssel abgelehnt: %key%.'
     export_failed: Der Export ist fehlgeschlagen.
     seal_failed: Ein Geheimnis konnte nicht versiegelt werden.
+    forbidden_section: 'Sie dürfen diesen Bereich nicht ändern: %key%.'
+    secret_context_mismatch: 'Das versiegelte Geheimnis gehört zu einem anderen Feld oder einer anderen Anwendung: %key%.'

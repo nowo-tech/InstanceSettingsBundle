@@ -135,7 +135,7 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             throw new LogicException(sprintf('Instance setting "%s" is not a secret: read it with get().', $key));
         }
 
-        $secret = ($this->rows()[$section][$name] ?? null)?->getSecretValue();
+        $secret = ($this->rows()[$section][$name] ?? null)?->getSecret();
 
         return $secret === null || $secret === '' ? null : $secret;
     }
@@ -218,7 +218,7 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             }
 
             if ($field->secret) {
-                if ($row !== null && $row->getSecretValue() === $value) {
+                if ($row !== null && $row->getSecret() === $value) {
                     continue;
                 }
                 $save[] = ($row ?? new SettingValue($section, $name, $now))->storeSecret((string) $value, $now);

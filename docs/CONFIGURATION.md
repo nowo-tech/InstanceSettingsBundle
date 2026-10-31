@@ -111,7 +111,7 @@ Bundle pages add no CSS / JS of their own; host assets stack with `{{ parent() }
 | Key | Default | Description |
 | --- | --- | --- |
 | `access_roles` | `[ROLE_ADMIN]` | The user must hold **any** of these roles to open the UI. An empty list is refused at compile time (it would deny everybody) unless `access_checker` is set or `allow_unauthenticated` is true. |
-| `area_roles` | `{}` | Map `<area> => [roles]` that **replaces** `access_roles` for one area: a section name (`mailer: [ROLE_SUPER_ADMIN]`) or `_portability` (the import / export page, which can download sealed secrets). Lists must not be empty. Sections the user cannot open are not shown as tabs. |
+| `area_roles` | `{}` | Map `<area> => [roles]` that **replaces** `access_roles` for one area: a section name (`mailer: [ROLE_SUPER_ADMIN]`) or `_portability` (the import / export page, which can download sealed secrets). Lists must not be empty. Sections the user cannot open are not shown as tabs and are left out of (and refused in) the user's web export / import. When any section is listed, **`_portability` must be listed too** (compile error otherwise) unless `portability.web_ui: false` or a custom `access_checker` is used. |
 | `access_checker` | `null` | Service id implementing `InstanceSettingsAccessCheckerInterface` (`canAccess(?object $user, ?string $area): bool`; `$area` null = the UI itself). Replaces the role checker. |
 | `allow_unauthenticated` | `false` | **DEV / DEMO only.** Opens the UI without login; the container refuses it unless `kernel.debug` is true. |
 
@@ -184,4 +184,5 @@ The container refuses to compile when:
 - the UI is enabled without form CSRF (`framework.csrf_protection`, `framework.form.csrf_protection`, `symfony/security-csrf`);
 - `security.allow_unauthenticated` is true without `kernel.debug`;
 - `security.access_roles` (or an `area_roles` list) is empty without a custom checker;
+- `security.area_roles` restricts sections without an explicit `_portability` entry while the import / export page is on;
 - a security switch is an env placeholder instead of a literal boolean.
