@@ -48,6 +48,8 @@ use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 use function array_key_exists;
+use function array_keys;
+use function in_array;
 use function is_array;
 use function is_bool;
 use function is_string;
@@ -106,6 +108,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         if ($webUi && !$config['security']['allow_unauthenticated'] && !$this->hasSecurityBundle($container)) {
             throw new LogicException('NowoInstanceSettingsBundle: the admin UI requires symfony/security-bundle (or security.allow_unauthenticated: true in dev / demo only).');
         }
+
+        $this->assertPortabilityArea($config);
 
         $container->setParameter('nowo_instance_settings.doctrine.table_prefix', $config['doctrine']['table_prefix']);
         $container->setParameter('nowo_instance_settings.web_ui.enabled', $webUi);
@@ -246,6 +250,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $security['allow_unauthenticated'],
             new Reference('security.token_storage', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('security.firewall.map', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]));
     }
 
@@ -325,6 +330,25 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->prependExtensionConfig('nowo_form_kit', [
             'profiles' => [NowoInstanceSettingsBundle::FORM_KIT_PROFILE => self::formKitProfile()],
         ]);
+    }
+
+    /**
+     * Per-section `area_roles` without an explicit `_portability` list would let every `access_roles` user open the
+     * import / export page; the web export / import is area-aware anyway, but the page must be an explicit decision.
+     *
+     * @param array{web_ui: array{enabled: bool}, security: array{area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool}} $config
+     */
+    private function assertPortabilityArea(array $config): void
+    {
+        $security = $config['security'];
+        if (!$config['web_ui']['enabled'] || !$config['portability']['web_ui'] || $security['allow_unauthenticated'] || (is_string($security['access_checker']) && $security['access_checker'] !== '')) {
+            return;
+        }
+
+        $areas = array_keys($security['area_roles']);
+        if ($areas !== [] && !in_array(InstanceSettingsAccessCheckerInterface::AREA_PORTABILITY, $areas, true)) {
+            throw new InvalidConfigurationException('nowo_instance_settings.security.area_roles restricts sections but has no "_portability" entry: set security.area_roles._portability explicitly (the roles allowed to open the import / export page, including sealed secrets of the sections they may open), or set portability.web_ui: false.');
+        }
     }
 
     /**

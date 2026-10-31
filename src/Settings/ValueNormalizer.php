@@ -13,6 +13,8 @@ use Symfony\Component\Validator\Validator\ValidatorInterface;
 
 use function array_values;
 use function filter_var;
+use function is_finite;
+use function is_float;
 use function is_int;
 use function is_numeric;
 use function is_string;
@@ -54,6 +56,9 @@ final readonly class ValueNormalizer
 
         if (!SettingField::matchesType($field->type, $value, $field->choices)) {
             return [null, [$field->type === SettingType::Choice ? 'The value is not one of the allowed choices.' : 'This value is not a valid ' . $field->type->value . '.']];
+        }
+        if (is_float($value) && !is_finite($value)) {
+            return [null, ['This value is not a finite number.']];
         }
         if ($field->type === SettingType::Url && preg_match('#^https?://#i', (string) $value) !== 1) {
             return [null, ['This value is not a valid http(s) URL.']];

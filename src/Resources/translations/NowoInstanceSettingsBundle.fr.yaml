@@ -52,3 +52,5 @@ portability:
     forbidden_key: 'Clé ressemblant à un identifiant refusée : %key%.'
     export_failed: L'export a échoué.
     seal_failed: Un secret n'a pas pu être scellé.
+    forbidden_section: 'Vous ne pouvez pas modifier cette section : %key%.'
+    secret_context_mismatch: 'Le secret scellé appartient à un autre champ ou à une autre application : %key%.'

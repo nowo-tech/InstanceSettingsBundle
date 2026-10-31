@@ -242,7 +242,7 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 - Stored in `instance_setting_value.secret_value`, an `#[Encrypted]` column: DoctrineEncryptBundle encrypts it on flush and decrypts it on load with its **default profile** (Halite by default). The bundle refuses to compile when `NowoDoctrineEncryptBundle` is not registered.
 - Key rotation and bulk encryption use the DoctrineEncrypt commands (`doctrine:encrypt:rotate-keys`, `doctrine:encrypt:status`); the settings table is covered like any `#[Encrypted]` entity.
 - The admin form never receives the secret: it only knows whether one is stored ("Saved: ••••. Leave blank to keep it."), a blank field keeps it, the "Remove the saved value" checkbox clears it.
-- Exports contain secrets only on request and only **sealed** (`enc:v1:<base64>` of the DoctrineEncrypt ciphertext): an instance holding the same key imports them, any other instance refuses the file (`failed_unseal_secret`). Set `portability.sealed_secrets: false` to keep secrets on the instance.
+- Exports contain secrets only on request and only **sealed** (`enc:v2:<base64>` of the DoctrineEncrypt ciphertext of the value bound to `<schema>|<section>.<field>`): an instance holding the same key imports them into the same field, any other instance refuses the file (`failed_unseal_secret`) and a value moved to another field is refused (`secret_context_mismatch`). Set `portability.sealed_secrets: false` to keep secrets on the instance.
 
 ## Export and import (config portability)
 
@@ -254,13 +254,13 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
     "version": 1,
     "exported_at": "2026-10-31T10:00:00+00:00",
     "settings": {"site": {"name": "Acme Ops", "page_size": 25}, "mailer": {"from": "ops@example.test"}},
-    "secrets": {"sealed": true, "algorithm": "doctrine_encrypt:default", "values": {"mailer": {"dsn": "enc:v1:…"}}},
+    "secrets": {"sealed": true, "algorithm": "doctrine_encrypt:default", "values": {"mailer": {"dsn": "enc:v2:…"}}},
     "providers": {"appearance": {"accent": "#0d6efd"}}
 }
 ```
 
-- **Export**: the effective value (stored or default) of every portable plain field, the providers' data, and — only when asked — the stored secrets, sealed. Non-portable fields are left out.
-- **Import**: the file is read with a size cap (`portability.max_upload_bytes`), then validated **as a whole** — schema (`portability.schema`), version, known top-level keys, known sections and fields, portable fields only, secrets only under `secrets` and only sealed with this instance key, value types and constraints, credential-shaped keys refused in provider data (`password`, `secret`, `dsn`, `token`, `*_password`, `*_secret`, `*_token`, `*_key`, `*_dsn` holding strings), provider validation. Then everything is applied in **one transaction**. A refused file changes nothing; the error names the key (`invalid_value:site.page_size`), never the value.
+- **Export**: the effective value (stored or default) of every portable plain field, the providers' data, and — only when asked — the stored secrets, sealed. Non-portable fields are left out. From the admin page, only the sections the user may open are exported (CLI: everything); a provider whose data contains a credential-shaped key makes the export fail (`forbidden_key`).
+- **Import**: the file is read with a size cap (`portability.max_upload_bytes`), then validated **as a whole** — schema (`portability.schema`), version, known top-level keys, known sections and fields, from the admin page only sections the user may open (`forbidden_section`), portable fields only, secrets only under `secrets` and only sealed with this instance key, value types and constraints, credential-shaped keys refused in provider data (keys normalised from camelCase / `-` / `.`; words such as password, passphrase, secret, token, bearer, credential, apikey, privatekey, signature anywhere, or parts such as pwd, pass, key, dsn, auth, holding strings or structures), provider validation. Then everything is applied in **one transaction**. A refused file changes nothing; the error names the key (`invalid_value:site.page_size`), never the value.
 - **Dry run** (checkbox / `--dry-run`): validation only, lists the keys that would be applied.
 
 ### CLI
@@ -268,12 +268,13 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 ```bash
 php bin/console nowo:instance-settings:export                                  # stdout
 php bin/console nowo:instance-settings:export -s site -s mailer -o var/site.json
-php bin/console nowo:instance-settings:export --include-secrets -o var/full.json   # sealed; file mode 0600
+php bin/console nowo:instance-settings:export --include-secrets -o var/full.json   # sealed; new file, mode 0600
+php bin/console nowo:instance-settings:export -o var/full.json --force           # replace an existing regular file (never a symlink)
 php bin/console nowo:instance-settings:import var/full.json --dry-run
 php bin/console nowo:instance-settings:import var/full.json
 ```
 
-Both commands exit non-zero with the reason code on a refusal.
+Both commands exit non-zero with the reason code on a refusal. The CLI is an operator tool: it is not restricted by `area_roles`.
 
 ### Portability providers
 

@@ -35,7 +35,7 @@ final class InstanceSettingsTestKernel extends Kernel
     /**
      * @param Closure(ContainerConfigurator): void $services extension configs and services
      * @param Closure(RoutingConfigurator): void $routes routes
-     * @param list<string> $without bundle short names to leave out (security, doctrine_encrypt)
+     * @param list<string> $without bundle short names to leave out (security, doctrine_encrypt; security_off = a `security: false` firewall)
      */
     public function __construct(
         private readonly string $id,
@@ -119,7 +119,9 @@ final class InstanceSettingsTestKernel extends Kernel
                     'super'  => ['password' => 'super', 'roles' => ['ROLE_ADMIN', 'ROLE_SUPER_ADMIN']],
                     'viewer' => ['password' => 'viewer', 'roles' => ['ROLE_USER']],
                 ]]]],
-                'firewalls' => ['main' => ['lazy' => true, 'http_basic' => true]],
+                'firewalls' => in_array('security_off', $this->without, true)
+                    ? ['main' => ['security' => false]]
+                    : ['main' => ['lazy' => true, 'http_basic' => true]],
             ]);
         }
         $container->services()->set('logger', NullLogger::class);

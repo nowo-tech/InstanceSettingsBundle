@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Security;
 
+use Symfony\Bundle\SecurityBundle\Security\FirewallMap;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -28,6 +29,7 @@ final readonly class AccessGuard
         private bool $allowUnauthenticated = false,
         private ?TokenStorageInterface $tokenStorage = null,
         private ?RequestStack $requestStack = null,
+        private ?FirewallMap $firewallMap = null,
     ) {
     }
 
@@ -59,16 +61,17 @@ final readonly class AccessGuard
     }
 
     /**
-     * Denies the current request: inside a firewall a Security {@see AccessDeniedException} (the firewall turns it into
-     * its entry point for anonymous users — 401 / login redirect — and 403 otherwise), else a plain 403.
+     * Denies the current request: inside an enabled firewall a Security {@see AccessDeniedException} (the firewall turns
+     * it into its entry point for anonymous users — 401 / login redirect — and 403 otherwise), else a plain 403.
      */
     public function deny(string $message): never
     {
         $mainRequest = $this->requestStack?->getMainRequest();
-        if ($mainRequest instanceof Request && $mainRequest->attributes->has('_firewall_context')) {
+        if ($mainRequest instanceof Request && $mainRequest->attributes->has('_firewall_context') && $this->firewallMap?->getFirewallConfig($mainRequest)?->isSecurityEnabled() === true) {
             throw new AccessDeniedException($message);
         }
 
+        // No firewall, or a `security: false` one (no exception listener to translate a Security exception): plain 403.
         throw new AccessDeniedHttpException($message);
     }
 }

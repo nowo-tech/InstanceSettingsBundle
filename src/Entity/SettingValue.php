@@ -8,6 +8,10 @@ use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;
 use Nowo\DoctrineEncryptBundle\Configuration\Encrypted;
 
+use function str_ends_with;
+use function strlen;
+use function substr;
+
 /**
  * One stored instance setting: `(section, name)` with either a plain JSON value or an encrypted secret.
  *
@@ -23,6 +27,14 @@ class SettingValue
     /** Base table name (before `doctrine.table_prefix`). */
     public const TABLE = 'instance_setting_value';
 
+    /**
+     * Terminator appended to every stored secret before encryption. The stored plaintext therefore never ends with
+     * DoctrineEncrypt's `<ENC>` marker (which would make the subscriber skip encryption) and is never `''` / `'0'`
+     * (which EncryptUtil leaves unencrypted); a loaded value without it was not decrypted (wrong / lost key) and is
+     * treated as no secret.
+     */
+    public const SECRET_TERMINATOR = '|';
+
     /** Base name of the `(section, name)` unique index (before `doctrine.table_prefix`). */
     public const UNIQUE_INDEX = 'uniq_instance_setting_value_section_name';
 
@@ -36,7 +48,7 @@ class SettingValue
     #[ORM\Column(name: 'value', type: 'json', nullable: true)]
     private bool|float|int|string|null $value = null;
 
-    /** Secret value, encrypted at rest; null for plain settings. */
+    /** Secret value + {@see self::SECRET_TERMINATOR}, encrypted at rest; null for plain settings. */
     #[ORM\Column(name: 'secret_value', type: 'text', nullable: true)]
     #[Encrypted]
     private ?string $secretValue = null;
@@ -101,7 +113,24 @@ class SettingValue
     }
 
     /**
-     * Decrypted secret (null for plain settings).
+     * Decrypted secret without its terminator; null for plain settings and for a value that was not decrypted
+     * (missing terminator: wrong or lost encryption key).
+     */
+    public function getSecret(): ?string
+    {
+        $raw = $this->secretValue;
+        if ($raw === null || !str_ends_with($raw, self::SECRET_TERMINATOR)) {
+            return null;
+        }
+
+        return substr($raw, 0, -strlen(self::SECRET_TERMINATOR));
+    }
+
+    /**
+     * Low-level accessor of the encrypted column (read by DoctrineEncryptBundle through PropertyAccess): the stored
+     * form, terminator included. Application code uses {@see self::getSecret()}.
+     *
+     * @internal
      */
     public function getSecretValue(): ?string
     {
@@ -137,7 +166,7 @@ class SettingValue
     public function storeSecret(string $secret, DateTimeImmutable $at): self
     {
         // @igor-ignore - Doctrine entity field; instance-scoped, not a shared service.
-        $this->secretValue = $secret;
+        $this->secretValue = $secret . self::SECRET_TERMINATOR;
         // @igor-ignore - Doctrine entity field; instance-scoped, not a shared service.
         $this->value = null;
         // @igor-ignore - Doctrine entity field; instance-scoped, not a shared service.

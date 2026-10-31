@@ -30,7 +30,28 @@ First release candidate (1.0.0): instance settings extracted and generalised fro
 - **Config portability**: versioned JSON envelope (`schema` configurable, `version`, `exported_at`, `settings`,
   sealed `secrets`, `providers`), `PortabilityProviderInterface` (autoconfigured, tag
   `nowo_instance_settings.portability_provider`), `ConfigPortability` export / import (strict validation,
-  credential-shaped keys refused, dry run, single transaction), `DoctrineEncryptSecretSealer` (`enc:v1:`, fails closed
+  credential-shaped keys refused, dry run, single transaction), `DoctrineEncryptSecretSealer` (`enc:v2:`, context-bound, fails closed
   on another key), size-capped `JsonUploadReader`, CLI `nowo:instance-settings:export` / `nowo:instance-settings:import`.
+- `--force` option of `nowo:instance-settings:export` (replace an existing regular file).
 - Flex recipe, Symfony 8.1 FrankenPHP demo (MySQL, three sections, Playwright e2e + screenshots), docs, Spec Kit
   baseline, CI matrix PHP 8.2–8.5 × Symfony 7.4 / 8.1 with a 100 % coverage gate.
+
+### Security
+
+Fixes of the REQ-SEC-004 audit (Appendix BY, Pass (conditional) / Medium on `94a1569`):
+
+- **M1** The web export / import only covers the sections the user may open; an import touching another section is
+  refused as a whole (`forbidden_section`). `security.area_roles` restricting sections now requires an explicit
+  `_portability` entry (compile error) unless the import / export page is disabled or a custom checker is used. The CLI
+  keeps full access.
+- **L1 / I7** Stored secrets carry a terminator: a secret ending with DoctrineEncrypt's `<ENC>` marker, or equal to
+  `'0'`, is now encrypted and read back unchanged; a value that was not decrypted (wrong / lost key) reads as no secret.
+- **L2** Sealed secrets are `enc:v2:` and bound to the schema and `<section>.<field>`; a value moved to another field
+  or application is refused (`secret_context_mismatch`). (`enc:v1:` was never released.)
+- **L3** Credential-shaped keys are matched on normalised keys (camelCase, `-`, `.`) and credential words anywhere in
+  the key, on import and on provider **exports** (an export with such a key is refused).
+- **L4** CLI export files are created in a private directory, set to 0600 and renamed into place; symbolic links are
+  refused and an existing file is replaced only with `--force`.
+- **I3** A `security: false` firewall on the prefix gets a plain 403 instead of an unhandled Security exception.
+- **I4** Non-finite floats (`1e999`) are refused with a validation error instead of failing on flush.
+- **I8** The demo publishes its port on 127.0.0.1 only.

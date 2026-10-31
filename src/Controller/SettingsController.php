@@ -36,6 +36,7 @@ use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
 use function array_key_first;
+use function array_keys;
 use function count;
 use function date;
 use function json_encode;
@@ -168,7 +169,9 @@ final class SettingsController extends AbstractController
         $withSecrets = $form->has('include_secrets') && $form->get('include_secrets')->getData() === true;
 
         try {
-            $json = json_encode($this->portability->export(null, $withSecrets), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            // Area-aware: only the sections this user may open (plus the providers, part of the `_portability` area).
+            $only = [...array_keys($this->accessibleSections()), ...$this->portability->providerNames()];
+            $json = json_encode($this->portability->export($only, $withSecrets), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         } catch (PortabilityException|JsonException) {
             $this->addFlash('error', $this->trans('portability.error.export_failed'));
 
@@ -205,7 +208,11 @@ final class SettingsController extends AbstractController
         $dryRun = $form->get('dry_run')->getData() === true;
 
         try {
-            $result = $this->portability->import($this->reader->fromUploadedFile($file instanceof UploadedFile ? $file : null), $dryRun);
+            $result = $this->portability->import(
+                $this->reader->fromUploadedFile($file instanceof UploadedFile ? $file : null),
+                $dryRun,
+                array_keys($this->accessibleSections()),
+            );
         } catch (PortabilityException $e) {
             $this->addFlash('error', $this->trans('portability.error.' . $e->reason(), ['%key%' => $e->key() ?? '']));
 

@@ -50,10 +50,14 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $custom = $this->load(['security' => ['access_checker' => 'app.checker']], withSecurity: true);
         self::assertSame('app.checker', (string) $custom->getAlias(InstanceSettingsAccessCheckerInterface::class));
 
-        $areas = $this->load(['security' => ['area_roles' => ['mailer' => [' ROLE_SUPER_ADMIN ']]]], withSecurity: true);
-        self::assertSame(['mailer' => ['ROLE_SUPER_ADMIN']], $areas->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
+        $areas = $this->load(['security' => ['area_roles' => ['mailer' => [' ROLE_SUPER_ADMIN '], '_portability' => ['ROLE_ADMIN']]]], withSecurity: true);
+        self::assertSame(['mailer' => ['ROLE_SUPER_ADMIN'], '_portability' => ['ROLE_ADMIN']], $areas->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
 
-        $demo = $this->load(['security' => ['allow_unauthenticated' => true]]);
+        // Without an explicit _portability area: fine with a custom checker or without the import / export page.
+        $this->load(['security' => ['area_roles' => ['mailer' => ['ROLE_X']], 'access_checker' => 'app.checker']], withSecurity: true);
+        $this->load(['security' => ['area_roles' => ['mailer' => ['ROLE_X']]], 'web_ui' => ['enabled' => false]]);
+
+        $demo = $this->load(['security' => ['allow_unauthenticated' => true, 'area_roles' => ['mailer' => ['ROLE_X']]]]);
         self::assertSame(AllowAllInstanceSettingsAccessChecker::class, (string) $demo->getAlias(InstanceSettingsAccessCheckerInterface::class));
     }
 

@@ -17,7 +17,7 @@ final class AdminUiTest extends KernelTestCase
 {
     public function testAccess(): void
     {
-        $kernel = $this->bootKernel(['security' => ['area_roles' => ['mailer' => ['ROLE_SUPER_ADMIN']]]]);
+        $kernel = $this->bootKernel(['security' => ['area_roles' => ['mailer' => ['ROLE_SUPER_ADMIN'], '_portability' => ['ROLE_SUPER_ADMIN']]]]);
 
         $anonymous = $this->client($kernel, null);
         $anonymous->request('GET', '/admin/settings');
@@ -135,7 +135,7 @@ final class AdminUiTest extends KernelTestCase
         self::assertStringContainsString('attachment; filename=nowo-instance-settings-sealed-', (string) $response->headers->get('Content-Disposition'));
         self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
         $export = (string) $response->getContent();
-        self::assertStringContainsString('enc:v1:', $export);
+        self::assertStringContainsString('enc:v2:', $export);
         self::assertStringNotContainsString('REDACTED', $export);
 
         // Import a changed copy: dry run first, then apply.

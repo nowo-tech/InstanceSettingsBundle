@@ -52,3 +52,5 @@ portability:
     forbidden_key: 'Credential-like key refused: %key%.'
     export_failed: The export failed.
     seal_failed: A secret could not be sealed.
+    forbidden_section: 'You may not change this section: %key%.'
+    secret_context_mismatch: 'The sealed secret belongs to another field or application: %key%.'

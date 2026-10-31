@@ -15,15 +15,19 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Clock\NativeClock;
 
+use function array_intersect;
 use function array_key_exists;
 use function array_keys;
+use function explode;
 use function implode;
 use function in_array;
 use function is_array;
 use function is_string;
 use function preg_match;
+use function preg_replace;
 use function sprintf;
-use function str_ends_with;
+use function str_contains;
+use function str_replace;
 use function strtolower;
 
 /**
@@ -38,11 +42,14 @@ use function strtolower;
  */
 final readonly class ConfigPortability
 {
-    /** Keys refused anywhere in provider data (case-insensitive) when they hold a string or a structure. */
-    public const FORBIDDEN_KEYS = ['password', 'passwd', 'secret', 'client_secret', 'dsn', 'api_key', 'apikey', 'token', 'access_token', 'refresh_token', 'private_key'];
+    /**
+     * Credential words matched anywhere in a normalized key (camelCase split, `-` / `.` / spaces as `_`, lower case,
+     * underscores removed): `clientSecret`, `smtp-password`, `accessToken`, `x.api_key` all match.
+     */
+    public const CREDENTIAL_WORDS = ['password', 'passwd', 'passphrase', 'secret', 'token', 'bearer', 'credential', 'apikey', 'privatekey', 'authorization', 'cookie', 'signature'];
 
-    /** Suffixes of credential-shaped keys refused in provider data when they hold a string or a structure. */
-    public const FORBIDDEN_SUFFIXES = ['_password', '_secret', '_token', '_key', '_dsn'];
+    /** Short credential tokens matched as a whole `_`-separated part of the normalized key (`pwd`, `api_key`, `smtp_dsn`). */
+    public const CREDENTIAL_TOKENS = ['pwd', 'pass', 'key', 'dsn', 'auth', 'otp', 'pin', 'salt', 'session'];
 
     /** Allowed provider names. */
     private const PROVIDER_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
@@ -72,6 +79,16 @@ final readonly class ConfigPortability
     public function supportsSealedSecrets(): bool
     {
         return $this->allowSealedSecrets && $this->sealer instanceof SecretSealerInterface;
+    }
+
+    /**
+     * Names of the registered portability providers.
+     *
+     * @return list<string>
+     */
+    public function providerNames(): array
+    {
+        return array_keys($this->providers());
     }
 
     /**
@@ -125,7 +142,7 @@ final readonly class ConfigPortability
                 }
                 $secret = $this->settings->getSecret($section . '.' . $name);
                 if ($secret !== null) {
-                    $secrets[$section][$name] = $this->sealer->seal($secret);
+                    $secrets[$section][$name] = $this->sealer->seal($secret, $this->context($section, $name));
                 }
             }
         }
@@ -139,7 +156,10 @@ final readonly class ConfigPortability
         $exported = [];
         foreach ($providers as $name => $provider) {
             if ($only === null || in_array($name, $only, true)) {
-                $exported[$name] = $provider->export();
+                $data = $provider->export();
+                // Providers must never export secrets: refuse the whole export instead of leaking one.
+                $this->assertNoCredentials($data, $name);
+                $exported[$name] = $data;
             }
         }
         if ($exported !== []) {
@@ -159,15 +179,24 @@ final readonly class ConfigPortability
      * Validates the whole payload, then applies it in one transaction (or only validates when `$dryRun`).
      *
      * @param array<string, mixed> $payload decoded envelope
+     * @param list<string>|null $allowedSections sections the caller may write (null = every section, e.g. the CLI);
+     *                                           a payload touching another section is refused as a whole
      *
      * @throws PortabilityException with a reason code; nothing is written then
      */
-    public function import(array $payload, bool $dryRun = false): ImportResult
+    public function import(array $payload, bool $dryRun = false, ?array $allowedSections = null): ImportResult
     {
         PortabilityEnvelope::assertValid($payload, $this->schema);
 
-        $settings  = $this->validateSettings($payload['settings'] ?? []);
-        $secrets   = $this->validateSecrets($payload['secrets'] ?? null);
+        $settings = $this->validateSettings($payload['settings'] ?? []);
+        $secrets  = $this->validateSecrets($payload['secrets'] ?? null);
+        if ($allowedSections !== null) {
+            foreach ([...array_keys($settings), ...array_keys($secrets)] as $section) {
+                if (!in_array($section, $allowedSections, true)) {
+                    throw new PortabilityException('forbidden_section:' . $section);
+                }
+            }
+        }
         $providers = $this->validateProviders($payload['providers'] ?? []);
 
         if ($settings === [] && $secrets === [] && $providers === []) {
@@ -298,7 +327,7 @@ final readonly class ConfigPortability
                     throw new PortabilityException('invalid_sealed_secret:' . $key);
                 }
                 try {
-                    $plain = $this->sealer->unseal($sealed);
+                    $plain = $this->sealer->unseal($sealed, $this->context($section, $field->name));
                 } catch (PortabilityException $e) {
                     throw new PortabilityException($e->reason() . ':' . $key, $e);
                 }
@@ -360,21 +389,27 @@ final readonly class ConfigPortability
     }
 
     /**
-     * Whether a key name looks like a credential.
+     * Whether a key name looks like a credential (see {@see self::CREDENTIAL_WORDS} / {@see self::CREDENTIAL_TOKENS}).
      */
     public static function isCredentialKey(string $key): bool
     {
-        $key = strtolower($key);
-        if (in_array($key, self::FORBIDDEN_KEYS, true)) {
-            return true;
-        }
-        foreach (self::FORBIDDEN_SUFFIXES as $suffix) {
-            if (str_ends_with($key, $suffix)) {
+        $normalized = strtolower((string) preg_replace(['/([a-z0-9])([A-Z])/', '/[^A-Za-z0-9]+/'], ['$1_$2', '_'], $key));
+        $compact    = str_replace('_', '', $normalized);
+        foreach (self::CREDENTIAL_WORDS as $word) {
+            if (str_contains($compact, $word)) {
                 return true;
             }
         }
 
-        return false;
+        return array_intersect(explode('_', $normalized), self::CREDENTIAL_TOKENS) !== [];
+    }
+
+    /**
+     * Context a secret is sealed for: the export schema and its `<section>.<field>` key.
+     */
+    private function context(string $section, string $field): string
+    {
+        return $this->schema . '|' . $section . '.' . $field;
     }
 
     /**
