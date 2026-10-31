@@ -90,7 +90,7 @@ route exists; the `nowo_instance_settings` loader import mounts them under `web_
 
 - **FR-SEC-001**: `SettingField` (named constructors, `notPortable()`, `withFormOptions()`, `labelKey()`, `matchesType()`) validates name, secret type, secret default, choices and default type; `SettingType` lists the types and which are strings.
 - **FR-SEC-002**: `SettingsSectionRegistry` keeps sections in tag order, validates unique lower-snake-case section names and unique field names, resolves `<section>.<field>` keys and throws `UnknownSettingException` for unknown names.
-- **FR-SEC-003**: `AbstractSettingsSection` defaults (label `<name>.label`, domain `messages`, no intro, no icon); `SettingsSectionActionsInterface` adds UiKit actions after the submit button; `#[AsSettingsSection(priority)]`.
+- **FR-SEC-003**: `AbstractSettingsSection` defaults (label `<name>.label`, domain `messages`, no intro, no icon); `SettingsSectionActionsInterface::getActions(SectionActionContext)` adds UiKit actions after the submit button (context: section, request, user); `InstanceSettingsRoutes` publishes the route names; `#[AsSettingsSection(priority)]`.
 - **FR-STORE-001**: `InstanceSettings` returns stored values else defaults (stale types fall back to the default), typed getters throw `LogicException` on a type mismatch, `get()` refuses secrets and `getSecret()` refuses plain fields, `getSection()` omits secrets.
 - **FR-STORE-002**: Reads load every row in one query, memoized for the current main request (weak reference), reloaded for a new main request, cleared by `reset()` and after saves.
 - **FR-STORE-003**: `save()` validates all values (`ValueNormalizer`) before writing, throws `InvalidSettingValueException` (field => messages, no values), removes rows for null values (default again), writes only changes with one flush, logs names, dispatches `SettingsChangedEvent` (section, changed fields, secret fields, origin).
@@ -111,8 +111,8 @@ route exists; the `nowo_instance_settings` loader import mounts them under `web_
 
 - **FR-PORT-001**: `PortabilityEnvelope` header and validation (schema, version 1, known keys).
 - **FR-PORT-002**: `ConfigPortability::export()` (portable plain values, providers, optional sealed secrets, section filter, logging).
-- **FR-PORT-003**: `ConfigPortability::import()` (validate all — sections (optionally restricted to the caller's sections: `forbidden_section`), fields, secrets in clear, non-portable, values, sealed secrets, credential-shaped provider keys (normalised keys, words anywhere; also checked on provider exports), provider validation — then one transaction; dry run; `ImportResult`).
-- **FR-PORT-004**: `DoctrineEncryptSecretSealer` seals `<schema>|<section>.<field>\n<plaintext>` with `EncryptUtil` (`enc:v2:`) and fails closed on malformed, unmarked, pass-through, foreign-key or other-context values; `SecretSealerInterface`.
+- **FR-PORT-003**: `ConfigPortability::import()` (validate all — sections (optionally restricted to the caller's sections: `forbidden_section`, checked on the raw keys before any validation or unsealing), fields, secrets in clear, non-portable, values, sealed secrets, credential-shaped provider keys (normalised keys, words anywhere; also checked on provider exports), provider validation — then one transaction; dry run; `ImportResult`).
+- **FR-PORT-004**: `DoctrineEncryptSecretSealer` seals `<schema>|<section>.<field>\n<plaintext>` with `EncryptUtil` (`enc:v2:`) and fails closed on malformed, unmarked, pass-through, foreign-key or other-context values and refuses a MysqlAes profile; `SecretSealerInterface`.
 - **FR-PORT-005**: `JsonUploadReader` reads at most `max + 1` bytes from an upload or a path, depth 64, object root; `PortabilityException` reason codes with optional key.
 - **FR-PORT-006**: CLI `nowo:instance-settings:export` (sections, sealed secrets, output file created 0600 in a private directory and renamed into place, symlinks refused, `--force` to replace a regular file) and `nowo:instance-settings:import` (dry run), non-zero exit with the reason code.
 
@@ -124,7 +124,7 @@ route exists; the `nowo_instance_settings` loader import mounts them under `web_
 - **SC-002**: PHPStan level 8 with FrankenPHP rulesets, `ignoreErrors: []`, 0 errors; Igor 0 KO.
 - **SC-003**: `AdminUiTest` proves US-3…US-7 in a real kernel (SecurityBundle, Doctrine on SQLite, DoctrineEncrypt Halite); `RoutesOptInTest` proves US-8; `InvalidConfigurationTest` the fail-closed checks; `PageContractTest` the UiKit page contract.
 - **SC-004**: Demo Playwright e2e green (`make test-e2e`).
-- **SC-005**: Code inventory maps **57/57** files under `src/`.
+- **SC-005**: Code inventory maps **59/59** files under `src/`.
 
 ---
 

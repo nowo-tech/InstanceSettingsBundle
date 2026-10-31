@@ -100,26 +100,32 @@ final readonly class SettingField
 
     /**
      * E-mail address field.
+     *
+     * @param iterable<Constraint> $constraints
      */
-    public static function email(string $name, ?string $default = null, ?string $label = null, ?string $help = null, bool $required = false): self
+    public static function email(string $name, ?string $default = null, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = []): self
     {
-        return new self($name, SettingType::Email, $default, $label, $help, $required);
+        return new self($name, SettingType::Email, $default, $label, $help, $required, constraints: $constraints);
     }
 
     /**
      * Absolute http(s) URL field.
+     *
+     * @param iterable<Constraint> $constraints e.g. a host allow-list constraint
      */
-    public static function url(string $name, ?string $default = null, ?string $label = null, ?string $help = null, bool $required = false): self
+    public static function url(string $name, ?string $default = null, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = []): self
     {
-        return new self($name, SettingType::Url, $default, $label, $help, $required);
+        return new self($name, SettingType::Url, $default, $label, $help, $required, constraints: $constraints);
     }
 
     /**
      * Boolean switch (defaults to false).
+     *
+     * @param iterable<Constraint> $constraints
      */
-    public static function bool(string $name, bool $default = false, ?string $label = null, ?string $help = null): self
+    public static function bool(string $name, bool $default = false, ?string $label = null, ?string $help = null, iterable $constraints = []): self
     {
-        return new self($name, SettingType::Bool, $default, $label, $help);
+        return new self($name, SettingType::Bool, $default, $label, $help, constraints: $constraints);
     }
 
     /**
@@ -146,10 +152,11 @@ final readonly class SettingField
      * One-of field.
      *
      * @param array<string, int|string> $choices label translation key => value
+     * @param iterable<Constraint> $constraints
      */
-    public static function choice(string $name, array $choices, int|string|null $default = null, ?string $label = null, ?string $help = null, bool $required = false): self
+    public static function choice(string $name, array $choices, int|string|null $default = null, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = []): self
     {
-        return new self($name, SettingType::Choice, $default, $label, $help, $required, choices: $choices);
+        return new self($name, SettingType::Choice, $default, $label, $help, $required, constraints: $constraints, choices: $choices);
     }
 
     /**

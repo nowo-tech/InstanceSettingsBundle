@@ -4,7 +4,7 @@
 **Package**: `nowo-tech/instance-settings-bundle`  
 **Last audited**: 2026-10-31
 
-Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **57**.
+Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **59**.
 
 ## Bundle and dependency injection
 
@@ -27,6 +27,7 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 | `src/Section/SettingsSectionInterface.php` | Sections | FR-SEC-002, FR-SEC-003 |
 | `src/Section/AbstractSettingsSection.php` | Sections | FR-SEC-003 |
 | `src/Section/SettingsSectionActionsInterface.php` | Sections | FR-SEC-003, FR-UI-004 |
+| `src/Section/SectionActionContext.php` | Sections | FR-SEC-003 |
 | `src/Section/SettingField.php` | Sections | FR-SEC-001 |
 | `src/Section/SettingType.php` | Sections | FR-SEC-001 |
 | `src/Section/SettingsSectionRegistry.php` | Sections | FR-SEC-002 |
@@ -52,6 +53,7 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 | Source file | Spec section | Requirement IDs |
 | --- | --- | --- |
 | `src/Routing/InstanceSettingsRouteLoader.php` | Admin UI | FR-UI-001 |
+| `src/Routing/InstanceSettingsRoutes.php` | Admin UI | FR-UI-001, FR-SEC-003 |
 | `src/Controller/SettingsController.php` | Admin UI | FR-UI-002 |
 | `src/Form/SettingsSectionType.php` | Admin UI | FR-UI-003 |
 | `src/Form/PortabilityExportType.php` | Admin UI | FR-UI-003 |
@@ -90,5 +92,5 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 
 ## Totals
 
-- Mapped files: **57/57** (100%).
+- Mapped files: **59/59** (100%).
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

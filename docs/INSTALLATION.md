@@ -17,7 +17,7 @@
 - PHP `>=8.2 <8.6` (Symfony 8.x requires PHP 8.4+)
 - Symfony 7.4, 8.0 or 8.1: FrameworkBundle, Form, Validator, Security CSRF, TwigBundle, Console; **SecurityBundle** for the admin UI
 - Doctrine ORM 3.3+ with DoctrineBundle
-- `nowo-tech/doctrine-encrypt-bundle` ^2.9 (secret fields), `nowo-tech/ui-kit-bundle` ^2.17.3 and `nowo-tech/form-kit-bundle` ^2.17 (admin UI), `twig/extra-bundle` + `twig/string-extra` — all installed as dependencies
+- `nowo-tech/doctrine-encrypt-bundle` ^2.10 (secret fields), `nowo-tech/ui-kit-bundle` ^2.17.3 and `nowo-tech/form-kit-bundle` ^2.17 (admin UI), `twig/extra-bundle` + `twig/string-extra` — all installed as dependencies
 
 ## Install with Composer
 

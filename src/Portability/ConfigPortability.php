@@ -49,7 +49,7 @@ final readonly class ConfigPortability
     public const CREDENTIAL_WORDS = ['password', 'passwd', 'passphrase', 'secret', 'token', 'bearer', 'credential', 'apikey', 'privatekey', 'authorization', 'cookie', 'signature'];
 
     /** Short credential tokens matched as a whole `_`-separated part of the normalized key (`pwd`, `api_key`, `smtp_dsn`). */
-    public const CREDENTIAL_TOKENS = ['pwd', 'pass', 'key', 'dsn', 'auth', 'otp', 'pin', 'salt', 'session'];
+    public const CREDENTIAL_TOKENS = ['pwd', 'pass', 'key', 'dsn', 'auth', 'otp', 'pin', 'salt', 'session', 'jwt', 'mfa', 'seed', 'webhook'];
 
     /** Allowed provider names. */
     private const PROVIDER_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
@@ -187,16 +187,13 @@ final readonly class ConfigPortability
     public function import(array $payload, bool $dryRun = false, ?array $allowedSections = null): ImportResult
     {
         PortabilityEnvelope::assertValid($payload, $this->schema);
-
-        $settings = $this->validateSettings($payload['settings'] ?? []);
-        $secrets  = $this->validateSecrets($payload['secrets'] ?? null);
         if ($allowedSections !== null) {
-            foreach ([...array_keys($settings), ...array_keys($secrets)] as $section) {
-                if (!in_array($section, $allowedSections, true)) {
-                    throw new PortabilityException('forbidden_section:' . $section);
-                }
-            }
+            // Before any value validation or unsealing: a refused file reveals nothing about forbidden sections.
+            $this->assertAllowedSections($payload, [...$allowedSections, ...$this->providerNames()]);
         }
+
+        $settings  = $this->validateSettings($payload['settings'] ?? []);
+        $secrets   = $this->validateSecrets($payload['secrets'] ?? null);
         $providers = $this->validateProviders($payload['providers'] ?? []);
 
         if ($settings === [] && $secrets === [] && $providers === []) {
@@ -244,6 +241,25 @@ final readonly class ConfigPortability
         ]);
 
         return $result;
+    }
+
+    /**
+     * Refuses a payload whose `settings`, `secrets.values` or `providers` keys name a section / provider outside
+     * `$allowed`, looking at the raw keys only.
+     *
+     * @param array<string, mixed> $payload
+     * @param list<string> $allowed
+     */
+    private function assertAllowedSections(array $payload, array $allowed): void
+    {
+        $secrets = $payload['secrets'] ?? null;
+        foreach ([$payload['settings'] ?? null, is_array($secrets) ? $secrets['values'] ?? null : null, $payload['providers'] ?? null] as $block) {
+            foreach (is_array($block) ? array_keys($block) : [] as $name) {
+                if (!in_array((string) $name, $allowed, true)) {
+                    throw new PortabilityException('forbidden_section:' . $name);
+                }
+            }
+        }
     }
 
     /**

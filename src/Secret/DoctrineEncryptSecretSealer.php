@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Secret;
 
+use Nowo\DoctrineEncryptBundle\Encryptors\EncryptorRegistry;
+use Nowo\DoctrineEncryptBundle\Encryptors\MysqlAesEncryptor;
 use Nowo\DoctrineEncryptBundle\Util\EncryptUtil;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityException;
 use Throwable;
@@ -20,7 +22,7 @@ use function substr;
  * Seals with DoctrineEncryptBundle's {@see EncryptUtil} (default profile: the same key as the `#[Encrypted]` setting
  * rows). The encrypted payload is `<context>\n<plaintext>`, so the plaintext is never `''` / `'0'` (values EncryptUtil
  * would leave in clear) and a value only unseals for the context it was sealed for. A value that is not sealed, is
- * malformed, does not carry the encryption marker, does not decrypt with this instance key or belongs to another
+ * malformed, does not carry the encryption marker, uses the unauthenticated MysqlAes profile, does not decrypt with this instance key or belongs to another
  * context is refused.
  */
 final readonly class DoctrineEncryptSecretSealer implements SecretSealerInterface
@@ -31,10 +33,12 @@ final readonly class DoctrineEncryptSecretSealer implements SecretSealerInterfac
     /**
      * @param EncryptUtil $encryptUtil DoctrineEncrypt encryption helper
      * @param string|null $profile DoctrineEncrypt profile (null = default profile)
+     * @param EncryptorRegistry|null $registry lets the sealer refuse an unauthenticated profile (MysqlAes)
      */
     public function __construct(
         private EncryptUtil $encryptUtil,
         private ?string $profile = null,
+        private ?EncryptorRegistry $registry = null,
     ) {
     }
 
@@ -44,6 +48,7 @@ final readonly class DoctrineEncryptSecretSealer implements SecretSealerInterfac
     public function seal(string $plaintext, string $context): string
     {
         $this->assertContext($context, 'seal_failed');
+        $this->assertAuthenticatedEncryptor();
 
         // The payload is never '' / '0', so EncryptUtil always encrypts it and appends its marker.
         return self::PREFIX . base64_encode((string) $this->encryptUtil->encrypt($context . self::SEPARATOR . $plaintext, $this->profile));
@@ -55,6 +60,7 @@ final readonly class DoctrineEncryptSecretSealer implements SecretSealerInterfac
     public function unseal(string $sealed, string $context): string
     {
         $this->assertContext($context, 'invalid_sealed_secret');
+        $this->assertAuthenticatedEncryptor();
         if (!$this->isSealed($sealed)) {
             throw new PortabilityException('invalid_sealed_secret');
         }
@@ -102,6 +108,22 @@ final readonly class DoctrineEncryptSecretSealer implements SecretSealerInterfac
     public function algorithm(): string
     {
         return 'doctrine_encrypt:' . ($this->profile ?? 'default');
+    }
+
+    /**
+     * Refuses the deprecated MysqlAes encryptor (AES-128-ECB, no authentication: sealed values would be malleable and a
+     * foreign key would sometimes pass) for sealing.
+     */
+    private function assertAuthenticatedEncryptor(): void
+    {
+        if (!$this->registry instanceof EncryptorRegistry) {
+            return;
+        }
+
+        $encryptor = $this->profile === null ? $this->registry->getDefault() : $this->registry->get($this->profile);
+        if ($encryptor instanceof MysqlAesEncryptor) {
+            throw new PortabilityException('unsupported_encryptor');
+        }
     }
 
     private function assertContext(string $context, string $reason): void

@@ -14,6 +14,8 @@ use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityException;
+use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionActionsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
@@ -74,7 +76,7 @@ final class SettingsController extends AbstractController
     /**
      * Redirects to the first section the user may open (or renders the empty state).
      */
-    #[Route(path: '', name: SettingsPageFactory::ROUTE_INDEX, methods: ['GET'])]
+    #[Route(path: '', name: InstanceSettingsRoutes::INDEX, methods: ['GET'])]
     public function index(): Response
     {
         $sections = $this->accessibleSections();
@@ -85,13 +87,13 @@ final class SettingsController extends AbstractController
             ]);
         }
 
-        return $this->redirectToRoute(SettingsPageFactory::ROUTE_SECTION, ['section' => $first]);
+        return $this->redirectToRoute(InstanceSettingsRoutes::SECTION, ['section' => $first]);
     }
 
     /**
      * Shows and saves one section.
      */
-    #[Route(path: '/sections/{section}', name: SettingsPageFactory::ROUTE_SECTION, requirements: ['section' => '[a-z][a-z0-9_]{0,63}'], methods: ['GET', 'POST'])]
+    #[Route(path: '/sections/{section}', name: InstanceSettingsRoutes::SECTION, requirements: ['section' => '[a-z][a-z0-9_]{0,63}'], methods: ['GET', 'POST'])]
     public function section(Request $request, string $section): Response
     {
         if (!$this->registry->has($section)) {
@@ -123,7 +125,7 @@ final class SettingsController extends AbstractController
                 $changed = $this->settings->save($section, $this->submittedValues($form, $fields), SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
 
-                return $this->redirectToRoute(SettingsPageFactory::ROUTE_SECTION, ['section' => $section]);
+                return $this->redirectToRoute(InstanceSettingsRoutes::SECTION, ['section' => $section]);
             } catch (InvalidSettingValueException $e) {
                 foreach ($e->violations as $name => $messages) {
                     foreach ($messages as $message) {
@@ -133,7 +135,7 @@ final class SettingsController extends AbstractController
             }
         }
 
-        $actions = $definition instanceof SettingsSectionActionsInterface ? $definition->getActions() : [];
+        $actions = $definition instanceof SettingsSectionActionsInterface ? $definition->getActions(new SectionActionContext($section, $request, $this->guard->user())) : [];
 
         return $this->render($this->pages->template('section'), [
             'page'    => $this->pages->section($this->accessibleSections(), $section, $form->createView(), $actions, $this->canUsePortability()),
@@ -144,7 +146,7 @@ final class SettingsController extends AbstractController
     /**
      * Import / export page.
      */
-    #[Route(path: '/portability', name: SettingsPageFactory::ROUTE_PORTABILITY, methods: ['GET'])]
+    #[Route(path: '/portability', name: InstanceSettingsRoutes::PORTABILITY, methods: ['GET'])]
     public function portability(): Response
     {
         $this->denyPortabilityUnlessAllowed();
@@ -155,7 +157,7 @@ final class SettingsController extends AbstractController
     /**
      * Downloads the export envelope (POST + CSRF; `no-store`).
      */
-    #[Route(path: '/portability/export', name: 'nowo_instance_settings_export', methods: ['POST'])]
+    #[Route(path: '/portability/export', name: InstanceSettingsRoutes::EXPORT, methods: ['POST'])]
     public function export(Request $request): Response
     {
         $this->denyPortabilityUnlessAllowed();
@@ -175,7 +177,7 @@ final class SettingsController extends AbstractController
         } catch (PortabilityException|JsonException) {
             $this->addFlash('error', $this->trans('portability.error.export_failed'));
 
-            return $this->redirectToRoute(SettingsPageFactory::ROUTE_PORTABILITY);
+            return $this->redirectToRoute(InstanceSettingsRoutes::PORTABILITY);
         }
 
         $file     = $this->portability->schema() . ($withSecrets ? '-sealed' : '') . '-' . date('Ymd-His') . '.json';
@@ -193,7 +195,7 @@ final class SettingsController extends AbstractController
     /**
      * Validates and applies an uploaded envelope (all-or-nothing), or only validates it (dry run).
      */
-    #[Route(path: '/portability/import', name: 'nowo_instance_settings_import', methods: ['POST'])]
+    #[Route(path: '/portability/import', name: InstanceSettingsRoutes::IMPORT, methods: ['POST'])]
     public function import(Request $request): Response
     {
         $this->denyPortabilityUnlessAllowed();
@@ -216,13 +218,13 @@ final class SettingsController extends AbstractController
         } catch (PortabilityException $e) {
             $this->addFlash('error', $this->trans('portability.error.' . $e->reason(), ['%key%' => $e->key() ?? '']));
 
-            return $this->redirectToRoute(SettingsPageFactory::ROUTE_PORTABILITY);
+            return $this->redirectToRoute(InstanceSettingsRoutes::PORTABILITY);
         }
 
         $count = count($result->changedKeys());
         $this->addFlash('success', $this->trans($dryRun ? 'portability.import.dry_run_ok' : 'portability.import.done', ['%count%' => $count]));
 
-        return $this->redirectToRoute(SettingsPageFactory::ROUTE_PORTABILITY);
+        return $this->redirectToRoute(InstanceSettingsRoutes::PORTABILITY);
     }
 
     /**
@@ -296,7 +298,7 @@ final class SettingsController extends AbstractController
     private function exportForm(): FormInterface
     {
         return $this->createForm(PortabilityExportType::class, null, [
-            'action'        => $this->generateUrl('nowo_instance_settings_export'),
+            'action'        => $this->generateUrl(InstanceSettingsRoutes::EXPORT),
             'allow_secrets' => $this->portability->supportsSealedSecrets(),
         ]);
     }
@@ -307,7 +309,7 @@ final class SettingsController extends AbstractController
     private function importForm(): FormInterface
     {
         return $this->createForm(PortabilityImportType::class, null, [
-            'action'    => $this->generateUrl('nowo_instance_settings_import'),
+            'action'    => $this->generateUrl(InstanceSettingsRoutes::IMPORT),
             'max_bytes' => $this->reader->maxBytes(),
         ]);
     }

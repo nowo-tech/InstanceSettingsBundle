@@ -154,16 +154,21 @@ nowo_form_kit:
 
 ## Encryption (DoctrineEncryptBundle)
 
-Secret fields use DoctrineEncrypt's **default profile** (the `#[Encrypted]` attribute of `SettingValue::$secretValue`). Configure at least one profile and keep its key out of the repository:
+Requires DoctrineEncryptBundle **^2.10**. Secret fields use DoctrineEncrypt's **default profile** (the `#[Encrypted]` attribute of `SettingValue::$secretValue`). Configure at least one profile and keep its key out of the repository:
 
 ```yaml
 nowo_doctrine_encrypt:
     default_profile: default
+    on_decrypt_failure: 'null'        # recommended (or 'throw'): never hand ciphertext to consumers (DoctrineEncrypt ^2.10)
+    # generate_missing_key: false     # default outside kernel.debug: a missing key file is an error, not a new key
     profiles:
         default:
-            encryptor_class: Halite
+            encryptor_class: Halite   # or Defuse; MysqlAes (unauthenticated) is refused for sealed exports
             secret_key_env_var: '%env(APP_ENCRYPT_KEY)%'     # or secret_directory_path: '%kernel.project_dir%/var/secrets'
 ```
+
+The bundle also guards itself: secrets are stored with a terminator, so a value DoctrineEncrypt could not decrypt reads
+as "not set" whatever `on_decrypt_failure` says.
 
 Sealed exports use the same key: two instances that share it can exchange secrets; any other instance refuses them.
 

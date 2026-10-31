@@ -14,9 +14,11 @@ use Nowo\UiKitBundle\View\Action;
 interface SettingsSectionActionsInterface
 {
     /**
-     * Actions rendered after the submit button of the section form.
+     * Actions rendered after the submit button of the section form. Use the context to decide (user, request) and to
+     * build the CSRF FormView of a POST action: create it **named** (`FormFactory::createNamed('…', …)`), since
+     * `handleRequest()` never submits a form without a name.
      *
      * @return iterable<Action>
      */
-    public function getActions(): iterable;
+    public function getActions(SectionActionContext $context): iterable;
 }

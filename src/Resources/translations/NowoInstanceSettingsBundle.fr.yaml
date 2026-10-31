@@ -54,3 +54,4 @@ portability:
     seal_failed: Un secret n'a pas pu être scellé.
     forbidden_section: 'Vous ne pouvez pas modifier cette section : %key%.'
     secret_context_mismatch: 'Le secret scellé appartient à un autre champ ou à une autre application : %key%.'
+    unsupported_encryptor: Les secrets scellés exigent un profil de chiffrement authentifié (Halite ou Defuse), pas MysqlAes.

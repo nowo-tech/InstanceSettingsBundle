@@ -106,9 +106,11 @@ final class InstanceSettingsTestKernel extends Kernel
         ]);
         if (!in_array('doctrine_encrypt', $this->without, true)) {
             $container->extension('nowo_doctrine_encrypt', [
-                'default_profile'    => 'default',
-                'secret_permissions' => ['enabled' => false],
-                'profiles'           => ['default' => ['encryptor_class' => 'Halite', 'secret_directory_path' => self::baseDir() . '/' . $this->id . '/keys']],
+                'default_profile'      => 'default',
+                'secret_permissions'   => ['enabled' => false],
+                'generate_missing_key' => true,
+                'on_decrypt_failure'   => 'null',
+                'profiles'             => ['default' => ['encryptor_class' => 'Halite', 'secret_directory_path' => self::baseDir() . '/' . $this->id . '/keys']],
             ]);
         }
         if (!in_array('security', $this->without, true)) {

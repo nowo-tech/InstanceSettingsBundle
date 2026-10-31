@@ -54,3 +54,4 @@ portability:
     seal_failed: Een geheim kon niet worden verzegeld.
     forbidden_section: 'Je mag deze sectie niet wijzigen: %key%.'
     secret_context_mismatch: 'Het verzegelde geheim hoort bij een ander veld of een andere applicatie: %key%.'
+    unsupported_encryptor: Verzegelde geheimen vereisen een geauthenticeerd versleutelingsprofiel (Halite of Defuse), geen MysqlAes.

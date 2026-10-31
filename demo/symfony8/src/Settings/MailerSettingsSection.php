@@ -6,6 +6,7 @@ namespace App\Settings;
 
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
 use Nowo\InstanceSettingsBundle\Section\AbstractSettingsSection;
+use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionActionsInterface;
 use Nowo\UiKitBundle\View\Action;
@@ -41,7 +42,7 @@ final class MailerSettingsSection extends AbstractSettingsSection implements Set
         yield SettingField::email('test_recipient', null, 'mailer.test_recipient');
     }
 
-    public function getActions(): iterable
+    public function getActions(SectionActionContext $context): iterable
     {
         yield Action::view($this->urlGenerator->generate('demo_home'), new Label('mailer.preview', 'messages'));
     }

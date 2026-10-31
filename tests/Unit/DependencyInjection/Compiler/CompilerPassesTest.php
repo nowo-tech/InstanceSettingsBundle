@@ -51,10 +51,9 @@ final class CompilerPassesTest extends TestCase
     public function testUnauthenticatedPassOnlyInDebug(): void
     {
         $container = new ContainerBuilder();
-        $container->setParameter(UnauthenticatedAccessPass::PARAMETER, true);
-        (new UnauthenticatedAccessPass())->process($container); // no controller
+        (new UnauthenticatedAccessPass())->process($container); // no parameter
 
-        $container->setDefinition(SettingsController::class, new Definition(SettingsController::class));
+        $container->setParameter(UnauthenticatedAccessPass::PARAMETER, true);
         $container->setParameter('kernel.debug', true);
         (new UnauthenticatedAccessPass())->process($container);
 
