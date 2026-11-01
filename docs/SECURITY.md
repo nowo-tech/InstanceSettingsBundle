@@ -113,16 +113,17 @@ fail-closed container check, no `csrf_protection: false` on bundle forms. The CL
 | Cryptography | DoctrineEncrypt (Halite / Defuse); sealing fails closed. |
 | Permissions / exposure | Opt-in routes, roles + area roles, firewall-only token trust, fail-closed compile checks. |
 | Limits / DoS | One query per request, upload cap. |
-| AI security audit (REQ-SEC-004) | Pending independent audit before the first tag — see below. |
+| AI security audit (REQ-SEC-004) | Passed — Appendix BY, final grade **Pass (good) / Low**; every finding fixed before 1.0.0 — see below. |
 
 ## AI security audit (REQ-SEC-004)
 
-| Date | Revision | Auditor | Grade | Findings |
-| --- | --- | --- | --- | --- |
-| 2026-10-31 | `94a1569` (PR #1) | Independent AI audit, Appendix BY | **Pass (conditional) / Medium** | M1 portability bypassed per-section `area_roles`; L1 secrets ending with `<ENC>` stored in clear; L2 sealed values not bound to their field; L3 credential-key filter bypassable and export unfiltered; L4 CLI export file briefly world-readable / symlinks followed; Info I1–I8 |
-| 2026-10-31 | `1fec7a3` (PR #3) | Re-verification, Appendix BY | **Pass (good) / Low** | Residuals R1 (forbidden sections checked after value validation), R2 (credential filter heuristic), R4 (DoctrineEncrypt 2.10 options, MysqlAes) — fixed on branch `fix/by-residuals` |
+| Pass | Date | Revision | Grade | Findings | Fixed in |
+| --- | --- | --- | --- | --- | --- |
+| First pass | 2026-10-31 | `94a1569` (PR #1) | **Pass (conditional) / Medium** | M1 portability bypassed per-section `area_roles`; L1 secrets ending with `<ENC>` stored in clear; L2 sealed values not bound to their field; L3 credential-key filter bypassable and export unfiltered; L4 CLI export file briefly world-readable / symlinks followed; Info I1–I8 | PR #3 (`1fec7a3`), before 1.0.0 |
+| Final (re-verification) | 2026-10-31 | `1fec7a3` (PR #3) | **Pass (good) / Low** | Residuals R1 (forbidden sections checked after value validation), R2 (credential filter heuristic, documented below), R4 (DoctrineEncrypt 2.10 options, MysqlAes) | PR #4 (`610110f`), before 1.0.0; shipped unchanged in 1.1.0 |
 
-Recorded in the monorepo `BUNDLES_SECURITY_ANALYSIS.md` (Appendix BY).
+Both passes are recorded in the monorepo `BUNDLES_SECURITY_ANALYSIS.md` (Appendix BY). The accepted residuals are listed
+under [Residual risks and host guidance](#residual-risks-and-host-guidance).
 
 ## Residual risks and host guidance
 

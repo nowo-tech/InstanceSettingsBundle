@@ -5,7 +5,6 @@
 - [Unreleased](#unreleased)
 - [To 1.1.0](#to-110)
 - [To 1.0.0](#to-100)
-- [To 1.0.0 (initial release)](#to-100-initial-release)
   - [Requirements](#requirements)
   - [Enable and configure](#enable-and-configure)
   - [Migrating from an in-app settings entity](#migrating-from-an-in-app-settings-entity)
@@ -13,6 +12,12 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+The bundle now requires `nowo-tech/ui-kit-bundle` ^2.21. No configuration or code change:
+
+```bash
+composer update nowo-tech/instance-settings-bundle nowo-tech/ui-kit-bundle --with-dependencies
+```
 
 ## To 1.1.0
 
@@ -24,15 +29,7 @@ composer update nowo-tech/instance-settings-bundle
 
 ## To 1.0.0
 
-From **0.0.0**:
-
-```bash
-composer update nowo-tech/instance-settings-bundle
-```
-
-Nothing yet beyond the initial 1.0.0 content below.
-
-## To 1.0.0 (initial release)
+Initial release: there is nothing to upgrade from.
 
 ### Requirements
 
