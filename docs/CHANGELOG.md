@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-01
+
+Docs/demo follow-ups: SECURITY audit grades, demo install race, ui-kit ^2.21, absolute UPGRADING links in release notes See [UPGRADING](UPGRADING.md#to-111).
+
 ### Changed
 
 - Requires `nowo-tech/ui-kit-bundle` ^2.21 (was ^2.17.3); the lock resolves UiKit 2.21.0 and DoctrineEncrypt 2.10.1.

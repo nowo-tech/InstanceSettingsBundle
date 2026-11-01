@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.1.1](#to-111)
 - [To 1.1.0](#to-110)
 - [To 1.0.0](#to-100)
   - [Requirements](#requirements)
@@ -12,6 +13,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.1.1
+
+From **1.1.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 The bundle now requires `nowo-tech/ui-kit-bundle` ^2.21. No configuration or code change:
 
