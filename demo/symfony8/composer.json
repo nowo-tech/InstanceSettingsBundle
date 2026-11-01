@@ -10,7 +10,7 @@
         "nowo-tech/doctrine-encrypt-bundle": "^2.10",
         "nowo-tech/form-kit-bundle": "^2.17",
         "nowo-tech/instance-settings-bundle": "@dev",
-        "nowo-tech/ui-kit-bundle": "^2.17.3",
+        "nowo-tech/ui-kit-bundle": "^2.21",
         "symfony/clock": "^8.0",
         "symfony/console": "^8.0",
         "symfony/dotenv": "^8.0",
