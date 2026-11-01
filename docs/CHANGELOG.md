@@ -5,9 +5,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Requires `nowo-tech/ui-kit-bundle` ^2.21 (was ^2.17.3); the lock resolves UiKit 2.21.0 and DoctrineEncrypt 2.10.1.
+
+### Fixed
+
+- Demo: `make up` waits for the entrypoint's first `composer install` (the server answering) before it runs
+  `composer install` again, instead of racing it on the shared `vendor/`.
+- Release notes link UPGRADING with an absolute URL (`release.yml` rewrites relative `UPGRADING.md` links to the tagged
+  file); relative links broke on the GitHub release page.
+
+### Documentation
+
+- SECURITY.md records the AI security audit grades (Appendix BY: first pass Pass (conditional) / Medium, final Pass
+  (good) / Low, every finding fixed before 1.0.0) instead of "pending".
+- CHANGELOG / UPGRADING: removed the release-candidate leftovers and merged the duplicate "To 1.0.0" sections; README
+  coverage figures refreshed.
+
 ## [1.1.0] - 2026-10-31
 
-Secret field validation errors are shown next to the field; section intros accept a Label or TranslatableMessage with parameters. See [UPGRADING](UPGRADING.md#to-110).
+Secret field validation errors are shown next to the field; section intros accept a Label or TranslatableMessage with parameters. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/main/docs/UPGRADING.md#to-110).
 
 ### Added
 
@@ -22,10 +40,7 @@ Secret field validation errors are shown next to the field; section intros accep
 
 ## [1.0.0] - 2026-10-31
 
-First release: settings store with tagged sections, encrypted secrets (DoctrineEncrypt ^2.10), UiKit/FormKit admin with per-section access, context-bound sealed config portability (export/import, CLI). See [UPGRADING](UPGRADING.md#to-100).
-
-First release candidate (1.0.0): instance settings extracted and generalised from the symfony-beacon host app
-(`src/Shared/Settings`, config portability).
+First release: settings store with tagged sections, encrypted secrets (DoctrineEncrypt ^2.10), UiKit/FormKit admin with per-section access, context-bound sealed config portability (export/import, CLI). See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/main/docs/UPGRADING.md#to-100).
 
 ### Added
 
