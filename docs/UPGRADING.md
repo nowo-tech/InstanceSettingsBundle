@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.3.1](#to-131)
 - [To 1.3.0](#to-130)
 - [To 1.2.0](#to-120)
   - [To 1.2.0](#to-120-1)
@@ -16,6 +17,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.3.1
+
+From **1.3.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 From **1.3.0**: no configuration or schema change. Saves that emptied a provider whose default shows a required field
 (and left that field empty) are now refused, as they would leave the default provider without its required value.
