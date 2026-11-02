@@ -157,6 +157,26 @@ final class SettingsSectionVisibleWhenTest extends TestCase
         self::assertSame('model:smtp', SettingsSectionType::submittedValue($modelled, ' smtp '), 'model transformers too');
     }
 
+    public function testEmptySubmissionTakesEmptyData(): void
+    {
+        $fields = [
+            'provider' => SettingField::choice('provider', ['a' => 'smtp', 'b' => 'api'])->withFormOptions(['empty_data' => 'smtp']),
+            'name'     => SettingField::string('name')->withFormOptions(['empty_data' => 'fallback']),
+            'flag'     => SettingField::bool('flag'),
+            'host'     => SettingField::string('host')->withVisibleWhen('provider', ['smtp']),
+        ];
+        $form = FormFactorySupport::factory()->createNamed('settings_section', SettingsSectionType::class, [], ['section' => new ProviderFixtureSection(), 'fields' => $fields]);
+
+        self::assertSame('smtp', SettingsSectionType::submittedValue($form->get('provider'), ''));
+        self::assertSame('smtp', SettingsSectionType::submittedValue($form->get('provider'), null));
+        self::assertSame('fallback', SettingsSectionType::submittedValue($form->get('name'), '  '));
+        self::assertFalse(SettingsSectionType::submittedValue($form->get('flag'), null), 'checkbox empty_data keeps it unchecked');
+
+        $form->submit(['_token' => 'token-nowo_instance_settings_section', 'provider' => '', 'host' => 'h.example.test']);
+        self::assertSame('smtp', $form->getData()['provider']);
+        self::assertSame('h.example.test', $form->getData()['host'], 'empty provider resolves to empty_data smtp: host visible');
+    }
+
     public function testKeepHiddenFieldsIgnoresNonArrayDataAndMissingChildren(): void
     {
         $form  = $this->form([]);
