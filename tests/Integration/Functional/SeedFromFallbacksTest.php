@@ -46,6 +46,29 @@ final class SeedFromFallbacksTest extends KernelTestCase
         self::assertFalse($seeder->seed()->hasChanges(), 'idempotent');
     }
 
+    public function testAnAdminSaveDuringTheSeedIsNeverOverwritten(): void
+    {
+        $kernel               = $this->bootKernel(services: ['relay_section' => SeedFixtureSection::class]);
+        $section              = $this->section($kernel);
+        $section->fallbacks   = [SettingFallback::plain('host', 'relay.example.test'), SettingFallback::plain('port', '2525')];
+        $settings             = $this->settings($kernel);
+        $section->onFallbacks = static function () use ($settings): void {
+            // Committed after the seeder's stored check, before its insert (the READ COMMITTED race).
+            $settings->save('relay', ['host' => 'admin.example.test']);
+        };
+
+        $seeder = $kernel->getContainer()->get(FallbackSeeder::class);
+        self::assertInstanceOf(FallbackSeeder::class, $seeder);
+        $report = $seeder->seed(['relay']);
+
+        self::assertSame(['relay.port'], $report->seeded);
+        self::assertSame('stored', $report->skipped['relay.host']);
+        $settings->reset();
+        self::assertSame('admin.example.test', $settings->get('relay.host'));
+        self::assertSame(2525, $settings->getInt('relay.port'));
+        self::assertSame(1, (int) $this->connection($kernel)->fetchOne("SELECT COUNT(*) FROM instance_setting_value WHERE section = 'relay' AND name = 'host'"));
+    }
+
     public function testNoticesAreRenderedAsWarnings(): void
     {
         $kernel                          = $this->bootKernel(services: ['relay_section' => SeedFixtureSection::class]);

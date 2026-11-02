@@ -26,10 +26,11 @@ warnings on their admin page (e.g. "provider selected but its credentials are em
 migration), **Then** every non-empty fallback whose field has no stored value is stored (secrets encrypted), audited
 with origin `seed`, and the output lists `<section>.<field>` names only.
 
-### US-2 — Idempotence (P1)
+### US-2 — Idempotence and concurrency (P1)
 
-**Given** the seed already ran (or the admin set some values), **When** it runs again, **Then** nothing is written:
-stored values are never overwritten.
+**Given** the seed already ran (or the admin set some values, even while the seed runs), **When** it runs, **Then**
+stored values are never overwritten. A cleared field has no row, so hosts seed **once** and then remove the fallbacks
+(no per-field marker: it would need a schema change).
 
 ### US-3 — Dry run and strict mode (P2)
 
@@ -49,12 +50,14 @@ non-transactional migrations instead of failing with "SAVEPOINT DOCTRINE_n does 
 
 ## Functional Requirements
 
-- **FR-SEED-001** `SettingFallback` (plain / secret, validated field name, masked `__debugInfo()`) and the optional
+- **FR-SEED-001** `SettingFallback` (plain / secret, validated field name, value held outside its properties: masked
+  `__debugInfo()` / `jsonSerialize()`, serialization refused) and the optional
   `SectionFallbackProviderInterface::getFallbacks()`.
 - **FR-SEED-002** `FallbackSeeder::seed(?list $sections, bool $dryRun)`: only fields without a stored row; skips empty,
-  unknown, secret-mismatch, invalid and duplicate fallbacks with a reason code; writes through
-  `InstanceSettingsInterface::save()` (validation, encryption, log line, `SettingsChangedEvent` with
-  `ORIGIN_SEED`) inside one repository transaction; public service; logs one summary line with names only.
+  unknown, secret-mismatch, invalid and duplicate fallbacks with a reason code; insert-only writes in one repository
+  transaction with an in-transaction re-check (a concurrent row is kept, a unique-key race retries once); same
+  validation and encryption as a save; `Instance settings saved.` log line and `SettingsChangedEvent` (`ORIGIN_SEED`)
+  dispatched after the commit only; public service; one summary log line with names only.
 - **FR-SEED-003** `SeedReport`: examined sections, seeded keys, skipped keys + reasons, seeded secret keys, dry-run flag.
 - **FR-SEED-004** `nowo:instance-settings:seed-from-fallbacks` with `--section` (repeatable), `--dry-run`, `--strict`;
   prints names and reason codes only.

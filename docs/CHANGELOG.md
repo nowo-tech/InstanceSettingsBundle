@@ -11,8 +11,11 @@ All notable changes to this project are documented here. The format follows
   (bundle configuration, usually `%env()%`).
 - `FallbackSeeder` (public service) and `nowo:instance-settings:seed-from-fallbacks` (`--section`, `--dry-run`,
   `--strict`): copy the fallbacks into the store only where nothing is stored; idempotent; secrets encrypted; audited
-  with the new origin `SettingsChangedEvent::ORIGIN_SEED`; output, report and log list field names only. See
+  with the new origin `SettingsChangedEvent::ORIGIN_SEED` after the commit; insert-only (a concurrent admin save
+  always wins); output, report and log list field names only. Seed once, then remove the fallbacks. See
   [UPGRADING](UPGRADING.md#to-120).
+- `SettingFallback` keeps its value out of its properties (`value()`): `json_encode`, `var_export` and dumps mask a
+  secret, serialization is refused.
 - `TransactionStateGuard`: the seeder refuses to write on a phantom DBAL transaction (MySQL DDL in a transactional
   migration) with an actionable message.
 - `SettingsSectionNoticesInterface` and `SettingsPageFactory::notices()`: section warnings rendered as UiKit warning

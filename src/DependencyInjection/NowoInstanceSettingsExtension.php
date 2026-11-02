@@ -200,6 +200,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(ValueNormalizer::class),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference(TransactionStateGuard::class),
+            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->setPublic(true));
 
         $container->setDefinition(SeedFromFallbacksCommand::class, (new Definition(SeedFromFallbacksCommand::class, [
@@ -236,7 +238,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(ValueNormalizer::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-            new Reference(TransactionStateGuard::class),
         ]))->setPublic(true));
 
         $container->setDefinition(ExportSettingsCommand::class, (new Definition(ExportSettingsCommand::class, [

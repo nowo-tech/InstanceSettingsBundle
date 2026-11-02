@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Fixtures;
 
+use Closure;
 use Nowo\InstanceSettingsBundle\Section\AbstractSettingsSection;
 use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\InstanceSettingsBundle\Section\SectionFallbackProviderInterface;
@@ -22,16 +23,19 @@ final class SeedFixtureSection extends AbstractSettingsSection implements Sectio
     /**
      * @param list<SettingFallback> $fallbacks
      * @param list<Label|string|TranslatableMessage> $notices
+     * @param (Closure(): void)|null $onFallbacks runs when the seeder reads the fallbacks (simulates a concurrent save)
      */
     public function __construct(
         public array $fallbacks = [],
         public array $notices = [],
+        private readonly string $name = 'relay',
+        public ?Closure $onFallbacks = null,
     ) {
     }
 
     public function getName(): string
     {
-        return 'relay';
+        return $this->name;
     }
 
     public function getTranslationDomain(): string
@@ -49,6 +53,11 @@ final class SeedFixtureSection extends AbstractSettingsSection implements Sectio
 
     public function getFallbacks(): iterable
     {
+        if ($this->onFallbacks instanceof Closure) {
+            ($this->onFallbacks)();
+            $this->onFallbacks = null;
+        }
+
         return $this->fallbacks;
     }
 

@@ -279,14 +279,18 @@ php bin/console nowo:instance-settings:seed-from-fallbacks             # seed ev
 php bin/console nowo:instance-settings:seed-from-fallbacks --section=sms --strict
 ```
 
-- Only fields **without a stored value** are written; a stored value (set in the admin UI or by an earlier seed) is
-  never overwritten, so the command is idempotent and safe to run on every deploy.
+- Only fields **without a stored value** are written, insert-only: a stored value (set in the admin UI or by an
+  earlier seed) is never overwritten, even when an admin saves the field while the seed runs (the seed re-checks
+  inside its transaction and retries once on a unique-key race). A second run is a no-op.
+- **Seed once, then remove the fallbacks.** Clearing a field in the admin UI deletes its row, so running the seed
+  again while the fallbacks are still wired would write the fallback back (e.g. a key an admin blanked on purpose).
+  Do not run it on every deploy; run it for the migration and drop the `%env()%` / YAML fallbacks right after.
 - Empty fallbacks (null, blank) are skipped. A fallback for an unknown field, a fallback whose secret flag differs from
   the field, an invalid value or a second fallback for the same field is skipped with a reason code; `--strict` exits 1
   when that happens.
-- Writes go through `InstanceSettingsInterface::save()` with origin `seed` (`SettingsChangedEvent::ORIGIN_SEED`): same
-  validation, secrets encrypted at rest, the `Instance settings saved.` log line and the audit event as a form save.
-  Everything is written in one transaction.
+- Same field validation as a save, secrets encrypted at rest, the `Instance settings saved.` log line and a
+  `SettingsChangedEvent` with origin `seed` (`SettingsChangedEvent::ORIGIN_SEED`) per seeded section. Everything is
+  written in one transaction and the events are dispatched **after the commit** (a rolled-back seed dispatches none).
 - The output, the `SeedReport` and the log carry `<section>.<field>` names and reason codes only, never a value.
 - From PHP (host upgrade step): `$container->get(FallbackSeeder::class)->seed(['sms'], dryRun: false)` (public service)
   returns a `SeedReport`.

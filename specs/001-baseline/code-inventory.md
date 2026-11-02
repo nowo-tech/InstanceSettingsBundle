@@ -4,7 +4,7 @@
 **Package**: `nowo-tech/instance-settings-bundle`  
 **Last audited**: 2026-11-02
 
-Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **66**.
+Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **67**.
 
 ## Bundle and dependency injection
 
@@ -95,6 +95,7 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 | Source file | Spec section | Requirement IDs |
 | --- | --- | --- |
 | `src/Section/SettingFallback.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-001 |
+| `src/Section/FallbackValue.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-001 |
 | `src/Section/SectionFallbackProviderInterface.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-001 |
 | `src/Section/SettingsSectionNoticesInterface.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-006 |
 | `src/Seed/FallbackSeeder.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-002 |
@@ -104,5 +105,5 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 
 ## Totals
 
-- Mapped files: **66/66** (100%).
+- Mapped files: **67/67** (100%).
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

@@ -36,8 +36,9 @@ Moving a host to DB-only mode, **in this order**:
 
 1. Upgrade the bundle and the kits while the `%env()%` fallbacks are still wired in their configuration.
 2. Run `php bin/console nowo:instance-settings:seed-from-fallbacks --dry-run`, then without `--dry-run` (or call
-   `FallbackSeeder::seed()` from an upgrade step). It is idempotent.
-3. Check the settings pages (no warnings), then remove the env vars / YAML values. Removing them first would seed nothing.
+   `FallbackSeeder::seed()` from an upgrade step) **once**.
+3. Check the settings pages (no warnings), then remove the env vars / YAML values right away. Removing them first would
+   seed nothing; keeping them and seeding again would restore a field an admin cleared in the meantime.
 
 From a Doctrine migration, use a **non-transactional** migration (`isTransactional(): false` or
 `doctrine_migrations.transactional: false`): on MySQL, DDL commits implicitly and a transactional migration leaves DBAL
