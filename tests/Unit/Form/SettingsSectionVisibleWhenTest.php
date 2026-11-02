@@ -152,7 +152,7 @@ final class SettingsSectionVisibleWhenTest extends TestCase
         self::assertSame(2, SettingsSectionType::submittedValue($int->get('level'), '2'));
 
         $modelled = FormFactorySupport::factory()->createNamedBuilder('code', TextType::class)
-            ->addModelTransformer(new CallbackTransformer(static fn (mixed $v): mixed => $v, static fn (mixed $v): string => 'model:' . (string) $v))
+            ->addModelTransformer(new CallbackTransformer(static fn (mixed $v): mixed => $v, static fn (mixed $v): string => 'model:' . $v))
             ->getForm();
         self::assertSame('model:smtp', SettingsSectionType::submittedValue($modelled, ' smtp '), 'model transformers too');
     }
