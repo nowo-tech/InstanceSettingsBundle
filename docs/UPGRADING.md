@@ -17,6 +17,9 @@
 
 ## Unreleased
 
+From **1.3.0**: no configuration or schema change. Saves that emptied a provider whose default shows a required field
+(and left that field empty) are now refused, as they would leave the default provider without its required value.
+
 ## To 1.3.0
 
 From **1.2.0**:

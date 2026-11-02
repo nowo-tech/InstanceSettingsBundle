@@ -197,13 +197,14 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             }
         }
         // Pass 2: `required` only applies to a provider-dependent field visible for the normalized saved values merged
-        // over the effective stored ones (1.3).
+        // over the effective stored ones (1.3); a value saved empty takes its default, as it will once its row is
+        // deleted (1.3.1).
         $context = null;
         foreach ($required as $name => $value) {
             $field   = $fields[$name];
             $visible = true;
             if ($field->visibleWhen !== null) {
-                $context ??= $normalized + $this->getSection($section);
+                $context ??= $this->visibilityContext($section, $normalized);
                 $visible = $field->isVisibleFor($context);
             }
             [, $messages] = $this->normalizer->normalize($field, $value, $visible);
@@ -273,6 +274,26 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         $this->dispatcher?->dispatch(new SettingsChangedEvent($section, $changed, $secrets, $origin));
 
         return $changed;
+    }
+
+    /**
+     * Effective values after a save: the normalized saved values (an empty one replaced by its field default) merged
+     * over the effective stored ones.
+     *
+     * @param array<string, bool|float|int|string|null> $normalized
+     *
+     * @return array<string, mixed>
+     */
+    private function visibilityContext(string $section, array $normalized): array
+    {
+        $fields = $this->registry->fields($section);
+        foreach ($normalized as $name => $value) {
+            if ($value === null) {
+                $normalized[$name] = $fields[$name]->default;
+            }
+        }
+
+        return $normalized + $this->getSection($section);
     }
 
     /**

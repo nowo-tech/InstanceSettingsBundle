@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Form;
 
+use Closure;
 use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
 use Nowo\DoctrineEncryptBundle\Form\Type\SecretType;
 use Nowo\FormKitBundle\Attribute\FormKitConfig;
@@ -29,6 +30,7 @@ use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormEvents;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormTypeInterface;
+use Symfony\Component\Form\Util\FormUtil;
 use Symfony\Component\Form\Util\StringUtil;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
@@ -161,8 +163,8 @@ final class SettingsSectionType extends AbstractType
 
     /**
      * Raw submitted value of a controlling field normalized as its form type does (`trim`, then the view and model
-     * transformers in reverse, as {@see Form::submit()}): a checkbox gives a bool, an
-     * integer field an int, a choice its choice value. A value the type cannot transform is returned raw (the form
+     * transformers in reverse, as {@see Form::submit()}, with `empty_data` for an empty submission): a checkbox gives a
+     * bool, an integer field an int, a choice its choice value. A value the type cannot transform is returned raw (the form
      * reports it as invalid anyway).
      *
      * @param FormInterface<mixed> $child
@@ -172,6 +174,11 @@ final class SettingsSectionType extends AbstractType
         $config = $child->getConfig();
         if (is_string($raw) && $config->getOption('trim') === true) {
             $raw = StringUtil::trim($raw);
+        }
+        if (FormUtil::isEmpty($raw)) {
+            // Like Form::submit(): an empty submission takes `empty_data` (a closure receives the form and the value).
+            $emptyData = $config->getEmptyData();
+            $raw       = $emptyData instanceof Closure ? $emptyData($child, $raw) : $emptyData;
         }
 
         $value = $raw;

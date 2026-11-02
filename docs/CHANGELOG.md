@@ -14,6 +14,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Audit CT N4: `InstanceSettings::save()` decides `required` on provider-dependent fields with a controlling value
+  saved empty (`null`, `''`, blanks; choice or bool) replaced by the controller's default, the value it takes once its
+  row is deleted. `save(['provider' => null, 'smtp_host' => null])` with default `smtp` is refused, in any key order;
+  through the admin form, a blank provider placeholder plus "clear" on the default provider's required hidden secret
+  is refused (422) and the secret stays stored.
+- Audit CT N5: `SettingsSectionType::submittedValue()` applies `empty_data` to an empty submission (after `trim`,
+  like `Form::submit()`), so the `PRE_SUBMIT` listener sees the same controlling value as the form data.
+
 ## [1.3.0] - 2026-11-02
 
 provider-dependent fields (visible_when), clear on hidden secrets, hidden-required rule
