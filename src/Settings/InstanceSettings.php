@@ -181,15 +181,35 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         $fields     = $this->registry->fields($section);
         $normalized = [];
         $violations = [];
+        $required   = [];
+        // Pass 1: normalize every value; `required` is decided in pass 2, once the controlling values are normalized.
         foreach ($values as $name => $value) {
             $field              = $this->registry->field($section, (string) $name);
-            [$clean, $messages] = $this->normalizer->normalize($field, $value);
+            [$clean, $messages] = $this->normalizer->normalize($field, $value, false);
             if ($messages !== []) {
                 $violations[$field->name] = $messages;
 
                 continue;
             }
             $normalized[$field->name] = $clean;
+            if ($clean === null) {
+                $required[$field->name] = $value;
+            }
+        }
+        // Pass 2: `required` only applies to a provider-dependent field visible for the normalized saved values merged
+        // over the effective stored ones (1.3).
+        $context = null;
+        foreach ($required as $name => $value) {
+            $field   = $fields[$name];
+            $visible = true;
+            if ($field->visibleWhen !== null) {
+                $context ??= $normalized + $this->getSection($section);
+                $visible = $field->isVisibleFor($context);
+            }
+            [, $messages] = $this->normalizer->normalize($field, $value, $visible);
+            if ($messages !== []) {
+                $violations[$name] = $messages;
+            }
         }
         if ($violations !== []) {
             throw new InvalidSettingValueException($section, $violations);

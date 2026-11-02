@@ -31,3 +31,4 @@ sms:
   sender: Sender id
   account_id: Account id
   auth_token: Auth token
+  bridge_url: Bridge base URL

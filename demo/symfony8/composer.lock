@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e25de27495fc1a47443fea46b606f021",
+    "content-hash": "043f62733c2f3bb449c189e237b96422",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -1162,11 +1162,11 @@
         },
         {
             "name": "nowo-tech/instance-settings-bundle",
-            "version": "dev-main",
+            "version": "dev-feat/1.3.0",
             "dist": {
                 "type": "path",
                 "url": "/var/instance-settings-bundle",
-                "reference": "25f6bca427a09852b6adf0a52ff9524e7e8a34c6"
+                "reference": "89c4fb60d441f5893b1c12ff1c7439a131b3fecc"
             },
             "require": {
                 "doctrine/doctrine-bundle": "^2.13 || ^3.0",
@@ -1174,7 +1174,7 @@
                 "doctrine/persistence": "^3.1 || ^4.0",
                 "nowo-tech/doctrine-encrypt-bundle": "^2.10",
                 "nowo-tech/form-kit-bundle": "^2.17",
-                "nowo-tech/ui-kit-bundle": "^2.21",
+                "nowo-tech/ui-kit-bundle": "^2.23",
                 "php": ">=8.2 <8.6",
                 "psr/clock": "^1.0",
                 "psr/event-dispatcher": "^1.0",
@@ -1249,10 +1249,10 @@
             },
             "scripts": {
                 "test": [
-                    "phpunit --color=always"
+                    "@php -d memory_limit=512M vendor/bin/phpunit --color=always"
                 ],
                 "test-coverage": [
-                    "phpunit --color=always --coverage-html coverage --coverage-clover coverage.xml --coverage-text"
+                    "@php -d memory_limit=512M vendor/bin/phpunit --color=always --coverage-html coverage --coverage-clover coverage.xml --coverage-text"
                 ],
                 "test-coverage-100": [
                     "@test-coverage",
@@ -1334,16 +1334,16 @@
         },
         {
             "name": "nowo-tech/ui-kit-bundle",
-            "version": "v2.21.0",
+            "version": "v2.23.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/UiKitBundle.git",
-                "reference": "e0f552ed48ba35a690c39ac9a239e3238bc327ca"
+                "reference": "f433e09e70bc6075fe103791fc330b3533eb6009"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/e0f552ed48ba35a690c39ac9a239e3238bc327ca",
-                "reference": "e0f552ed48ba35a690c39ac9a239e3238bc327ca",
+                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/f433e09e70bc6075fe103791fc330b3533eb6009",
+                "reference": "f433e09e70bc6075fe103791fc330b3533eb6009",
                 "shasum": ""
             },
             "require": {
@@ -1424,8 +1424,8 @@
                 "issues": "https://github.com/nowo-tech/UiKitBundle/issues",
                 "source": "https://github.com/nowo-tech/UiKitBundle"
             },
-            "time": "2026-11-01T09:40:10+00:00",
-            "published-time": "2026-11-01T09:53:36+00:00"
+            "time": "2026-11-02T16:08:25+00:00",
+            "published-time": "2026-11-02T16:09:47+00:00"
         },
         {
             "name": "paragonie/constant_time_encoding",
