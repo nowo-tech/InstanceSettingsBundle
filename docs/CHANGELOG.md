@@ -3,7 +3,19 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## Table of contents
+
+- [[Unreleased]](#unreleased)
+- [[1.2.0] - 2026-11-02](#120---2026-11-02)
+- [[1.1.1] - 2026-11-01](#111---2026-11-01)
+- [[1.1.0] - 2026-10-31](#110---2026-10-31)
+- [[1.0.0] - 2026-10-31](#100---2026-10-31)
+
 ## [Unreleased]
+
+## [1.2.0] - 2026-11-02
+
+DB-only settings: nowo:instance-settings:seed-from-fallbacks copies section fallbacks (env / YAML) into the store once (insert-only, secrets encrypted, audited, names-only output), TransactionStateGuard for service-calling migrations, section notices. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.2.0/docs/UPGRADING.md#to-120).
 
 ### Added
 
