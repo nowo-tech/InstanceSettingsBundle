@@ -26,7 +26,9 @@ final class SmsSettingsSection extends AbstractSettingsSection
     {
         yield SettingField::choice('provider', ['sms.provider_null' => 'null', 'sms.provider_twilio' => 'twilio', 'sms.provider_bridge' => 'sms_bridge'], 'null', 'sms.provider', required: true);
         yield SettingField::string('sender', null, 'sms.sender');
-        yield SettingField::string('account_id', null, 'sms.account_id');
-        yield SettingField::secret('auth_token', 'sms.auth_token');
+        // Provider-dependent fields (1.3): shown only for Twilio / SMS Bridge; their values survive a provider switch.
+        yield SettingField::string('account_id', null, 'sms.account_id')->withVisibleWhen('provider', ['twilio', 'sms_bridge']);
+        yield SettingField::secret('auth_token', 'sms.auth_token')->withVisibleWhen('provider', ['twilio', 'sms_bridge']);
+        yield SettingField::url('bridge_url', null, 'sms.bridge_url')->withVisibleWhen('provider', ['sms_bridge']);
     }
 }

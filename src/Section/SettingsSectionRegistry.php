@@ -9,8 +9,11 @@ use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
 
 use function array_key_exists;
 use function array_keys;
+use function array_map;
 use function count;
 use function explode;
+use function implode;
+use function in_array;
 use function preg_match;
 use function sprintf;
 
@@ -18,7 +21,7 @@ use function sprintf;
  * Registered settings sections, in tag priority order, with their fields.
  *
  * Definitions are validated on first use (unique section names matching {@see self::NAME_PATTERN}, unique field
- * names) and kept for the lifetime of the worker: sections are stateless services and fields are immutable value
+ * names, `visible_when` targets: {@see self::assertVisibleWhen()}) and kept for the lifetime of the worker: sections are stateless services and fields are immutable value
  * objects, so the map never holds request data.
  */
 final class SettingsSectionRegistry
@@ -138,6 +141,65 @@ final class SettingsSectionRegistry
     }
 
     /**
+     * Fields of a section that are shown for these values (name => value, e.g. the submitted form data): every field
+     * without `visible_when`, and the provider-dependent ones whose controlling value matches (1.3).
+     *
+     * @param array<string, mixed> $values
+     *
+     * @throws UnknownSettingException
+     *
+     * @return array<string, SettingField>
+     */
+    public function visibleFields(string $section, array $values): array
+    {
+        $visible = [];
+        foreach ($this->fields($section) as $name => $field) {
+            if ($field->isVisibleFor($values)) {
+                $visible[$name] = $field;
+            }
+        }
+
+        return $visible;
+    }
+
+    /**
+     * A `visible_when` field depends on another field of the same section that is not secret and not itself
+     * provider-dependent; with a choice (bool) controller every value must be one of its choices ('1' / '').
+     *
+     * @param array<string, SettingField> $fields
+     */
+    private function assertVisibleWhen(string $section, SettingField $field, array $fields): void
+    {
+        if ($field->visibleWhen === null) {
+            return;
+        }
+        $target = $fields[$field->visibleWhen['field']] ?? null;
+        $where  = sprintf('Field "%s" of instance settings section "%s"', $field->name, $section);
+        if ($target === null) {
+            throw new LogicException(sprintf('%s: visible_when.field "%s" is not a field of the section.', $where, $field->visibleWhen['field']));
+        }
+        if ($target->secret) {
+            throw new LogicException(sprintf('%s: visible_when.field "%s" is a secret (its value is never rendered).', $where, $target->name));
+        }
+        if ($target->visibleWhen !== null) {
+            throw new LogicException(sprintf('%s: visible_when.field "%s" is provider-dependent itself (no chains).', $where, $target->name));
+        }
+        $allowed = match ($target->type) {
+            SettingType::Choice => array_map(SettingField::visibilityValue(...), $target->choices),
+            SettingType::Bool   => ['1', ''],
+            default             => null,
+        };
+        if ($allowed === null) {
+            return;
+        }
+        foreach ($field->visibleWhen['in'] as $value) {
+            if (!in_array($value, $allowed, true)) {
+                throw new LogicException(sprintf('%s: visible_when.in value "%s" is not a value of "%s" (%s).', $where, $value, $target->name, implode(', ', $allowed)));
+            }
+        }
+    }
+
+    /**
      * @return array<string, array{section: SettingsSectionInterface, fields: array<string, SettingField>}>
      */
     private function map(): array
@@ -162,6 +224,9 @@ final class SettingsSectionRegistry
                     throw new LogicException(sprintf('Duplicate field "%s" in instance settings section "%s".', $field->name, $name));
                 }
                 $fields[$field->name] = $field;
+            }
+            foreach ($fields as $field) {
+                $this->assertVisibleWhen($name, $field, $fields);
             }
 
             $map[$name] = ['section' => $section, 'fields' => $fields];

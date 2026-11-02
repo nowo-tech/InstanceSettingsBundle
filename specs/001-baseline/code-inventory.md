@@ -103,6 +103,18 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 | `src/Seed/TransactionStateGuard.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-005 |
 | `src/Command/SeedFromFallbacksCommand.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-004 |
 
+## Provider-dependent fields (spec 003)
+
+Files changed by [003](../003-provider-dependent-fields/spec.md) (no new file; mapped above as well):
+
+| Source file | Spec section | Requirement IDs |
+| --- | --- | --- |
+| `src/Section/SettingField.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-001, FR-VIS-002 |
+| `src/Section/SettingsSectionRegistry.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-002, FR-VIS-003 |
+| `src/Form/SettingsSectionType.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-004 |
+| `src/Controller/SettingsController.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-005 |
+| `src/Ui/SettingsPageFactory.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-006 |
+
 ## Totals
 
 - Mapped files: **67/67** (100%).

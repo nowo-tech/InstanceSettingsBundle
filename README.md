@@ -37,6 +37,7 @@ Reads cost one query per request and are memoized for the current main request o
 - **Admin UI** — UiKit settings scaffold (REQ-UI-003): a tab per section the user may open, FormKit form types, CSRF on every mutation, `security.access_roles` + per-section `security.area_roles` + custom access checker; extra section actions (e.g. "send a test e-mail").
 - **Config portability** — versioned JSON envelope (`schema`, `version`, `exported_at`): every portable plain field, secrets only **sealed** with the instance key (only an instance with the same key can import them), tagged `PortabilityProviderInterface` services for data stored elsewhere; size-capped upload reader, credential-shaped keys refused, dry run, single transaction. Admin page plus `nowo:instance-settings:export` / `nowo:instance-settings:import`.
 - **Seed from fallbacks (DB-only mode)** — sections expose their `%env()%` / YAML fallbacks (`SectionFallbackProviderInterface`); `nowo:instance-settings:seed-from-fallbacks` (or the public `FallbackSeeder`) copies them once where nothing is stored: idempotent, secrets encrypted, audited, names only in the output, safe-guarded against phantom MySQL migration transactions. Section notices show warnings (e.g. missing credentials) on the settings page.
+- **Provider-dependent fields** — `SettingField::withVisibleWhen('provider', ['smtp'])` shows a field only for some values of another field (UiKit `visible-when` peer: hidden, never disabled or cleared); saves validate and write only the fields visible for the submitted provider, so the other providers' values survive a switch.
 - **Fail-closed wiring** — the container refuses to compile without DoctrineEncrypt, with the UI on but no form CSRF, with an empty role list, or with `allow_unauthenticated` outside `kernel.debug`.
 - **Doctrine** — one table `instance_setting_value` with a configurable `doctrine.table_prefix`, attribute mapping, migrations-friendly.
 
@@ -98,7 +99,7 @@ Open `/admin/settings`: one tab per section, the form built from the fields.
 
 - PHP **8.2+** (`>=8.2 <8.6`; Symfony 8.x requires PHP 8.4+)
 - Symfony **7.4**, **8.0** or **8.1** (FrameworkBundle, Form, Validator, Security CSRF, TwigBundle; SecurityBundle for the admin UI)
-- Doctrine ORM **3.3+** with DoctrineBundle, `nowo-tech/doctrine-encrypt-bundle` **^2.10** (secrets), `nowo-tech/ui-kit-bundle` **^2.17.3** and `nowo-tech/form-kit-bundle` **^2.17** (admin UI), `twig/extra-bundle`
+- Doctrine ORM **3.3+** with DoctrineBundle, `nowo-tech/doctrine-encrypt-bundle` **^2.10** (secrets), `nowo-tech/ui-kit-bundle` **^2.23** and `nowo-tech/form-kit-bundle` **^2.17** (admin UI), `twig/extra-bundle`
 
 ## Configuration
 
@@ -162,7 +163,7 @@ make release-check
 ## Tests and coverage
 
 - Tests: PHPUnit (PHP) — unit tests plus kernel integration tests (admin UI end to end with SecurityBundle, CSRF, encryption at rest on SQLite, import / export, opt-in routes, invalid configuration) and the UiKit page contract test; Playwright e2e on the demo
-- PHP: 100% (1513/1513 statements, 1730/1730 elements; gate enforced in CI by `composer test-coverage-100`, no exclusions)
+- PHP: 100% (1596/1596 statements, 1821/1821 elements; gate enforced in CI by `composer test-coverage-100`, no exclusions)
 - TS/JS: N/A
 - Python: N/A
 

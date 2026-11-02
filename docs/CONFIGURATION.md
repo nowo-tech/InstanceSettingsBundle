@@ -13,6 +13,7 @@
 - [Profiles](#profiles)
 - [Container parameters](#container-parameters)
 - [Seeding from fallbacks](#seeding-from-fallbacks)
+- [Provider-dependent fields](#provider-dependent-fields)
 - [Fail-closed checks](#fail-closed-checks)
 
 ## Full reference
@@ -186,6 +187,12 @@ REQ-CFG-001 does not apply: the bundle has one configuration tree. Variants are 
 No configuration key: `FallbackSeeder` (public service) and `nowo:instance-settings:seed-from-fallbacks` are always
 registered and use `doctrine.entity_manager`. Sections opt in with `SectionFallbackProviderInterface`. See
 [USAGE](USAGE.md#seeding-from-fallbacks-db-only-mode), including the non-transactional migration rule.
+
+## Provider-dependent fields
+
+No configuration key: `visible_when` is declared per field in code (`SettingField::withVisibleWhen()`) and needs
+`nowo-tech/ui-kit-bundle` ^2.23 plus the UiKit `visible-when` Stimulus peer in the host. See
+[USAGE](USAGE.md#provider-dependent-fields-visible_when).
 
 ## Fail-closed checks
 

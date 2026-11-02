@@ -232,6 +232,9 @@ final class SettingsController extends AbstractController
     }
 
     /**
+     * Values to save: every field visible for the submitted values (provider-dependent fields hidden for the submitted
+     * controlling value are left out, so "empty = delete" and validation only apply to visible fields).
+     *
      * @param FormInterface<mixed> $form
      * @param array<string, SettingField> $fields
      *
@@ -243,6 +246,10 @@ final class SettingsController extends AbstractController
         $data   = (array) $form->getData();
         $values = [];
         foreach ($fields as $name => $field) {
+            if (!$field->isVisibleFor($data)) {
+                // Hidden for the submitted provider (1.3): neither validated nor written; its stored row is kept.
+                continue;
+            }
             if (!$field->secret) {
                 $values[$name] = $data[$name] ?? null;
 

@@ -16,6 +16,17 @@
 
 ## Unreleased
 
+From **1.2.x**: no configuration or schema change, no BC break. Requires `nowo-tech/ui-kit-bundle` ^2.23
+(`composer update nowo-tech/instance-settings-bundle nowo-tech/ui-kit-bundle -W`).
+
+- Opt-in provider-dependent fields: `->withVisibleWhen('provider', ['smtp'])` on a `SettingField`
+  ([USAGE](USAGE.md#provider-dependent-fields-visible_when)).
+- Hosts that render a section with such fields register the UiKit `visible-when` Stimulus peer
+  (`vendor/nowo-tech/ui-kit-bundle/src/Resources/assets/stimulus-peers/visible_when_controller.ts`, identifier
+  `visible-when`). Without it every row stays visible and saving still follows the server rules.
+- A section definition with an invalid `visible_when` (unknown / secret / dependent controlling field, value that is
+  not a choice) now fails with a `LogicException` when the sections load.
+
 ## To 1.2.0
 
 From **1.1.1**:

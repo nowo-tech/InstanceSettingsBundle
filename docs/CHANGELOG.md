@@ -13,6 +13,31 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Provider-dependent fields: `SettingField::withVisibleWhen(string $field, iterable $in)` (or the constructor
+  argument `visibleWhen: ['field' => 'provider', 'in' => ['smtp']]`) shows a field only while another field of the
+  same section holds one of the values. Validated when the section definitions load (the controlling field exists in
+  the section, is not secret and not itself provider-dependent; choice / bool values must be valid values).
+  `SettingField::isVisibleFor()`, `SettingField::visibilityValue()`, `SettingsSectionRegistry::visibleFields()`.
+- The admin form renders the option through the UiKit 2.23 `visible-when` row attributes (`row_attr`) and the section
+  page root gets `data-controller="visible-when"` when a row uses it: hidden rows are `hidden` + `inert`, never
+  disabled nor cleared. No host template change; the host registers the UiKit `visible-when` Stimulus peer.
+- Server rules: a save validates and writes only the fields visible for the **submitted** controlling value; a
+  hidden field never loses its stored row ("empty = delete" applies to visible fields only); a hidden field's
+  submitted value is replaced by its current one before validation; secrets keep "blank = keep".
+- Demo: the `sms` section uses `visible_when`; Playwright e2e (provider switch, save, switch back, axe in both states).
+
+### Changed
+
+- Requires `nowo-tech/ui-kit-bundle` ^2.23.
+- `composer test` / `test-coverage` run PHPUnit with `-d memory_limit=512M`.
+
+### Unchanged
+
+- `nowo:instance-settings:seed-from-fallbacks`, the API (`InstanceSettings::save()`), imports and exports ignore
+  visibility (they store every given field). Pages without `visible_when` render as in 1.2.
+
 ## [1.2.0] - 2026-11-02
 
 DB-only settings: nowo:instance-settings:seed-from-fallbacks copies section fallbacks (env / YAML) into the store once (insert-only, secrets encrypted, audited, names-only output), TransactionStateGuard for service-calling migrations, section notices. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.2.0/docs/UPGRADING.md#to-120).

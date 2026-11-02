@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Ui;
 
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
+use Nowo\UiKitBundle\Form\VisibleWhen;
 use Nowo\UiKitBundle\View\Action;
 use Nowo\UiKitBundle\View\BackLink;
 use Nowo\UiKitBundle\View\Label;
@@ -81,8 +82,23 @@ final readonly class SettingsPageFactory
             current: $current,
             bundle: SettingsPages::BUNDLE,
             layout: $this->pages->layout(),
-            attributes: ['data-testid' => 'instance-settings-section', 'data-section' => $current],
+            attributes: ['data-testid' => 'instance-settings-section', 'data-section' => $current] + (self::hasVisibleWhenRows($form) ? VisibleWhen::containerAttributes() : []),
         );
+    }
+
+    /**
+     * Whether a row of the form carries the UiKit `visible-when` attributes (1.3): the page root then connects the
+     * peer (`data-controller="visible-when"`); other pages render unchanged.
+     */
+    public static function hasVisibleWhenRows(FormView $form): bool
+    {
+        foreach ($form->children as $child) {
+            if (isset($child->vars['row_attr'][VisibleWhen::FIELD_ATTRIBUTE])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

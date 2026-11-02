@@ -11,6 +11,7 @@ use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
+use Nowo\UiKitBundle\Form\VisibleWhen;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
@@ -21,10 +22,13 @@ use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\Extension\Core\Type\UrlType;
 use Symfony\Component\Form\FormBuilderInterface;
+use Symfony\Component\Form\FormEvent;
+use Symfony\Component\Form\FormEvents;
 use Symfony\Component\Form\FormTypeInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 use function array_replace_recursive;
+use function is_array;
 
 /**
  * Admin form of one settings section, built from its {@see SettingField}s (REQ-TWIG-005 rule 11: FormKit type).
@@ -32,6 +36,11 @@ use function array_replace_recursive;
  * Plain fields are mapped on an array of the effective values. Secret fields use DoctrineEncrypt's
  * {@see SecretType} (unmapped, always rendered empty, "leave blank to keep" + a clear checkbox): the stored secret is
  * never handed to the form, only whether one is stored.
+ *
+ * Provider-dependent fields (1.3, {@see SettingField::withVisibleWhen()}) carry the UiKit `visible-when` row
+ * attributes (`row_attr`), so the peer hides them without disabling or clearing them. On submit, a field hidden for the
+ * submitted controlling value is reset to its current value before validation (no error on a row the user cannot
+ * see; the controller does not save it).
  *
  * @extends AbstractType<array<string, mixed>>
  */
@@ -50,14 +59,25 @@ final class SettingsSectionType extends AbstractType
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
-        $domain = $options['section']->getTranslationDomain();
+        $domain    = $options['section']->getTranslationDomain();
+        $root      = $builder->getName();
+        $dependent = [];
         foreach ($options['fields'] as $name => $field) {
+            $rowAttr = [];
+            if ($field->visibleWhen !== null) {
+                $controller  = $field->visibleWhen['field'];
+                $rowAttr     = VisibleWhen::attributes($root === '' ? $controller : $root . '[' . $controller . ']', $field->visibleWhen['in']);
+                $dependent[] = $field;
+            }
             $base = [
                 'label'              => $field->labelKey(),
                 'help'               => $field->help,
                 'translation_domain' => $domain,
                 'required'           => $field->required && $field->type !== SettingType::Bool,
             ];
+            if ($rowAttr !== []) {
+                $base['row_attr'] = $rowAttr;
+            }
 
             if ($field->secret) {
                 $stored = $options['stored_secrets'][$name] ?? false;
@@ -65,6 +85,7 @@ final class SettingsSectionType extends AbstractType
                     'label'              => $field->labelKey(),
                     'help'               => $field->help,
                     'translation_domain' => $domain,
+                    'row_attr'           => $rowAttr,
                     'current_value'      => $stored ? self::STORED_SECRET_MARKER : null,
                     'hint_visible_last'  => 0,
                     'required'           => false,
@@ -82,6 +103,35 @@ final class SettingsSectionType extends AbstractType
             }
             $this->addWithDefaults($builder, $name, $type, array_replace_recursive($base, $extra, $field->formOptions));
         }
+
+        if ($dependent !== []) {
+            $builder->addEventListener(FormEvents::PRE_SUBMIT, static function (FormEvent $event) use ($dependent): void {
+                self::keepHiddenFields($event, $dependent);
+            });
+        }
+    }
+
+    /**
+     * Replaces the submitted value of every field hidden for the submitted controlling value with its current view
+     * value (a secret with "blank = keep"), so a hidden row never fails validation and re-renders with its stored
+     * value.
+     *
+     * @param list<SettingField> $dependent provider-dependent fields
+     */
+    public static function keepHiddenFields(FormEvent $event, array $dependent): void
+    {
+        $data = $event->getData();
+        if (!is_array($data)) {
+            return;
+        }
+        $form = $event->getForm();
+        foreach ($dependent as $field) {
+            if ($field->isVisibleFor($data) || !$form->has($field->name)) {
+                continue;
+            }
+            $data[$field->name] = $field->secret ? [] : $form->get($field->name)->getViewData();
+        }
+        $event->setData($data);
     }
 
     /**

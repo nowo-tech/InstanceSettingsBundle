@@ -7,6 +7,7 @@
   - [Section metadata and order](#section-metadata-and-order)
   - [Extra actions next to the submit button](#extra-actions-next-to-the-submit-button)
   - [Section notices (warnings)](#section-notices-warnings)
+  - [Provider-dependent fields (visible_when)](#provider-dependent-fields-visible_when)
   - [Reading the values in the contributing bundle](#reading-the-values-in-the-contributing-bundle)
   - [Reacting to changes](#reacting-to-changes)
   - [Rules for bundle authors](#rules-for-bundle-authors)
@@ -129,6 +130,35 @@ return translation keys of its domain, UiKit `Label`s or `TranslatableMessage`s.
 UiKit `flash_warning` alert (`role="alert"`, `data-testid="instance-settings-notice"`) above the form. Typical use: "the
 selected provider is missing its API key". Notices are rendered in the page: name the fields, **never** echo a stored
 value.
+
+### Provider-dependent fields (visible_when)
+
+Since 1.3.0 a field can depend on another field of the same section (typically a provider choice):
+
+```php
+yield SettingField::choice('provider', ['provider.smtp' => 'smtp', 'provider.api' => 'api']);
+yield SettingField::string('smtp_host', null, 'smtp_host', required: true)->withVisibleWhen('provider', ['smtp']);
+yield SettingField::secret('api_key', 'api_key')->withVisibleWhen('provider', ['api']);
+yield SettingField::bool('tracking');
+yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true]);
+// same option as an array: new SettingField('smtp_host', visibleWhen: ['field' => 'provider', 'in' => ['smtp']])
+```
+
+- Shape: `{field: '<controlling field name>', in: [values]}`. Values compare as strings (`true` → `'1'`, `false` →
+  `''`). The controlling field must exist in the section, not be secret and not be provider-dependent itself; with a
+  choice (bool) controller every value must be one of its values. Violations throw a `LogicException` when the
+  sections load (first use of the registry).
+- Rendering: the row gets the UiKit 2.23 `visible-when` attributes through `row_attr` (merged with a `row_attr` from
+  `withFormOptions()`), the page root gets `data-controller="visible-when"`. Register the UiKit `visible-when`
+  Stimulus peer in the host app; the peer hides rows (`hidden`, `inert`, `aria-hidden`) and never disables or clears
+  inputs. Without JavaScript every row stays visible.
+- Saving (admin form): only the fields visible for the **submitted** controlling value are validated and written. A
+  hidden field keeps its stored row (also when submitted empty or with "clear" on a secret); its submitted value is
+  replaced by its current value before validation, so a hidden row never shows an error. "Empty = delete" applies to
+  visible fields only; secrets keep "blank = keep". Without JavaScript, edit a provider's fields after selecting it.
+- Notices: compute required-field notices for the active provider only (`SettingsSectionRegistry::visibleFields()` /
+  `SettingField::isVisibleFor()` with the stored values).
+- `InstanceSettings::save()` (API), imports, exports and the seed ignore visibility.
 
 ### Reading the values in the contributing bundle
 
