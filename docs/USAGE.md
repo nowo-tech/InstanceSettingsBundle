@@ -6,6 +6,7 @@
   - [Fields](#fields)
   - [Section metadata and order](#section-metadata-and-order)
   - [Extra actions next to the submit button](#extra-actions-next-to-the-submit-button)
+  - [Section notices (warnings)](#section-notices-warnings)
   - [Reading the values in the contributing bundle](#reading-the-values-in-the-contributing-bundle)
   - [Reacting to changes](#reacting-to-changes)
   - [Rules for bundle authors](#rules-for-bundle-authors)
@@ -15,6 +16,8 @@
 - [Reading settings](#reading-settings)
 - [Writing settings from code](#writing-settings-from-code)
 - [Secrets](#secrets)
+- [Seeding from fallbacks (DB-only mode)](#seeding-from-fallbacks-db-only-mode)
+  - [Calling the seeder from a migration](#calling-the-seeder-from-a-migration)
 - [Export and import (config portability)](#export-and-import-config-portability)
   - [Envelope](#envelope)
   - [CLI](#cli)
@@ -118,6 +121,14 @@ public function getActions(SectionActionContext $context): iterable
     yield new Action('custom', new Label('mailer.send_test', 'NowoMailKitBundle'), $this->urls->generate('nowo_mail_kit_test'), method: 'POST', form: $form->createView());
 }
 ```
+
+### Section notices (warnings)
+
+Since 1.2.0 a section may implement `SettingsSectionNoticesInterface::getNotices(SectionActionContext $context)` and
+return translation keys of its domain, UiKit `Label`s or `TranslatableMessage`s. The section page renders each one as a
+UiKit `flash_warning` alert (`role="alert"`, `data-testid="instance-settings-notice"`) above the form. Typical use: "the
+selected provider is missing its API key". Notices are rendered in the page: name the fields, **never** echo a stored
+value.
 
 ### Reading the values in the contributing bundle
 
@@ -255,6 +266,71 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 - Key rotation and bulk encryption use the DoctrineEncrypt commands (`doctrine:encrypt:rotate-keys`, `doctrine:encrypt:status`); the settings table is covered like any `#[Encrypted]` entity.
 - The admin form never receives the secret: it only knows whether one is stored ("Saved: ••••. Leave blank to keep it."), a blank field keeps it, the "Remove the saved value" checkbox clears it.
 - Exports contain secrets only on request and only **sealed** (`enc:v2:<base64>` of the DoctrineEncrypt ciphertext of the value bound to `<schema>|<section>.<field>`): an instance holding the same key imports them into the same field, any other instance refuses the file (`failed_unseal_secret`) and a value moved to another field is refused (`secret_context_mismatch`). Set `portability.sealed_secrets: false` to keep secrets on the instance.
+
+## Seeding from fallbacks (DB-only mode)
+
+Kits used to read bundle configuration (`%env(...)%` / YAML) while a field had nothing stored. Since 1.2.0 a section can
+expose those values with `SectionFallbackProviderInterface::getFallbacks()` (`SettingFallback::plain('sender', $x)`,
+`SettingFallback::secret('api_key', $y)`), and the host copies them **once** into the store:
+
+```bash
+php bin/console nowo:instance-settings:seed-from-fallbacks --dry-run   # what would be seeded (names only)
+php bin/console nowo:instance-settings:seed-from-fallbacks             # seed every section exposing fallbacks
+php bin/console nowo:instance-settings:seed-from-fallbacks --section=sms --strict
+```
+
+- Only fields **without a stored value** are written, insert-only: a stored value (set in the admin UI or by an
+  earlier seed) is never overwritten, even when an admin saves the field while the seed runs (the seed re-checks
+  inside its transaction and retries once on a unique-key race). A second run is a no-op.
+- **Seed once, then remove the fallbacks.** Clearing a field in the admin UI deletes its row, so running the seed
+  again while the fallbacks are still wired would write the fallback back (e.g. a key an admin blanked on purpose).
+  Do not run it on every deploy; run it for the migration and drop the `%env()%` / YAML fallbacks right after.
+- Empty fallbacks (null, blank) are skipped. A fallback for an unknown field, a fallback whose secret flag differs from
+  the field, an invalid value or a second fallback for the same field is skipped with a reason code; `--strict` exits 1
+  when that happens.
+- Same field validation as a save, secrets encrypted at rest, the `Instance settings saved.` log line and a
+  `SettingsChangedEvent` with origin `seed` (`SettingsChangedEvent::ORIGIN_SEED`) per seeded section. Everything is
+  written in one transaction and the events are dispatched **after the commit** (a rolled-back seed dispatches none).
+- The output, the `SeedReport` and the log carry `<section>.<field>` names and reason codes only, never a value.
+- From PHP (host upgrade step): `$container->get(FallbackSeeder::class)->seed(['sms'], dryRun: false)` (public service)
+  returns a `SeedReport`.
+
+**Order:** seed while the `%env()%` fallbacks are still wired, check the report, and drop the env vars / YAML values
+only afterwards. Once dropped, the instance runs in **DB-only mode**: the admin UI is the only source of those settings.
+
+### Calling the seeder from a migration
+
+On MySQL / MariaDB every DDL statement commits implicitly. In a **transactional** Doctrine migration that already ran DDL
+(or after earlier DDL migrations in the same `migrate` run), Doctrine Migrations skips its own commit but DBAL keeps a
+transaction nesting level although the server has none. The seeder's transaction then fails with
+`SAVEPOINT DOCTRINE_n does not exist`, or worse writes outside any transaction.
+
+Call the seeder only from a **non-transactional** migration:
+
+```php
+final class Version20261102000000 extends AbstractMigration
+{
+    public function isTransactional(): bool
+    {
+        return false;
+    }
+
+    public function up(Schema $schema): void
+    {
+        $this->addSql('SELECT 1'); // data-only migration
+    }
+
+    public function postUp(Schema $schema): void
+    {
+        $this->container->get(FallbackSeeder::class)->seed(); // or inject it through a migration factory
+    }
+}
+```
+
+or set `doctrine_migrations.transactional: false` globally. As a safety net the seeder checks the connection before
+writing (`TransactionStateGuard`): when DBAL reports an open transaction but the PDO connection is not in one, it
+throws a `LogicException` explaining the above instead of corrupting the state. The check is best effort (PDO drivers
+only); a dry run never writes and is not checked.
 
 ## Export and import (config portability)
 

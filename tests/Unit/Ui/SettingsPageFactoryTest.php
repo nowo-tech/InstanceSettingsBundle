@@ -60,6 +60,17 @@ final class SettingsPageFactoryTest extends TestCase
         self::assertSame(['plain.intro', 'app'], [$intros[3]?->key, $intros[3]?->domain]);
     }
 
+    public function testNoticesAreMappedToLabels(): void
+    {
+        $label   = new Label('z.notice', 'third');
+        $notices = PageFixtures::factory()->notices(['a.notice', new TranslatableMessage('b.notice', ['%f%' => 'token']), $label], 'app');
+
+        self::assertSame(['a.notice', 'app'], [$notices[0]->key, $notices[0]->domain]);
+        self::assertSame(['b.notice', 'app', ['%f%' => 'token']], [$notices[1]->key, $notices[1]->domain, $notices[1]->params]);
+        self::assertSame($label, $notices[2]);
+        self::assertSame([], PageFixtures::factory()->notices([], 'app'));
+    }
+
     public function testEmptyAndPortabilityPages(): void
     {
         $empty = PageFixtures::factory()->empty(true);

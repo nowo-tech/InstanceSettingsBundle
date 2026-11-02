@@ -19,3 +19,10 @@ general:
   mode_light: Light
   mode_dark: Dark
   maintenance_lock: Maintenance lock
+relay:
+  label: Relay
+  host: Relay host
+  port: Relay port
+  token: Relay token
+  enabled: Relay enabled
+  notice_token: The relay is enabled but its token is empty.

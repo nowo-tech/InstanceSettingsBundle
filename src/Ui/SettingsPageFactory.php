@@ -137,18 +137,43 @@ final readonly class SettingsPageFactory
     }
 
     /**
+     * UiKit labels of the notices of a section ({@see SettingsSectionNoticesInterface}), in the section domain.
+     *
+     * @param iterable<Label|string|TranslatableMessage> $notices
+     *
+     * @return list<Label>
+     */
+    public function notices(iterable $notices, string $domain): array
+    {
+        $labels = [];
+        foreach ($notices as $notice) {
+            $labels[] = $this->label($notice, $domain);
+        }
+
+        return $labels;
+    }
+
+    /**
      * UiKit label of a section intro (string key in the section domain, Label as is, TranslatableMessage mapped).
      */
     private function intro(Label|TranslatableMessage|string|null $intro, string $domain): ?Label
     {
-        if ($intro === null || $intro instanceof Label) {
-            return $intro;
+        return $intro === null ? null : $this->label($intro, $domain);
+    }
+
+    /**
+     * UiKit label of a section text (string key in the section domain, Label as is, TranslatableMessage mapped).
+     */
+    private function label(Label|TranslatableMessage|string $text, string $domain): Label
+    {
+        if ($text instanceof Label) {
+            return $text;
         }
-        if ($intro instanceof TranslatableMessage) {
-            return new Label($intro->getMessage(), $intro->getDomain() ?? $domain, $intro->getParameters());
+        if ($text instanceof TranslatableMessage) {
+            return new Label($text->getMessage(), $text->getDomain() ?? $domain, $text->getParameters());
         }
 
-        return new Label($intro, $domain);
+        return new Label($text, $domain);
     }
 
     private function header(bool $portability): PageHeader

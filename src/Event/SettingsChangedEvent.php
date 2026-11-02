@@ -19,7 +19,7 @@ final readonly class SettingsChangedEvent
      * @param string $section section name
      * @param list<string> $changedFields changed field names (plain and secret)
      * @param list<string> $secretFields the changed field names that are secrets
-     * @param string $origin `form`, `import` or `api`
+     * @param string $origin `form`, `import`, `api` or `seed`
      */
     public function __construct(
         public string $section,
@@ -37,4 +37,7 @@ final readonly class SettingsChangedEvent
 
     /** Saved by application code. */
     public const ORIGIN_API = 'api';
+
+    /** Seeded once from the section fallbacks (`nowo:instance-settings:seed-from-fallbacks`, since 1.2.0). */
+    public const ORIGIN_SEED = 'seed';
 }

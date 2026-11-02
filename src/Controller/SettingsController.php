@@ -19,6 +19,7 @@ use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionActionsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
@@ -135,11 +136,14 @@ final class SettingsController extends AbstractController
             }
         }
 
-        $actions = $definition instanceof SettingsSectionActionsInterface ? $definition->getActions(new SectionActionContext($section, $request, $this->guard->user())) : [];
+        $context = new SectionActionContext($section, $request, $this->guard->user());
+        $actions = $definition instanceof SettingsSectionActionsInterface ? $definition->getActions($context) : [];
+        $notices = $definition instanceof SettingsSectionNoticesInterface ? $this->pages->notices($definition->getNotices($context), $definition->getTranslationDomain()) : [];
 
         return $this->render($this->pages->template('section'), [
             'page'    => $this->pages->section($this->accessibleSections(), $section, $form->createView(), $actions, $this->canUsePortability()),
             'section' => $section,
+            'notices' => $notices,
         ], new Response(status: $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK));
     }
 
