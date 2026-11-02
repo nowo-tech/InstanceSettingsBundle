@@ -14,6 +14,7 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\ProviderFixtureSection;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
+use function array_filter;
 use function array_keys;
 
 /**
@@ -78,11 +79,12 @@ final class VisibleWhenTest extends TestCase
         new SettingField('host', visibleWhen: $option);
     }
 
-    public function testRegistryValidatesTargetsAndListsVisibleFields(): void
+    public function testRegistryValidatesTargetsOfTheFixture(): void
     {
         $registry = new SettingsSectionRegistry([new ProviderFixtureSection()]);
-        self::assertSame(['provider', 'label', 'smtp_host', 'smtp_port', 'tracking'], array_keys($registry->visibleFields('transport', ['provider' => 'smtp'])));
-        self::assertSame(['provider', 'label', 'api_region', 'api_key', 'tracking', 'tracking_domain'], array_keys($registry->visibleFields('transport', ['provider' => 'api', 'tracking' => true])));
+        $visible  = static fn (array $values): array => array_keys(array_filter($registry->fields('transport'), static fn (SettingField $f): bool => $f->isVisibleFor($values)));
+        self::assertSame(['provider', 'label', 'smtp_host', 'smtp_port', 'tracking'], $visible(['provider' => 'smtp']));
+        self::assertSame(['provider', 'label', 'api_region', 'api_key', 'tracking', 'tracking_domain'], $visible(['provider' => 'api', 'tracking' => true]));
     }
 
     /**

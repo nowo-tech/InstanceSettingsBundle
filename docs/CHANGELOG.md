@@ -19,13 +19,19 @@ All notable changes to this project are documented here. The format follows
   argument `visibleWhen: ['field' => 'provider', 'in' => ['smtp']]`) shows a field only while another field of the
   same section holds one of the values. Validated when the section definitions load (the controlling field exists in
   the section, is not secret and not itself provider-dependent; choice / bool values must be valid values).
-  `SettingField::isVisibleFor()`, `SettingField::visibilityValue()`, `SettingsSectionRegistry::visibleFields()`.
+  `SettingField::isVisibleFor()`, `SettingField::visibilityValue()`.
 - The admin form renders the option through the UiKit 2.23 `visible-when` row attributes (`row_attr`) and the section
   page root gets `data-controller="visible-when"` when a row uses it: hidden rows are `hidden` + `inert`, never
   disabled nor cleared. No host template change; the host registers the UiKit `visible-when` Stimulus peer.
 - Server rules: a save validates and writes only the fields visible for the **submitted** controlling value; a
   hidden field never loses its stored row ("empty = delete" applies to visible fields only); a hidden field's
-  submitted value is replaced by its current one before validation; secrets keep "blank = keep".
+  submitted value is replaced by its current one before validation; secrets keep "blank = keep". Exception: an
+  explicit "clear" on a hidden secret deletes its stored row (never writes a value), so an inactive provider's leaked
+  credential can be removed without activating it. Visibility uses the controlling value normalized as the form type
+  does (checkbox: any posted string is checked; trimmed text) in both the `PRE_SUBMIT` listener
+  (`SettingsSectionType::submittedValue()`) and the save.
+- `InstanceSettings::save()` and `ValueNormalizer::normalize(..., bool $enforceRequired = true)`: `required` is not
+  enforced on a provider-dependent field hidden for the saved + effective values.
 - Demo: the `sms` section uses `visible_when`; Playwright e2e (provider switch, save, switch back, axe in both states).
 
 ### Changed
@@ -35,8 +41,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Unchanged
 
-- `nowo:instance-settings:seed-from-fallbacks`, the API (`InstanceSettings::save()`), imports and exports ignore
-  visibility (they store every given field). Pages without `visible_when` render as in 1.2.
+- `nowo:instance-settings:seed-from-fallbacks`, the API (`InstanceSettings::save()`), imports and exports store every
+  given field (only `required` follows visibility). Pages without `visible_when` render as in 1.2.
 
 ## [1.2.0] - 2026-11-02
 

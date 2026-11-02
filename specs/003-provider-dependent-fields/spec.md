@@ -29,8 +29,8 @@ input keeps its value; selecting `twilio` again shows it. Without JavaScript eve
 ### US-2 — Values of the other providers survive a save (P1)
 
 **Given** stored Twilio credentials, **When** the admin switches to SMS Bridge and saves, **Then** the Twilio rows are
-neither validated nor written (even submitted empty, or "clear" on a secret) and keep their stored values; switching
-back shows them.
+neither validated nor written (even submitted empty) and keep their stored values; switching back shows them. Checking
+"clear" on a hidden Twilio token deletes it (a typed value is still ignored).
 
 ### US-3 — Validation follows the submitted provider (P1)
 
@@ -50,16 +50,20 @@ that is not one of the controlling choice / bool values, **When** the section de
   `visibleWhen` and `withVisibleWhen(string $field, iterable $in)`; shape validated in the constructor (exactly `field`
   + `in`, field name pattern, not the field itself, at least one string / int / bool value; values normalized to
   strings, `true` → `'1'`, `false` → `''`, deduplicated). Kept by `notPortable()` and `withFormOptions()`.
-- **FR-VIS-002** `SettingField::isVisibleFor(array $values)` and `SettingField::visibilityValue(mixed)`;
-  `SettingsSectionRegistry::visibleFields(string $section, array $values)`.
+- **FR-VIS-002** `SettingField::isVisibleFor(array $values)` and `SettingField::visibilityValue(mixed)`.
 - **FR-VIS-003** `SettingsSectionRegistry` validates every `visible_when` when the definitions load: controlling field
   exists in the section, is not secret, is not provider-dependent; choice / bool controllers accept only their values.
 - **FR-VIS-004** `SettingsSectionType` renders the option as `row_attr` with `Nowo\UiKitBundle\Form\VisibleWhen`
   (controlling input name `<form>[<field>]`), merged with a `row_attr` from `withFormOptions()`, for plain and secret
   fields. A `PRE_SUBMIT` listener replaces the submitted value of every field hidden for the submitted controlling
-  value with its current view value (secrets: blank = keep).
+  value with its current view value; a hidden secret keeps only an explicit `clear`. The controlling value is
+  normalized as the form type does (`submittedValue()`: checkbox `false_values`, `trim`), so the listener and the
+  controller decide visibility on the same value.
 - **FR-VIS-005** `SettingsController` saves only the fields visible for the submitted values (a hidden field is never
-  validated, written or deleted).
+  validated, written or deleted), except a hidden secret with `clear` checked, whose stored row is deleted (audit
+  SK-L1: remove an inactive provider's leaked credential; never writes a value).
+- **FR-VIS-008** `InstanceSettings::save()` / `ValueNormalizer::normalize($field, $value, $enforceRequired)`: `required`
+  is not enforced on a provider-dependent field hidden for the saved + effective values.
 - **FR-VIS-006** `SettingsPageFactory::hasVisibleWhenRows()`; the section page root gets
   `data-controller="visible-when"` only when a row carries the attributes (pages without `visible_when` unchanged).
 - **FR-VIS-007** Unchanged: the seed, `InstanceSettings::save()` (API), imports and exports store every given field.

@@ -181,9 +181,16 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         $fields     = $this->registry->fields($section);
         $normalized = [];
         $violations = [];
+        $context    = null;
         foreach ($values as $name => $value) {
-            $field              = $this->registry->field($section, (string) $name);
-            [$clean, $messages] = $this->normalizer->normalize($field, $value);
+            $field = $this->registry->field($section, (string) $name);
+            // `required` only applies to a provider-dependent field visible for the saved + effective values (1.3).
+            $enforceRequired = true;
+            if ($value === null && $field->visibleWhen !== null) {
+                $context ??= $values + $this->getSection($section);
+                $enforceRequired = $field->isVisibleFor($context);
+            }
+            [$clean, $messages] = $this->normalizer->normalize($field, $value, $enforceRequired);
             if ($messages !== []) {
                 $violations[$field->name] = $messages;
 

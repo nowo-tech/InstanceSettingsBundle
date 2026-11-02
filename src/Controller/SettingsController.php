@@ -233,7 +233,8 @@ final class SettingsController extends AbstractController
 
     /**
      * Values to save: every field visible for the submitted values (provider-dependent fields hidden for the submitted
-     * controlling value are left out, so "empty = delete" and validation only apply to visible fields).
+     * controlling value are left out, so "empty = delete" and validation only apply to visible fields), plus a null
+     * for a hidden secret whose "clear" box was checked.
      *
      * @param FormInterface<mixed> $form
      * @param array<string, SettingField> $fields
@@ -247,7 +248,16 @@ final class SettingsController extends AbstractController
         $values = [];
         foreach ($fields as $name => $field) {
             if (!$field->isVisibleFor($data)) {
-                // Hidden for the submitted provider (1.3): neither validated nor written; its stored row is kept.
+                // Hidden for the submitted provider (1.3): neither validated nor written; its stored row is kept,
+                // except an explicit "clear" on a secret, which deletes it (never writes a value).
+                if ($field->secret) {
+                    SecretFieldApplier::applyData($form->get($name)->getData(), static function (?string $secret) use (&$values, $name): void {
+                        if ($secret === null) {
+                            $values[$name] = null;
+                        }
+                    });
+                }
+
                 continue;
             }
             if (!$field->secret) {

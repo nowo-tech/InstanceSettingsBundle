@@ -141,28 +141,6 @@ final class SettingsSectionRegistry
     }
 
     /**
-     * Fields of a section that are shown for these values (name => value, e.g. the submitted form data): every field
-     * without `visible_when`, and the provider-dependent ones whose controlling value matches (1.3).
-     *
-     * @param array<string, mixed> $values
-     *
-     * @throws UnknownSettingException
-     *
-     * @return array<string, SettingField>
-     */
-    public function visibleFields(string $section, array $values): array
-    {
-        $visible = [];
-        foreach ($this->fields($section) as $name => $field) {
-            if ($field->isVisibleFor($values)) {
-                $visible[$name] = $field;
-            }
-        }
-
-        return $visible;
-    }
-
-    /**
      * A `visible_when` field depends on another field of the same section that is not secret and not itself
      * provider-dependent; with a choice (bool) controller every value must be one of its choices ('1' / '').
      *

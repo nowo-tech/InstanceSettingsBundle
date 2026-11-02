@@ -44,14 +44,17 @@ final readonly class ValueNormalizer
     /**
      * Normalized value, or the list of violation messages.
      *
+     * @param bool $enforceRequired false for a provider-dependent field hidden for the saved values (1.3)
+     *
      * @return array{0: bool|float|int|string|null, 1: list<string>}
      */
-    public function normalize(SettingField $field, mixed $value): array
+    public function normalize(SettingField $field, mixed $value, bool $enforceRequired = true): array
     {
         $value = $this->coerce($field->type, $value);
         if ($value === null) {
-            // A required field may drop its stored value only when a default takes over.
-            return [null, $field->required && $field->default === null ? ['This value should not be blank.'] : []];
+            // A required field may drop its stored value only when a default takes over (or when it is hidden for
+            // the section's values, 1.3 visible_when: $enforceRequired = false).
+            return [null, $enforceRequired && $field->required && $field->default === null ? ['This value should not be blank.'] : []];
         }
 
         if (!SettingField::matchesType($field->type, $value, $field->choices)) {

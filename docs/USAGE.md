@@ -153,12 +153,16 @@ yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true
   Stimulus peer in the host app; the peer hides rows (`hidden`, `inert`, `aria-hidden`) and never disables or clears
   inputs. Without JavaScript every row stays visible.
 - Saving (admin form): only the fields visible for the **submitted** controlling value are validated and written. A
-  hidden field keeps its stored row (also when submitted empty or with "clear" on a secret); its submitted value is
-  replaced by its current value before validation, so a hidden row never shows an error. "Empty = delete" applies to
-  visible fields only; secrets keep "blank = keep". Without JavaScript, edit a provider's fields after selecting it.
-- Notices: compute required-field notices for the active provider only (`SettingsSectionRegistry::visibleFields()` /
-  `SettingField::isVisibleFor()` with the stored values).
-- `InstanceSettings::save()` (API), imports, exports and the seed ignore visibility.
+  hidden field keeps its stored row (also when submitted empty); its submitted value is replaced by its current value
+  before validation, so a hidden row never shows an error. "Empty = delete" applies to visible fields only; secrets
+  keep "blank = keep". One exception: checking "clear" on a hidden secret deletes its stored row (a value typed in it
+  is never written), to remove an inactive provider's credential without activating it. The controlling value is
+  normalized like the form type does (a checkbox posted as any string is checked, text is trimmed) on both sides.
+  Without JavaScript, edit a provider's fields after selecting it.
+- Notices: compute required-field notices for the active provider only (`SettingField::isVisibleFor()` with the
+  stored values).
+- `InstanceSettings::save()` (API), imports, exports and the seed store every given field; `required` is not enforced
+  on a field hidden for the saved + effective values.
 
 ### Reading the values in the contributing bundle
 

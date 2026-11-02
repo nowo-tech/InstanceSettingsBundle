@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Form;
 
+use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
 use Nowo\DoctrineEncryptBundle\Form\Type\SecretType;
 use Nowo\FormKitBundle\Attribute\FormKitConfig;
 use Nowo\FormKitBundle\Form\FormOptionsTrait;
@@ -24,11 +25,15 @@ use Symfony\Component\Form\Extension\Core\Type\UrlType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormEvents;
+use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormTypeInterface;
+use Symfony\Component\Form\Util\StringUtil;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 use function array_replace_recursive;
+use function in_array;
 use function is_array;
+use function is_string;
 
 /**
  * Admin form of one settings section, built from its {@see SettingField}s (REQ-TWIG-005 rule 11: FormKit type).
@@ -40,7 +45,7 @@ use function is_array;
  * Provider-dependent fields (1.3, {@see SettingField::withVisibleWhen()}) carry the UiKit `visible-when` row
  * attributes (`row_attr`), so the peer hides them without disabling or clearing them. On submit, a field hidden for the
  * submitted controlling value is reset to its current value before validation (no error on a row the user cannot
- * see; the controller does not save it).
+ * see; the controller does not save it); a hidden secret keeps only an explicit "clear" (deletes its stored row).
  *
  * @extends AbstractType<array<string, mixed>>
  */
@@ -125,13 +130,53 @@ final class SettingsSectionType extends AbstractType
             return;
         }
         $form = $event->getForm();
+
+        // Controlling values normalized like the submitted form data the controller decides on.
+        $controllers = [];
         foreach ($dependent as $field) {
-            if ($field->isVisibleFor($data) || !$form->has($field->name)) {
+            $controller = $field->visibleWhen['field'] ?? '';
+            if ($form->has($controller)) {
+                $controllers[$controller] = self::submittedValue($form->get($controller), $data[$controller] ?? null);
+            }
+        }
+
+        foreach ($dependent as $field) {
+            if ($field->isVisibleFor($controllers) || !$form->has($field->name)) {
                 continue;
             }
-            $data[$field->name] = $field->secret ? [] : $form->get($field->name)->getViewData();
+            if ($field->secret) {
+                // Only an explicit "clear" survives on a hidden secret (deletes the stored row, never writes a value).
+                $submitted          = $data[$field->name] ?? null;
+                $clear              = is_array($submitted) ? ($submitted[SecretFieldApplier::KEY_CLEAR] ?? null) : null;
+                $data[$field->name] = is_string($clear) && $form->get($field->name)->has(SecretFieldApplier::KEY_CLEAR) ? [SecretFieldApplier::KEY_CLEAR => $clear] : [];
+
+                continue;
+            }
+            $data[$field->name] = $form->get($field->name)->getViewData();
         }
         $event->setData($data);
+    }
+
+    /**
+     * Raw submitted value of a controlling field normalized as its form type does: a checkbox gives a bool (any
+     * submitted string but its `false_values` is checked), a trimmed text field a trimmed string, others the raw value.
+     *
+     * @param FormInterface<mixed> $child
+     */
+    public static function submittedValue(FormInterface $child, mixed $raw): mixed
+    {
+        $config = $child->getConfig();
+        if ($config->hasOption('false_values')) {
+            /** @var array<mixed> $false */
+            $false = $config->getOption('false_values');
+
+            return !in_array($raw, $false, true);
+        }
+        if (is_string($raw) && $config->getOption('trim') === true) {
+            return StringUtil::trim($raw);
+        }
+
+        return $raw;
     }
 
     /**

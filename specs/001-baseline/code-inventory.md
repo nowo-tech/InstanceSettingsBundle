@@ -110,10 +110,12 @@ Files changed by [003](../003-provider-dependent-fields/spec.md) (no new file; m
 | Source file | Spec section | Requirement IDs |
 | --- | --- | --- |
 | `src/Section/SettingField.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-001, FR-VIS-002 |
-| `src/Section/SettingsSectionRegistry.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-002, FR-VIS-003 |
+| `src/Section/SettingsSectionRegistry.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-003 |
 | `src/Form/SettingsSectionType.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-004 |
 | `src/Controller/SettingsController.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-005 |
 | `src/Ui/SettingsPageFactory.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-006 |
+| `src/Settings/InstanceSettings.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-008 |
+| `src/Settings/ValueNormalizer.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-008 |
 
 ## Totals
 

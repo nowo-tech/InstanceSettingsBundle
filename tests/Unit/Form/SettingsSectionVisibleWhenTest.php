@@ -11,6 +11,7 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\GeneralFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ProviderFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Support\FormFactorySupport;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormInterface;
@@ -80,6 +81,58 @@ final class SettingsSectionVisibleWhenTest extends TestCase
         self::assertNull($data['tracking_domain'] ?? null);
     }
 
+    public function testHiddenSecretKeepsOnlyTheClearIntent(): void
+    {
+        $form = $this->form(['provider' => 'smtp']);
+        $form->submit(['_token' => 'token-nowo_instance_settings_section', 'provider' => 'smtp', 'smtp_host' => 'h', 'api_key' => ['value' => 'REDACTED-NEW', 'clear' => '1']]);
+        self::assertTrue($form->isValid());
+        self::assertSame(['value' => null, 'clear' => true], $form->get('api_key')->getData(), 'value dropped, clear kept');
+
+        $form = $this->form(['provider' => 'smtp']);
+        $form->submit(['_token' => 'token-nowo_instance_settings_section', 'provider' => 'smtp', 'smtp_host' => 'h', 'api_key' => ['value' => 'REDACTED-NEW', 'clear' => ['x']]]);
+        self::assertSame(['value' => null, 'clear' => false], $form->get('api_key')->getData(), 'a non-string clear is dropped');
+
+        $form = $this->form(['provider' => 'smtp'], false);
+        $form->submit(['_token' => 'token-nowo_instance_settings_section', 'provider' => 'smtp', 'smtp_host' => 'h', 'api_key' => ['clear' => '1']]);
+        self::assertTrue($form->isValid(), 'nothing stored: no clear box, the intent is dropped');
+    }
+
+    /**
+     * @return iterable<string, array{0: mixed, 1: bool}>
+     */
+    public static function checkboxPosts(): iterable
+    {
+        yield 'absent' => [null, false];
+        yield 'empty' => ['', true];
+        yield 'zero' => ['0', true];
+        yield 'yes' => ['yes', true];
+        yield 'one' => ['1', true];
+    }
+
+    #[DataProvider('checkboxPosts')]
+    public function testCheckboxControllerIsNormalizedLikeTheForm(mixed $posted, bool $visible): void
+    {
+        $form = $this->form(['provider' => 'none', 'tracking_domain' => 'stored.example.test']);
+        $post = ['_token' => 'token-nowo_instance_settings_section', 'provider' => 'none', 'tracking_domain' => 'new.example.test'];
+        if ($posted !== null) {
+            $post['tracking'] = $posted;
+        }
+        $form->submit($post);
+        $data = (array) $form->getData();
+
+        self::assertSame($visible, $data['tracking']);
+        self::assertSame($visible, $form->getConfig()->getOption('fields')['tracking_domain']->isVisibleFor($data), 'controller view');
+        self::assertSame($visible ? 'new.example.test' : 'stored.example.test', $data['tracking_domain'], 'PRE_SUBMIT view');
+    }
+
+    public function testTextControllerIsTrimmedLikeTheForm(): void
+    {
+        $form = $this->form([]);
+        self::assertSame('smtp', SettingsSectionType::submittedValue($form->get('label'), '  smtp '));
+        self::assertSame(['x'], SettingsSectionType::submittedValue($form->get('label'), ['x']));
+        self::assertSame('smtp', SettingsSectionType::submittedValue($form->get('provider'), 'smtp'));
+    }
+
     public function testKeepHiddenFieldsIgnoresNonArrayDataAndMissingChildren(): void
     {
         $form  = $this->form([]);
@@ -97,13 +150,14 @@ final class SettingsSectionVisibleWhenTest extends TestCase
      *
      * @return FormInterface<mixed>
      */
-    private function form(array $data): FormInterface
+    private function form(array $data, bool $storedKey = true): FormInterface
     {
         $registry = new SettingsSectionRegistry([new ProviderFixtureSection()]);
 
         return FormFactorySupport::factory()->createNamed('settings_section', SettingsSectionType::class, $data, [
-            'section' => $registry->get('transport'),
-            'fields'  => $registry->fields('transport'),
+            'section'        => $registry->get('transport'),
+            'fields'         => $registry->fields('transport'),
+            'stored_secrets' => ['api_key' => $storedKey],
         ]);
     }
 }
