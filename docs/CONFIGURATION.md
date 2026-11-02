@@ -12,6 +12,7 @@
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
 - [Profiles](#profiles)
 - [Container parameters](#container-parameters)
+- [Seeding from fallbacks](#seeding-from-fallbacks)
 - [Fail-closed checks](#fail-closed-checks)
 
 ## Full reference
@@ -179,6 +180,12 @@ REQ-CFG-001 does not apply: the bundle has one configuration tree. Variants are 
 ## Container parameters
 
 `nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`.
+
+## Seeding from fallbacks
+
+No configuration key: `FallbackSeeder` (public service) and `nowo:instance-settings:seed-from-fallbacks` are always
+registered and use `doctrine.entity_manager`. Sections opt in with `SectionFallbackProviderInterface`. See
+[USAGE](USAGE.md#seeding-from-fallbacks-db-only-mode), including the non-transactional migration rule.
 
 ## Fail-closed checks
 

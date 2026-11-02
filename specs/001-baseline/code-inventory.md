@@ -2,9 +2,9 @@
 
 **Baseline spec**: [`spec.md`](spec.md)  
 **Package**: `nowo-tech/instance-settings-bundle`  
-**Last audited**: 2026-10-31
+**Last audited**: 2026-11-02
 
-Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **59**.
+Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **66**.
 
 ## Bundle and dependency injection
 
@@ -54,13 +54,13 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 | --- | --- | --- |
 | `src/Routing/InstanceSettingsRouteLoader.php` | Admin UI | FR-UI-001 |
 | `src/Routing/InstanceSettingsRoutes.php` | Admin UI | FR-UI-001, FR-SEC-003 |
-| `src/Controller/SettingsController.php` | Admin UI | FR-UI-002 |
+| `src/Controller/SettingsController.php` | Admin UI | FR-UI-002, FR-SEED-006 |
 | `src/Form/SettingsSectionType.php` | Admin UI | FR-UI-003 |
 | `src/Form/PortabilityExportType.php` | Admin UI | FR-UI-003 |
 | `src/Form/PortabilityImportType.php` | Admin UI | FR-UI-003 |
-| `src/Ui/SettingsPageFactory.php` | Admin UI | FR-UI-004 |
+| `src/Ui/SettingsPageFactory.php` | Admin UI | FR-UI-004, FR-SEED-006 |
 | `src/Ui/SettingsPages.php` | Admin UI | FR-UI-004 |
-| `src/Resources/views/settings/section.html.twig` | Admin UI | FR-UI-004 |
+| `src/Resources/views/settings/section.html.twig` | Admin UI | FR-UI-004, FR-SEED-006 |
 | `src/Resources/views/settings/portability.html.twig` | Admin UI | FR-UI-004 |
 | `src/Security/InstanceSettingsAccessCheckerInterface.php` | Admin UI | FR-ACC-001 |
 | `src/Security/ConfigurableInstanceSettingsAccessChecker.php` | Admin UI | FR-ACC-001 |
@@ -90,7 +90,19 @@ Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **
 | `src/Command/ExportSettingsCommand.php` | Portability | FR-PORT-006 |
 | `src/Command/ImportSettingsCommand.php` | Portability | FR-PORT-006 |
 
+## Seed from fallbacks (spec 002)
+
+| Source file | Spec section | Requirement IDs |
+| --- | --- | --- |
+| `src/Section/SettingFallback.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-001 |
+| `src/Section/SectionFallbackProviderInterface.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-001 |
+| `src/Section/SettingsSectionNoticesInterface.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-006 |
+| `src/Seed/FallbackSeeder.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-002 |
+| `src/Seed/SeedReport.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-003 |
+| `src/Seed/TransactionStateGuard.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-005 |
+| `src/Command/SeedFromFallbacksCommand.php` | [002](../002-seed-from-fallbacks/spec.md) | FR-SEED-004 |
+
 ## Totals
 
-- Mapped files: **59/59** (100%).
+- Mapped files: **66/66** (100%).
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

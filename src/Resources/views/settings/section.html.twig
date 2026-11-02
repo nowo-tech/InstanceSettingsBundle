@@ -4,6 +4,17 @@
   one tab per section the user may open, the current section form (SettingsSectionType; the scaffold renders the
   REQ-TWIG-003 child loop and the submit button) and the section's extra actions). Also: section (current name).
   Without any section, SettingsPageFactory::empty() (header only).
+  Optional (1.2): notices (list of UiKit Labels from SettingsPageFactory::notices(), the section's
+  SettingsSectionNoticesInterface warnings), rendered as UiKit `flash_warning` alerts above the current section form.
   Data block: nowo_ui_settings_section (`section` in context).
 #}
 {% extends '@NowoUiKit/page/settings.html.twig' %}
+
+{% block nowo_ui_settings_section %}
+    {% if section.form %}
+        {% for notice in notices|default([]) %}
+            <div class="{{ nowo_ui_class('flash_warning', page.bundle) }}" role="alert" data-testid="instance-settings-notice">{{ notice|nowo_ui_trans }}</div>
+        {% endfor %}
+    {% endif %}
+    {{ parent() }}
+{% endblock %}

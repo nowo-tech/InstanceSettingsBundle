@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [To 1.2.0](#to-120)
 - [To 1.1.1](#to-111)
 - [To 1.1.0](#to-110)
 - [To 1.0.0](#to-100)
@@ -13,6 +14,35 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+### To 1.2.0
+
+From **1.1.x**: no configuration or schema change, no BC break.
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+New, all optional:
+
+- `SectionFallbackProviderInterface` + `FallbackSeeder` + `nowo:instance-settings:seed-from-fallbacks`: copy the
+  `%env()%` / YAML fallbacks of the kits (SmsKit / MailKit 1.2+) into the store once. See
+  [Seeding from fallbacks](USAGE.md#seeding-from-fallbacks-db-only-mode).
+- `SettingsSectionNoticesInterface`: warnings on the section page. A host that overrides
+  `web_ui.templates.section` gets a new optional `notices` variable (list of UiKit labels); render it or ignore it.
+- `SettingsChangedEvent::ORIGIN_SEED` (`seed`): listeners that switch on the origin should accept it.
+
+Moving a host to DB-only mode, **in this order**:
+
+1. Upgrade the bundle and the kits while the `%env()%` fallbacks are still wired in their configuration.
+2. Run `php bin/console nowo:instance-settings:seed-from-fallbacks --dry-run`, then without `--dry-run` (or call
+   `FallbackSeeder::seed()` from an upgrade step). It is idempotent.
+3. Check the settings pages (no warnings), then remove the env vars / YAML values. Removing them first would seed nothing.
+
+From a Doctrine migration, use a **non-transactional** migration (`isTransactional(): false` or
+`doctrine_migrations.transactional: false`): on MySQL, DDL commits implicitly and a transactional migration leaves DBAL
+with a phantom transaction (`SAVEPOINT DOCTRINE_n does not exist`). The seeder detects it and throws a clear
+`LogicException`. See [Calling the seeder from a migration](USAGE.md#calling-the-seeder-from-a-migration).
 
 ## To 1.1.1
 

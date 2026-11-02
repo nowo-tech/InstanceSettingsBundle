@@ -10,6 +10,7 @@ use Nowo\DoctrineEncryptBundle\Util\EncryptUtil;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
 use Nowo\InstanceSettingsBundle\Command\ExportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\ImportSettingsCommand;
+use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
@@ -31,6 +32,8 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
+use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
+use Nowo\InstanceSettingsBundle\Seed\TransactionStateGuard;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
@@ -57,7 +60,7 @@ use function is_string;
 use function sprintf;
 
 /**
- * Loads `nowo_instance_settings`: the settings store, sections registry, portability, CLI, and (when enabled) the
+ * Loads `nowo_instance_settings`: the settings store, sections registry, fallback seeder, portability, CLI, and (when enabled) the
  * admin UI with its access checker, route loader and FormKit profile.
  */
 final class NowoInstanceSettingsExtension extends Extension implements PrependExtensionInterface
@@ -184,6 +187,25 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         ]))->addTag('kernel.reset', ['method' => 'reset']));
         $container->setAlias(InstanceSettingsInterface::class, InstanceSettings::class)->setPublic(true);
 
+        $container->setDefinition(TransactionStateGuard::class, new Definition(TransactionStateGuard::class, [
+            new Reference('doctrine'),
+            $doctrine['entity_manager'],
+        ]));
+
+        // Public: host upgrade steps and Doctrine migrations may fetch it from the container.
+        $container->setDefinition(FallbackSeeder::class, (new Definition(FallbackSeeder::class, [
+            new Reference(SettingsSectionRegistry::class),
+            new Reference(SettingValueRepositoryInterface::class),
+            new Reference(InstanceSettingsInterface::class),
+            new Reference(ValueNormalizer::class),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(TransactionStateGuard::class),
+        ]))->setPublic(true));
+
+        $container->setDefinition(SeedFromFallbacksCommand::class, (new Definition(SeedFromFallbacksCommand::class, [
+            new Reference(FallbackSeeder::class),
+        ]))->addTag('console.command', ['command' => SeedFromFallbacksCommand::NAME]));
+
         $container->setDefinition(InstanceSettingsTwigExtension::class, (new Definition(InstanceSettingsTwigExtension::class, [
             new Reference(InstanceSettingsInterface::class),
         ]))->addTag('twig.extension'));
@@ -214,6 +236,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(ValueNormalizer::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(TransactionStateGuard::class),
         ]))->setPublic(true));
 
         $container->setDefinition(ExportSettingsCommand::class, (new Definition(ExportSettingsCommand::class, [
