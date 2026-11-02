@@ -57,13 +57,14 @@ that is not one of the controlling choice / bool values, **When** the section de
   (controlling input name `<form>[<field>]`), merged with a `row_attr` from `withFormOptions()`, for plain and secret
   fields. A `PRE_SUBMIT` listener replaces the submitted value of every field hidden for the submitted controlling
   value with its current view value; a hidden secret keeps only an explicit `clear`. The controlling value is
-  normalized as the form type does (`submittedValue()`: checkbox `false_values`, `trim`), so the listener and the
-  controller decide visibility on the same value.
+  normalized as the form type does (`submittedValue()`: `trim`, then the view and model transformers in reverse), so
+  the listener and the controller decide visibility on the same value.
 - **FR-VIS-005** `SettingsController` saves only the fields visible for the submitted values (a hidden field is never
   validated, written or deleted), except a hidden secret with `clear` checked, whose stored row is deleted (audit
   SK-L1: remove an inactive provider's leaked credential; never writes a value).
 - **FR-VIS-008** `InstanceSettings::save()` / `ValueNormalizer::normalize($field, $value, $enforceRequired)`: `required`
-  is not enforced on a provider-dependent field hidden for the saved + effective values.
+  is not enforced on a provider-dependent field hidden for the saved + effective values. Two passes: every value is
+  normalized first, then visibility is decided on the normalized values merged over the stored ones (audit N1).
 - **FR-VIS-006** `SettingsPageFactory::hasVisibleWhenRows()`; the section page root gets
   `data-controller="visible-when"` only when a row carries the attributes (pages without `visible_when` unchanged).
 - **FR-VIS-007** Unchanged: the seed, `InstanceSettings::save()` (API), imports and exports store every given field.

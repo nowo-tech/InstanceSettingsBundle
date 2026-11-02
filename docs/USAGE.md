@@ -157,12 +157,12 @@ yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true
   before validation, so a hidden row never shows an error. "Empty = delete" applies to visible fields only; secrets
   keep "blank = keep". One exception: checking "clear" on a hidden secret deletes its stored row (a value typed in it
   is never written), to remove an inactive provider's credential without activating it. The controlling value is
-  normalized like the form type does (a checkbox posted as any string is checked, text is trimmed) on both sides.
+  normalized like the form type does (trim, then its transformers: checkbox → bool, integer → int) on both sides.
   Without JavaScript, edit a provider's fields after selecting it.
 - Notices: compute required-field notices for the active provider only (`SettingField::isVisibleFor()` with the
   stored values).
 - `InstanceSettings::save()` (API), imports, exports and the seed store every given field; `required` is not enforced
-  on a field hidden for the saved + effective values.
+  on a field hidden for the normalized saved values merged over the stored ones.
 
 ### Reading the values in the contributing bundle
 

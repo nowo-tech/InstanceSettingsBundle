@@ -28,10 +28,13 @@ All notable changes to this project are documented here. The format follows
   submitted value is replaced by its current one before validation; secrets keep "blank = keep". Exception: an
   explicit "clear" on a hidden secret deletes its stored row (never writes a value), so an inactive provider's leaked
   credential can be removed without activating it. Visibility uses the controlling value normalized as the form type
-  does (checkbox: any posted string is checked; trimmed text) in both the `PRE_SUBMIT` listener
+  does (trim, then its view / model transformers: checkbox → bool, integer → int, choice → choice value) in both the
+  `PRE_SUBMIT` listener
   (`SettingsSectionType::submittedValue()`) and the save.
 - `InstanceSettings::save()` and `ValueNormalizer::normalize(..., bool $enforceRequired = true)`: `required` is not
-  enforced on a provider-dependent field hidden for the saved + effective values.
+  enforced on a provider-dependent field hidden for the saved + effective values; visibility is decided on the
+  normalized saved values merged over the stored ones, so a padded / loosely typed controller (`' smtp '`, `'yes'`,
+  `'01'`) cannot skip a required field, whatever the key order.
 - Demo: the `sms` section uses `visible_when`; Playwright e2e (provider switch, save, switch back, axe in both states).
 
 ### Changed

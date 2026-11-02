@@ -163,7 +163,7 @@ make release-check
 ## Tests and coverage
 
 - Tests: PHPUnit (PHP) — unit tests plus kernel integration tests (admin UI end to end with SecurityBundle, CSRF, encryption at rest on SQLite, import / export, opt-in routes, invalid configuration) and the UiKit page contract test; Playwright e2e on the demo
-- PHP: 100% (1618/1618 statements, 1843/1843 elements; gate enforced in CI by `composer test-coverage-100`, no exclusions)
+- PHP: 100% (1630/1630 statements, 1855/1855 elements; gate enforced in CI by `composer test-coverage-100`, no exclusions)
 - TS/JS: N/A
 - Python: N/A
 

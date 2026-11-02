@@ -13,6 +13,8 @@ use Nowo\InstanceSettingsBundle\Tests\Support\FormFactorySupport;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Form\CallbackTransformer;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormInterface;
 
@@ -131,6 +133,28 @@ final class SettingsSectionVisibleWhenTest extends TestCase
         self::assertSame('smtp', SettingsSectionType::submittedValue($form->get('label'), '  smtp '));
         self::assertSame(['x'], SettingsSectionType::submittedValue($form->get('label'), ['x']));
         self::assertSame('smtp', SettingsSectionType::submittedValue($form->get('provider'), 'smtp'));
+    }
+
+    public function testIntChoiceAndCheckboxControllersUseTheTypeTransformers(): void
+    {
+        $form = $this->form([]);
+        self::assertSame(1, SettingsSectionType::submittedValue($form->get('smtp_port'), '01'));
+        self::assertSame(25, SettingsSectionType::submittedValue($form->get('smtp_port'), ' 25 '));
+        self::assertSame('abc', SettingsSectionType::submittedValue($form->get('smtp_port'), 'abc'), 'untransformable: raw');
+        self::assertSame('nope', SettingsSectionType::submittedValue($form->get('provider'), 'nope'), 'invalid choice: raw');
+        self::assertFalse(SettingsSectionType::submittedValue($form->get('tracking'), null));
+        self::assertTrue(SettingsSectionType::submittedValue($form->get('tracking'), '0'));
+
+        $int = FormFactorySupport::factory()->createNamed('settings_section', SettingsSectionType::class, [], [
+            'section' => new ProviderFixtureSection(),
+            'fields'  => ['level' => SettingField::choice('level', ['one' => 1, 'two' => 2]), 'x' => SettingField::string('x')->withVisibleWhen('level', [1])],
+        ]);
+        self::assertSame(2, SettingsSectionType::submittedValue($int->get('level'), '2'));
+
+        $modelled = FormFactorySupport::factory()->createNamedBuilder('code', TextType::class)
+            ->addModelTransformer(new CallbackTransformer(static fn (mixed $v): mixed => $v, static fn (mixed $v): string => 'model:' . (string) $v))
+            ->getForm();
+        self::assertSame('model:smtp', SettingsSectionType::submittedValue($modelled, ' smtp '), 'model transformers too');
     }
 
     public function testKeepHiddenFieldsIgnoresNonArrayDataAndMissingChildren(): void

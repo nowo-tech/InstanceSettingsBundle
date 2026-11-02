@@ -14,6 +14,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\UiKitBundle\Form\VisibleWhen;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Exception\TransformationFailedException;
 use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\EmailType;
@@ -22,6 +23,7 @@ use Symfony\Component\Form\Extension\Core\Type\NumberType;
 use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\Extension\Core\Type\UrlType;
+use Symfony\Component\Form\Form;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormEvents;
@@ -31,7 +33,7 @@ use Symfony\Component\Form\Util\StringUtil;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 use function array_replace_recursive;
-use function in_array;
+use function array_reverse;
 use function is_array;
 use function is_string;
 
@@ -158,25 +160,33 @@ final class SettingsSectionType extends AbstractType
     }
 
     /**
-     * Raw submitted value of a controlling field normalized as its form type does: a checkbox gives a bool (any
-     * submitted string but its `false_values` is checked), a trimmed text field a trimmed string, others the raw value.
+     * Raw submitted value of a controlling field normalized as its form type does (`trim`, then the view and model
+     * transformers in reverse, as {@see Form::submit()}): a checkbox gives a bool, an
+     * integer field an int, a choice its choice value. A value the type cannot transform is returned raw (the form
+     * reports it as invalid anyway).
      *
      * @param FormInterface<mixed> $child
      */
     public static function submittedValue(FormInterface $child, mixed $raw): mixed
     {
         $config = $child->getConfig();
-        if ($config->hasOption('false_values')) {
-            /** @var array<mixed> $false */
-            $false = $config->getOption('false_values');
-
-            return !in_array($raw, $false, true);
-        }
         if (is_string($raw) && $config->getOption('trim') === true) {
-            return StringUtil::trim($raw);
+            $raw = StringUtil::trim($raw);
         }
 
-        return $raw;
+        $value = $raw;
+        try {
+            foreach (array_reverse($config->getViewTransformers()) as $transformer) {
+                $value = $transformer->reverseTransform($value);
+            }
+            foreach (array_reverse($config->getModelTransformers()) as $transformer) {
+                $value = $transformer->reverseTransform($value);
+            }
+        } catch (TransformationFailedException) {
+            return $raw;
+        }
+
+        return $value;
     }
 
     /**
