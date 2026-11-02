@@ -6,12 +6,17 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.3.0] - 2026-11-02](#130---2026-11-02)
 - [[1.2.0] - 2026-11-02](#120---2026-11-02)
 - [[1.1.1] - 2026-11-01](#111---2026-11-01)
 - [[1.1.0] - 2026-10-31](#110---2026-10-31)
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.3.0] - 2026-11-02
+
+provider-dependent fields (visible_when), clear on hidden secrets, hidden-required rule
 
 ### Added
 

@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.3.0](#to-130)
 - [To 1.2.0](#to-120)
   - [To 1.2.0](#to-120-1)
 - [To 1.1.1](#to-111)
@@ -15,6 +16,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.3.0
+
+From **1.2.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 From **1.2.x**: no configuration or schema change, no BC break. Requires `nowo-tech/ui-kit-bundle` ^2.23
 (`composer update nowo-tech/instance-settings-bundle nowo-tech/ui-kit-bundle -W`).
