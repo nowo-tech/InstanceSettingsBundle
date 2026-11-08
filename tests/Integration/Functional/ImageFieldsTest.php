@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 
+use DateTimeImmutable;
 use Nowo\InstanceSettingsBundle\File\ImageUpload;
+use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ImageFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
@@ -120,6 +122,35 @@ final class ImageFieldsTest extends KernelTestCase
         self::assertSame(200, $anonymous->getResponse()->getStatusCode());
     }
 
+    /**
+     * IO-L1 (audit 2026-11-08, PoC P3 inverted): a stale purge run marked the live logo as orphaned; the next run must
+     * clear the mark and delete nothing, even with retention 0, and the logo keeps being served.
+     */
+    public function testPurgeNeverDeletesTheLiveLogo(): void
+    {
+        $kernel = $this->bootKernel(['files' => ['enabled' => true, 'orphan_retention' => 0]], services: [ImageFixtureSection::class => ImageFixtureSection::class]);
+        $this->settings($kernel)->save('brand', ['logo' => ImageUpload::fromBytes(ImageFactory::png(64, 32))]);
+        $logo = $this->settings($kernel)->getFile('brand.logo');
+        self::assertNotNull($logo);
+        $store = $this->container($kernel)->get(SettingFileStoreInterface::class);
+        self::assertInstanceOf(SettingFileStoreInterface::class, $store);
+
+        // The stale run: its reference list missed the logo (an admin save racing the cron, a section not registered).
+        self::assertSame(1, $store->markUnreferenced([], new DateTimeImmutable('2026-11-01')));
+        self::assertNotNull($store->findImage('brand', 'logo', $logo->sha256)[0]->orphanedAt);
+
+        $tester = new CommandTester((new Application($kernel))->find('nowo:instance-settings:purge-files'));
+        self::assertSame(0, $tester->execute([]));
+        self::assertStringContainsString('Marked 0 newly unreferenced image(s); deleted 0', $tester->getDisplay());
+        self::assertNull($store->findImage('brand', 'logo', $logo->sha256)[0]->orphanedAt, 'the mark is cleared');
+
+        $this->settings($kernel)->reset();
+        $anonymous = $this->client($kernel, null);
+        $anonymous->request('GET', (string) $this->settings($kernel)->getFile('brand.logo')?->url());
+        self::assertSame(200, $anonymous->getResponse()->getStatusCode());
+        self::assertGreaterThan(0, (int) $this->connection($kernel)->fetchOne('SELECT COUNT(*) FROM instance_setting_file'));
+    }
+
     public function testRefusedUploadsCsrfAndRoles(): void
     {
         $kernel  = $this->imageKernel();
@@ -180,7 +211,7 @@ final class ImageFieldsTest extends KernelTestCase
 
     private function imageKernel(): InstanceSettingsTestKernel
     {
-        return $this->bootKernel(services: [ImageFixtureSection::class => ImageFixtureSection::class]);
+        return $this->bootKernel(['files' => ['enabled' => true]], services: [ImageFixtureSection::class => ImageFixtureSection::class]);
     }
 
     private function tempFile(string $bytes): string

@@ -8,7 +8,7 @@ use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
 use LogicException;
-use Nowo\InstanceSettingsBundle\Entity\SettingFile;
+use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
 
 use function array_flip;
 use function count;
@@ -120,24 +120,27 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
     }
 
     /**
-     * Marks the images whose reference is not live any more.
+     * Clears the marks of the referenced images and marks the images whose reference is not live any more.
      */
     public function markUnreferenced(array $referenced, DateTimeImmutable $at, bool $dryRun = false): int
     {
         $live = array_flip($referenced);
-        /** @var list<array{section: string, name: string, sha256: string}> $rows */
+        /** @var list<array{section: string, name: string, sha256: string, orphanedAt: DateTimeImmutable|null}> $rows */
         $rows = $this->entityManager()
-            ->createQuery(sprintf('SELECT f.section, f.name, f.sha256 FROM %s f WHERE f.variant = 0 AND f.orphanedAt IS NULL', SettingFile::class))
+            ->createQuery(sprintf('SELECT f.section, f.name, f.sha256, f.orphanedAt FROM %s f WHERE f.variant = 0', SettingFile::class))
             ->getArrayResult();
 
         $count = 0;
         foreach ($rows as $row) {
-            if (isset($live[$row['section'] . '.' . $row['name'] . '|' . $row['sha256']])) {
+            $isLive = isset($live[$row['section'] . '.' . $row['name'] . '|' . $row['sha256']]);
+            if ($isLive === ($row['orphanedAt'] === null)) {
                 continue;
             }
-            ++$count;
+            if (!$isLive) {
+                ++$count;
+            }
             if (!$dryRun) {
-                $this->setOrphanedAt($row['section'], $row['name'], $row['sha256'], $at);
+                $this->setOrphanedAt($row['section'], $row['name'], $row['sha256'], $isLive ? null : $at);
             }
         }
 
@@ -145,23 +148,47 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
     }
 
     /**
-     * Deletes the images orphaned at or before `$orphanedBefore`.
+     * Deletes the expired orphans that are still unreferenced, in one transaction with the re-read of the references.
      */
-    public function purge(DateTimeImmutable $orphanedBefore, bool $dryRun = false): int
+    public function purge(DateTimeImmutable $orphanedBefore, callable $referenced, bool $dryRun = false): int
     {
         $entityManager = $this->entityManager();
-        $count         = (int) $entityManager
-            ->createQuery(sprintf('SELECT COUNT(f.id) FROM %s f WHERE f.variant = 0 AND f.orphanedAt IS NOT NULL AND f.orphanedAt <= :before', SettingFile::class))
-            ->setParameter('before', $orphanedBefore, 'datetime_immutable')
-            ->getSingleScalarResult();
-        if (!$dryRun && $count > 0) {
-            $entityManager
-                ->createQuery(sprintf('DELETE FROM %s f WHERE f.orphanedAt IS NOT NULL AND f.orphanedAt <= :before', SettingFile::class))
-                ->setParameter('before', $orphanedBefore, 'datetime_immutable')
-                ->execute();
-        }
 
-        return $count;
+        // @igor-ignore - The closure runs synchronously inside the transaction and is not stored.
+        return (int) $entityManager->wrapInTransaction(static function (EntityManagerInterface $entityManager) use ($orphanedBefore, $referenced, $dryRun): int {
+            /** @var list<array{section: string, name: string, sha256: string}> $rows */
+            $rows = $entityManager
+                ->createQuery(sprintf('SELECT f.section, f.name, f.sha256 FROM %s f WHERE f.variant = 0 AND f.orphanedAt IS NOT NULL AND f.orphanedAt <= :before', SettingFile::class))
+                ->setParameter('before', $orphanedBefore, 'datetime_immutable')
+                ->getArrayResult();
+            if ($rows === []) {
+                return 0;
+            }
+
+            // Re-read right before deleting: a reference written since the marks were set keeps its image.
+            $live  = array_flip($referenced());
+            $count = 0;
+            foreach ($rows as $row) {
+                if (isset($live[$row['section'] . '.' . $row['name'] . '|' . $row['sha256']])) {
+                    continue;
+                }
+                ++$count;
+                if ($dryRun) {
+                    continue;
+                }
+                // The mark is checked again by the delete itself: a concurrent save that references the image again
+                // clears it, and the row is then kept.
+                $entityManager
+                    ->createQuery(sprintf('DELETE FROM %s f WHERE f.section = :section AND f.name = :name AND f.sha256 = :sha AND f.orphanedAt IS NOT NULL AND f.orphanedAt <= :before', SettingFile::class))
+                    ->setParameter('section', $row['section'])
+                    ->setParameter('name', $row['name'])
+                    ->setParameter('sha', $row['sha256'])
+                    ->setParameter('before', $orphanedBefore, 'datetime_immutable')
+                    ->execute();
+            }
+
+            return $count;
+        });
     }
 
     private function setOrphanedAt(string $section, string $field, string $sha256, ?DateTimeImmutable $at): void

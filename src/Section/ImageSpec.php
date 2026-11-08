@@ -36,8 +36,11 @@ final readonly class ImageSpec
     /** Default `maxWidth` / `maxHeight`. */
     public const DEFAULT_MAX_DIMENSION = 4096;
 
-    /** Hard pixel cap (width × height), checked from the header before any decoding. */
-    public const MAX_PIXELS = 16_000_000;
+    /**
+     * Hard pixel cap (width × height), checked from the header before any decoding: the default maximum dimensions
+     * (4096 × 4096 = 16 777 216 px), so an image at the defaults is accepted. The memory budget still applies.
+     */
+    public const MAX_PIXELS = self::DEFAULT_MAX_DIMENSION * self::DEFAULT_MAX_DIMENSION;
 
     /** Largest variant (longest side, in pixels). */
     public const MAX_VARIANT = 4096;

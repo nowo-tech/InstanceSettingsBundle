@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Nowo\InstanceSettingsBundle\Entity;
+namespace Nowo\InstanceSettingsBundle\FileEntity;
 
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping as ORM;

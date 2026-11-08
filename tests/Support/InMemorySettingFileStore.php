@@ -85,24 +85,26 @@ final class InMemorySettingFileStore implements SettingFileStoreInterface
         $count = 0;
         foreach ($this->rows as $row) {
             $record = $row['record'];
-            if ($record->variant !== 0 || $record->orphanedAt !== null || isset($live[$record->section . '.' . $record->field . '|' . $record->sha256])) {
+            $isLive = isset($live[$record->section . '.' . $record->field . '|' . $record->sha256]);
+            if ($record->variant !== 0 || $isLive === ($record->orphanedAt === null)) {
                 continue;
             }
-            ++$count;
+            $count += $isLive ? 0 : 1;
             if (!$dryRun) {
-                $this->setOrphanedAt($record->section, $record->field, $record->sha256, $at);
+                $this->setOrphanedAt($record->section, $record->field, $record->sha256, $isLive ? null : $at);
             }
         }
 
         return $count;
     }
 
-    public function purge(DateTimeImmutable $orphanedBefore, bool $dryRun = false): int
+    public function purge(DateTimeImmutable $orphanedBefore, callable $referenced, bool $dryRun = false): int
     {
+        $live  = array_flip($referenced());
         $count = 0;
         foreach ($this->rows as $id => $row) {
             $record = $row['record'];
-            if ($record->orphanedAt === null || $record->orphanedAt > $orphanedBefore) {
+            if ($record->orphanedAt === null || $record->orphanedAt > $orphanedBefore || isset($live[$record->section . '.' . $record->field . '|' . $record->sha256])) {
                 continue;
             }
             if ($record->variant === 0) {

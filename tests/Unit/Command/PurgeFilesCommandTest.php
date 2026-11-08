@@ -81,6 +81,35 @@ final class PurgeFilesCommandTest extends TestCase
         self::assertSame(1, $originals());
     }
 
+    public function testStaleMarksHealAndUnknownSectionsKeepTheirImages(): void
+    {
+        $registry   = new SettingsSectionRegistry([new ImageFixtureSection()]);
+        $repository = new InMemorySettingValueRepository();
+        $store      = new InMemorySettingFileStore();
+        $clock      = new MockClock('2026-11-01 12:00:00');
+        $settings   = new InstanceSettings($repository, $registry, clock: $clock, fileStore: $store);
+        $settings->save('brand', ['logo' => ImageUpload::fromBytes(ImageFactory::png(64, 32))]);
+        $logo = (string) $settings->getFile('brand.logo')?->sha256;
+
+        // A section that is not registered right now (feature flag, broken deploy) still has a row and an image.
+        $gone = (new ImageProcessor())->process(new ImageSpec(), ImageFactory::png(8, 8));
+        $store->save('gone', 'logo', $gone, new DateTimeImmutable());
+        $repository->apply([(new SettingValue('gone', 'logo', new DateTimeImmutable()))->storeValue('isf:' . $gone->sha256(), new DateTimeImmutable())], []);
+
+        // A stale run marked the live logo long ago.
+        $store->orphan('brand', 'logo', $logo, new DateTimeImmutable('2026-01-01'));
+        $tester = new CommandTester(new PurgeFilesCommand($registry, $repository, $store, 0, $clock));
+        self::assertSame(Command::SUCCESS, $tester->execute([]));
+        self::assertStringContainsString('Marked 0 newly unreferenced image(s); deleted 0', $tester->getDisplay());
+        self::assertNull($store->findImage('brand', 'logo', $logo)[0]->orphanedAt, 'the stale mark is cleared');
+        self::assertNotSame([], $store->findImage('gone', 'logo', $gone->sha256()), 'unknown sections keep their images');
+
+        self::assertSame(Command::SUCCESS, $tester->execute(['--include-unknown-sections' => true]));
+        self::assertStringContainsString('Marked 1 newly unreferenced image(s); deleted 1', $tester->getDisplay());
+        self::assertSame([], $store->findImage('gone', 'logo', $gone->sha256()));
+        self::assertNotNull($settings->getFile('brand.logo'));
+    }
+
     public function testExportIncludeFilesOption(): void
     {
         $registry   = new SettingsSectionRegistry([new ImageFixtureSection()]);

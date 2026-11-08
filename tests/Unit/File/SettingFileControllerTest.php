@@ -144,7 +144,7 @@ final class SettingFileControllerTest extends TestCase
         $this->store->orphan('brand', 'logo', $this->logo, new DateTimeImmutable('-10 days'));
         self::assertSame(200, $this->get(false, 'brand', 'logo', substr($this->logo, 0, 12), 'png')->getStatusCode());
 
-        $this->store->purge(new DateTimeImmutable());
+        $this->store->purge(new DateTimeImmutable(), static fn (): array => []);
         self::assertSame(404, $this->get(false, 'brand', 'logo', substr($this->logo, 0, 12), 'png')->getStatusCode());
     }
 

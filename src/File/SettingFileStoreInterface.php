@@ -44,16 +44,23 @@ interface SettingFileStoreInterface
     public function orphan(string $section, string $field, string $sha256, DateTimeImmutable $at): void;
 
     /**
-     * Marks every not-yet-orphaned image whose `section.field|sha256` is not in `$referenced` as orphaned from `$at`
-     * (fields removed from code, rows deleted outside the bundle). Returns the number of images (originals) concerned.
+     * Reconciles the orphan marks with the live references: clears `orphaned_at` on every image whose
+     * `section.field|sha256` is in `$referenced` (an image referenced again, by a restore, an import or a stale earlier
+     * run, is never purged), and marks every other not-yet-orphaned image as orphaned from `$at` (fields removed from
+     * code, rows deleted outside the bundle). Returns the number of images (originals) newly marked.
      *
      * @param list<string> $referenced `<section>.<field>|<sha256>` of every live reference
      */
     public function markUnreferenced(array $referenced, DateTimeImmutable $at, bool $dryRun = false): int;
 
     /**
-     * Deletes the images (and variants) orphaned at or before `$orphanedBefore`. Returns the number of images
-     * (originals) concerned.
+     * Deletes the images (and variants) orphaned at or before `$orphanedBefore` that are still not referenced.
+     * `$referenced` is called right before the delete, inside the store's transaction, and returns the live references
+     * (`<section>.<field>|<sha256>`) read again at that moment; a referenced image is never deleted, even if it still
+     * carries an orphan mark. Each delete also re-checks the mark, so an image referenced again concurrently (its mark
+     * cleared) is kept. Returns the number of images (originals) concerned.
+     *
+     * @param callable(): list<string> $referenced
      */
-    public function purge(DateTimeImmutable $orphanedBefore, bool $dryRun = false): int;
+    public function purge(DateTimeImmutable $orphanedBefore, callable $referenced, bool $dryRun = false): int;
 }

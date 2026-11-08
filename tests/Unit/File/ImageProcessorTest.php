@@ -111,8 +111,18 @@ final class ImageProcessorTest extends TestCase
         self::assertSame([30_000, 30_000], [getimagesizefromstring($bomb)[0] ?? null, getimagesizefromstring($bomb)[1] ?? null]);
 
         $this->assertRefused(ImageRefusedException::TOO_MANY_PIXELS, new ImageSpec(maxWidth: 4096, maxHeight: 4096), $bomb);
-        // Within the 16 MP cap but above the field's limits.
+        // Within the pixel cap but above the field's limits.
         $this->assertRefused(ImageRefusedException::DIMENSIONS_TOO_LARGE, new ImageSpec(maxWidth: 2000, maxHeight: 2000), ImageFactory::pngHeader(3000, 1000));
+    }
+
+    public function testThePixelCapMatchesTheDefaultMaxDimensions(): void
+    {
+        // IO-I2: 4096 × 4096 (the default maximum) passes the pixel cap; one more column does not.
+        self::assertSame(4096, (new ImageSpec(minWidth: 4096, minHeight: 4096))->minWidth);
+        $this->assertRefused(ImageRefusedException::TOO_MANY_PIXELS, new ImageSpec(maxWidth: 5000), ImageFactory::pngHeader(4097, 4096));
+        // The header-only 4096 × 4096 PNG gets past the cap, the field limits and an unlimited budget: GD refuses its
+        // empty pixel data, not the dimensions.
+        $this->assertRefusedWith(new ImageProcessor('-1'), ImageRefusedException::INVALID_IMAGE, new ImageSpec(), ImageFactory::pngHeader(4096, 4096));
     }
 
     public function testMemoryBudgetRefusesBeforeDecoding(): void

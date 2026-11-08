@@ -79,6 +79,14 @@ final class ImageFieldDefinitionTest extends TestCase
         self::assertTrue((new SettingsSectionRegistry([new ImageFixtureSection()]))->hasImageFields());
         self::assertFalse((new SettingsSectionRegistry([new GeneralFixtureSection()]))->hasImageFields());
         self::assertFalse((new SettingsSectionRegistry([new GeneralFixtureSection()], []))->hasImageFields(), 'no GD needed without image fields');
+        self::assertFalse((new SettingsSectionRegistry([new GeneralFixtureSection()], null, false))->hasImageFields(), 'no flag needed without image fields');
+
+        try {
+            (new SettingsSectionRegistry([new ImageFixtureSection()], null, false))->names();
+            self::fail('An image field without files.enabled must fail closed.');
+        } catch (LogicException $e) {
+            self::assertStringContainsString('declares the image field "logo": set nowo_instance_settings.files.enabled: true', $e->getMessage());
+        }
 
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('need ext-gd');

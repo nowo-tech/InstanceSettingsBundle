@@ -74,6 +74,9 @@ use function str_starts_with;
  */
 final class NowoInstanceSettingsExtension extends Extension implements PrependExtensionInterface
 {
+    /** Doctrine mapping name of the opt-in file entity (`files.enabled: true`). */
+    public const FILES_MAPPING = 'NowoInstanceSettingsFiles';
+
     /**
      * `nowo_instance_settings`.
      */
@@ -83,24 +86,32 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * Prepends the Doctrine mapping of the bundle entity and the FormKit profile of the bundle forms.
+     * Prepends the Doctrine mapping of the bundle entity (plus the file entity with `files.enabled: true`) and the
+     * FormKit profile of the bundle forms.
      */
     public function prepend(ContainerBuilder $container): void
     {
         if ($container->hasExtension('doctrine')) {
-            $container->prependExtensionConfig('doctrine', [
-                'orm' => [
-                    'mappings' => [
-                        'NowoInstanceSettingsBundle' => [
-                            'type'      => 'attribute',
-                            'dir'       => __DIR__ . '/../Entity',
-                            'prefix'    => 'Nowo\InstanceSettingsBundle\Entity',
-                            'alias'     => 'NowoInstanceSettings',
-                            'is_bundle' => false,
-                        ],
-                    ],
+            $mappings = [
+                'NowoInstanceSettingsBundle' => [
+                    'type'      => 'attribute',
+                    'dir'       => __DIR__ . '/../Entity',
+                    'prefix'    => 'Nowo\InstanceSettingsBundle\Entity',
+                    'alias'     => 'NowoInstanceSettings',
+                    'is_bundle' => false,
                 ],
-            ]);
+            ];
+            // Opt-in (1.4): hosts without image fields keep the 1.3 schema (no file table, no migration diff).
+            if (self::filesEnabled($container->getExtensionConfig(Configuration::ALIAS))) {
+                $mappings[self::FILES_MAPPING] = [
+                    'type'      => 'attribute',
+                    'dir'       => __DIR__ . '/../FileEntity',
+                    'prefix'    => 'Nowo\InstanceSettingsBundle\FileEntity',
+                    'alias'     => 'NowoInstanceSettingsFiles',
+                    'is_bundle' => false,
+                ];
+            }
+            $container->prependExtensionConfig('doctrine', ['orm' => ['mappings' => $mappings]]);
         }
 
         $this->prependFormKitProfile($container);
@@ -114,7 +125,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{path_prefix: string, orphan_retention: int}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -132,6 +143,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setParameter('nowo_instance_settings.web_ui.templates', $config['web_ui']['templates']);
         $container->setParameter('nowo_instance_settings.security.allow_unauthenticated', $config['security']['allow_unauthenticated']);
         $container->setParameter('nowo_instance_settings.portability.schema', $portability['schema']);
+        $container->setParameter('nowo_instance_settings.files.enabled', $config['files']['enabled']);
         $container->setParameter('nowo_instance_settings.files.path_prefix', $config['files']['path_prefix']);
         $container->setParameter('nowo_instance_settings.files.orphan_retention', $config['files']['orphan_retention']);
 
@@ -141,9 +153,10 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $definition->addTag(NowoInstanceSettingsBundle::SECTION_TAG, ['priority' => $attribute->priority]);
         });
 
-        $this->registerStore($container, $config['doctrine']);
-        $this->registerFiles($container, $config['doctrine'], $config['files']['orphan_retention']);
-        $this->registerPortability($container, $portability);
+        $filesEnabled = $config['files']['enabled'];
+        $this->registerStore($container, $config['doctrine'], $filesEnabled);
+        $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files']['orphan_retention']);
+        $this->registerPortability($container, $portability, $filesEnabled);
         // The access checker / guard also serve kits (their own actions, CLI) when the admin UI is off.
         $this->registerAccess($container, $config['security']);
         $this->registerWebUi($container, $config);
@@ -168,12 +181,34 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
+     * Whether the raw `nowo_instance_settings` configs enable the files (the last literal `files.enabled` wins). Read in
+     * prepend(), before the configuration is processed: a non-boolean value never enables the mapping, and load()
+     * refuses it anyway (literal booleans only).
+     *
+     * @param array<array<string, mixed>> $configs
+     */
+    public static function filesEnabled(array $configs): bool
+    {
+        $enabled = false;
+        foreach ($configs as $config) {
+            $files = $config['files'] ?? null;
+            if (is_array($files) && array_key_exists('enabled', $files)) {
+                $enabled = $files['enabled'] === true;
+            }
+        }
+
+        return $enabled;
+    }
+
+    /**
      * @param array{table_prefix: string, entity_manager: string|null} $doctrine
      */
-    private function registerStore(ContainerBuilder $container, array $doctrine): void
+    private function registerStore(ContainerBuilder $container, array $doctrine, bool $filesEnabled): void
     {
         $container->setDefinition(SettingsSectionRegistry::class, new Definition(SettingsSectionRegistry::class, [
             new TaggedIteratorArgument(NowoInstanceSettingsBundle::SECTION_TAG),
+            null,
+            $filesEnabled,
         ]));
 
         $container->setDefinition(DoctrineSettingValueRepository::class, new Definition(DoctrineSettingValueRepository::class, [
@@ -197,7 +232,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-            new Reference(SettingFileStoreInterface::class),
+            $filesEnabled ? new Reference(SettingFileStoreInterface::class) : null,
             new Reference(ImageProcessor::class),
             new Reference(SettingFileUrls::class),
         ]))->addTag('kernel.reset', ['method' => 'reset']));
@@ -230,23 +265,28 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * Image field storage (1.4): database store, GD pipeline, URLs, the anonymous-capable file controller and the purge
-     * command. Registered always (cheap, no request work); the file route exists only when a section declares an image
-     * field.
+     * Image field storage (1.4). The GD pipeline and the URL builder are always registered (stateless, no request work).
+     * The database store, the anonymous-capable file controller and the purge command exist only with
+     * `files.enabled: true` (the file table is mapped only then); the file route exists only when a section declares an
+     * image field, which needs the flag.
      *
      * @param array{table_prefix: string, entity_manager: string|null} $doctrine
      */
-    private function registerFiles(ContainerBuilder $container, array $doctrine, int $retention): void
+    private function registerFiles(ContainerBuilder $container, array $doctrine, bool $enabled, int $retention): void
     {
+        $container->setDefinition(ImageProcessor::class, new Definition(ImageProcessor::class));
+        $container->setDefinition(SettingFileUrls::class, new Definition(SettingFileUrls::class, [
+            new Reference('router', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]));
+        if (!$enabled) {
+            return;
+        }
+
         $container->setDefinition(DoctrineSettingFileStore::class, new Definition(DoctrineSettingFileStore::class, [
             new Reference('doctrine'),
             $doctrine['entity_manager'],
         ]));
         $container->setAlias(SettingFileStoreInterface::class, DoctrineSettingFileStore::class);
-        $container->setDefinition(ImageProcessor::class, new Definition(ImageProcessor::class));
-        $container->setDefinition(SettingFileUrls::class, new Definition(SettingFileUrls::class, [
-            new Reference('router', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-        ]));
 
         // Not autoconfigured and outside the Controller namespace: the admin access listener never guards it; the
         // controller itself checks the section area of non-public fields.
@@ -269,7 +309,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     /**
      * @param array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int} $portability
      */
-    private function registerPortability(ContainerBuilder $container, array $portability): void
+    private function registerPortability(ContainerBuilder $container, array $portability, bool $filesEnabled): void
     {
         $container->setDefinition(DoctrineEncryptSecretSealer::class, new Definition(DoctrineEncryptSecretSealer::class, [
             new Reference(EncryptUtil::class),
@@ -291,7 +331,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(ValueNormalizer::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-            new Reference(SettingFileStoreInterface::class),
+            $filesEnabled ? new Reference(SettingFileStoreInterface::class) : null,
             $portability['max_file_bytes'],
             new Reference(ImageProcessor::class),
         ]))->setPublic(true));
@@ -340,7 +380,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{path_prefix: string, orphan_retention: int}} $config
+     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int}} $config
      */
     private function registerWebUi(ContainerBuilder $container, array $config): void
     {
@@ -475,6 +515,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             'security.allow_unauthenticated' => $config['security']['allow_unauthenticated'] ?? null,
             'portability.web_ui'             => $config['portability']['web_ui'] ?? null,
             'portability.sealed_secrets'     => $config['portability']['sealed_secrets'] ?? null,
+            'files.enabled'                  => $config['files']['enabled'] ?? null,
         ];
         foreach ($switches as $path => $value) {
             if (!is_bool($value)) {

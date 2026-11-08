@@ -14,11 +14,13 @@ use function str_starts_with;
 
 /**
  * Applies `doctrine.table_prefix` to the bundle tables and index names (REQ-ORM-002). Only the bundle entities
- * (namespace `Nowo\InstanceSettingsBundle\Entity\`) are touched; an empty prefix is a no-op.
+ * (namespaces `Nowo\InstanceSettingsBundle\Entity\` and, with `files.enabled`, `Nowo\InstanceSettingsBundle\FileEntity\`)
+ * are touched; an empty prefix is a no-op.
  */
 final readonly class TablePrefixListener
 {
-    private const ENTITY_NAMESPACE = 'Nowo\\InstanceSettingsBundle\\Entity\\';
+    /** Namespaces of the bundle entities: the settings table and the opt-in file table (1.4). */
+    private const ENTITY_NAMESPACES = ['Nowo\\InstanceSettingsBundle\\Entity\\', 'Nowo\\InstanceSettingsBundle\\FileEntity\\'];
 
     /**
      * @param string $prefix table prefix (e.g. `app_`); empty = unprefixed names
@@ -34,7 +36,7 @@ final readonly class TablePrefixListener
     public function loadClassMetadata(LoadClassMetadataEventArgs $args): void
     {
         $metadata = $args->getClassMetadata();
-        if ($this->prefix === '' || !str_starts_with($metadata->getName(), self::ENTITY_NAMESPACE)) {
+        if ($this->prefix === '' || !$this->isBundleEntity($metadata->getName())) {
             return;
         }
 
@@ -54,6 +56,20 @@ final readonly class TablePrefixListener
         }
 
         $metadata->setPrimaryTable(array_merge($metadata->table, $table));
+    }
+
+    /**
+     * Whether `$class` is one of the bundle entities.
+     */
+    private function isBundleEntity(string $class): bool
+    {
+        foreach (self::ENTITY_NAMESPACES as $namespace) {
+            if (str_starts_with($class, $namespace)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

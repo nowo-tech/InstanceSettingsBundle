@@ -9,11 +9,11 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
 use Doctrine\Persistence\ObjectManager;
 use LogicException;
-use Nowo\InstanceSettingsBundle\Entity\SettingFile;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\SettingFileRecord;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
+use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
 use Nowo\InstanceSettingsBundle\Tests\Support\ImageFactory;
@@ -27,7 +27,7 @@ final class DoctrineSettingFileStoreTest extends KernelTestCase
 {
     public function testStoreLifecycle(): void
     {
-        $kernel = $this->bootKernel(['doctrine' => ['table_prefix' => 'isf_']]);
+        $kernel = $this->bootKernel(['doctrine' => ['table_prefix' => 'isf_'], 'files' => ['enabled' => true]]);
         $store  = $this->container($kernel)->get(SettingFileStoreInterface::class);
         self::assertInstanceOf(DoctrineSettingFileStore::class, $store);
         $image = (new ImageProcessor())->process(new ImageSpec(variants: [16]), ImageFactory::png(64, 32));
@@ -71,11 +71,26 @@ final class DoctrineSettingFileStoreTest extends KernelTestCase
         self::assertSame(1, $store->markUnreferenced($live, $at));
         self::assertSame(0, $store->markUnreferenced($live, $at), 'already marked');
 
-        self::assertSame(0, $store->purge($at->modify('-1 second')));
-        self::assertSame(1, $store->purge($at, true));
-        self::assertSame(1, $store->purge($at));
+        $none = static fn (): array => [];
+        self::assertSame(0, $store->purge($at->modify('-1 second'), $none));
+        self::assertSame(1, $store->purge($at, $none, true));
+        self::assertSame(1, $store->purge($at, $none));
         self::assertSame([], $store->findImage('brand', 'mark', $sha));
         self::assertCount(2, $store->findImage('brand', 'logo', $sha));
+
+        // IO-L1: a wrong mark on a live image (a stale run) is cleared by the next run, and the purge re-checks the
+        // references it is handed right before deleting.
+        self::assertSame(1, $store->markUnreferenced(['brand.logo|' . $other->sha256()], $at), 'stale run marks the live logo');
+        self::assertEquals($at, $store->findImage('brand', 'logo', $sha)[0]->orphanedAt);
+        self::assertSame(0, $store->markUnreferenced($live, $at, true));
+        self::assertEquals($at, $store->findImage('brand', 'logo', $sha)[0]->orphanedAt, 'dry run keeps the mark');
+        self::assertSame(0, $store->markUnreferenced($live, $at), 'a correct run marks nothing');
+        self::assertNull($store->findImage('brand', 'logo', $sha)[16]->orphanedAt, 'and clears the stale mark on every row');
+        $store->orphan('brand', 'logo', $sha, $at);
+        self::assertSame(0, $store->purge($at, static fn (): array => $live), 'referenced at delete time: kept');
+        self::assertCount(2, $store->findImage('brand', 'logo', $sha));
+        self::assertSame(1, $store->purge($at, static fn (): array => ['brand.logo|' . $other->sha256()]));
+        self::assertSame([], $store->findImage('brand', 'logo', $sha));
 
         $records[0] = new SettingFileRecord(999_999, 'brand', 'logo', $sha, 0, 'image/png', 1, 1, 1);
         self::assertSame('', $store->read($records[0]), 'a row that disappeared reads as empty');
@@ -84,7 +99,7 @@ final class DoctrineSettingFileStoreTest extends KernelTestCase
     public function testAClosedEntityManagerIsResetAndANonOrmManagerRefused(): void
     {
         // A configuration of its own: kernels with the same container share its compiled class in one process.
-        $kernel   = $this->bootKernel(['files' => ['orphan_retention' => 5]]);
+        $kernel   = $this->bootKernel(['files' => ['enabled' => true, 'orphan_retention' => 5]]);
         $doctrine = $this->container($kernel)->get('doctrine');
         self::assertInstanceOf(ManagerRegistry::class, $doctrine);
         $entityManager = $doctrine->getManager();
@@ -97,6 +112,6 @@ final class DoctrineSettingFileStoreTest extends KernelTestCase
         $registry = $this->createStub(ManagerRegistry::class);
         $registry->method('getManager')->willReturn($this->createStub(ObjectManager::class));
         $this->expectException(LogicException::class);
-        (new DoctrineSettingFileStore($registry, 'other'))->purge(new DateTimeImmutable());
+        (new DoctrineSettingFileStore($registry, 'other'))->purge(new DateTimeImmutable(), static fn (): array => []);
     }
 }

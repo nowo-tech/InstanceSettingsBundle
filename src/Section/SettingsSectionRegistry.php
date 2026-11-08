@@ -36,10 +36,13 @@ final class SettingsSectionRegistry
     /**
      * @param iterable<SettingsSectionInterface> $sections tagged `nowo_instance_settings.section`
      * @param array<string, mixed>|null $gdInfo gd_info() to check image fields against (null = the running PHP; tests)
+     * @param bool $filesEnabled `files.enabled`: without it the file table is not mapped and an image field fails closed
+     *                           (true when the registry is built by hand, outside the container)
      */
     public function __construct(
         private readonly iterable $sections = [],
         private readonly ?array $gdInfo = null,
+        private readonly bool $filesEnabled = true,
     ) {
     }
 
@@ -224,6 +227,9 @@ final class SettingsSectionRegistry
                     throw new LogicException(sprintf('Duplicate field "%s" in instance settings section "%s".', $field->name, $name));
                 }
                 if ($field->type === SettingType::Image) {
+                    if (!$this->filesEnabled) {
+                        throw new LogicException(sprintf('Instance settings section "%s" declares the image field "%s": set nowo_instance_settings.files.enabled: true (it maps the instance_setting_file table; add the migration).', $name, $field->name));
+                    }
                     // Fail closed: an image is never stored without GD's sniffing and re-encoding.
                     GdSupport::assertAvailable($this->gdInfo);
                 }

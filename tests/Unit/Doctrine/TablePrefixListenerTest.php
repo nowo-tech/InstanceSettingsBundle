@@ -9,6 +9,7 @@ use Doctrine\ORM\Event\LoadClassMetadataEventArgs;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
+use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
 use PHPUnit\Framework\TestCase;
 use stdClass;
 
@@ -24,6 +25,14 @@ final class TablePrefixListenerTest extends TestCase
         self::assertArrayHasKey('app_idx_x', $metadata->table['indexes'] ?? []);
         self::assertArrayHasKey(0, $metadata->table['indexes'] ?? []);
         self::assertSame('app_instance_setting_value', (new TablePrefixListener('app_'))->settingsTableName());
+    }
+
+    public function testPrefixesTheOptInFileEntity(): void
+    {
+        $metadata = $this->metadata(SettingFile::class);
+        (new TablePrefixListener('app_'))->loadClassMetadata(new LoadClassMetadataEventArgs($metadata, $this->createStub(EntityManagerInterface::class)));
+
+        self::assertSame('app_instance_setting_value', $metadata->getTableName(), 'the FileEntity namespace is a bundle namespace too');
     }
 
     public function testEmptyPrefixAndForeignEntitiesAreUntouched(): void
