@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 Image setting fields (spec 220 slice S2): upload pipeline, database file store, file route, envelope v2, purge, audit.
-Hosts that declare no image field keep their routes, forms and version 1 exports; they get one new (empty) table.
+Opt-in with `files.enabled: true`: hosts that do not enable it keep the 1.3 schema, routes, forms and version 1 exports.
 
 ### Added
 
@@ -24,15 +24,16 @@ Hosts that declare no image field keep their routes, forms and version 1 exports
   $minWidth, $minHeight, $square, $variants, $public, $required)` with its rules in `Section\ImageSpec` (PNG / JPEG /
   WebP subset, `maxBytes` ≤ 5 MiB, dimensions, square ±2 %, up to 8 PNG variants, `public`). Image fields cannot be
   secret, declare a default or use / control `visible_when`. A section with an image field fails to load without
-  `ext-gd` (PNG, JPEG, WebP).
+  `files.enabled: true` or without `ext-gd` (PNG, JPEG, WebP).
 - Upload pipeline `File\ImageProcessor`: type from the content only (magic bytes + `getimagesizefromstring()`),
-  16 MP cap, field limits and a memory budget from the header before decoding, animated WebP refused, APNG reduced to
+  4096 × 4096 px cap (the default maximum dimensions), field limits and a memory budget from the header before decoding, animated WebP refused, APNG reduced to
   one frame, every image re-encoded with GD (PNG with alpha, JPEG q90 turned upright from EXIF, WebP q90), which drops
   EXIF / GPS / XMP / ICC and appended payloads; PNG variants largest first, never upscaled.
 - `InstanceSettingsInterface::getFile(key): ?StoredSettingFile` (hash, type, dimensions, size, `url()`,
   `url($variant)`, `variants()`) and the Twig function `instance_setting_file()`. `save()` accepts
   `File\ImageUpload` / `UploadedFile` (store), `null` (remove) or the current reference (keep) for image fields.
-- Database store: entity `Entity\SettingFile`, table `<prefix>instance_setting_file`, content-addressed per field;
+- Database store: entity `FileEntity\SettingFile` (own Doctrine mapping `NowoInstanceSettingsFiles`, prepended only
+  with `files.enabled: true`), table `<prefix>instance_setting_file`, content-addressed per field;
   `File\SettingFileStoreInterface` seam, `File\DoctrineSettingFileStore` default.
 - File route `nowo_instance_settings_file` (`{files.path_prefix}/{section}/{field}/{hash12}[-{variant}].{ext}`, `GET` /
   `HEAD`), added only when a section declares an image field: stored type, `nosniff`, inline disposition,
@@ -45,13 +46,17 @@ Hosts that declare no image field keep their routes, forms and version 1 exports
   file (strict base64, per-field and total caps, declared hash and type, whole upload pipeline), all-or-nothing, new
   reason codes `invalid_files`, `invalid_file`, `file_too_large`, `files_too_large`, `file_hash_mismatch`,
   `missing_image_file`, `unexpected_file` (translated in the 7 locales).
-- `nowo:instance-settings:purge-files [--dry-run]`: marks images no live setting references (fields removed from
-  code) and deletes images orphaned for `files.orphan_retention` days.
-- Configuration: `files.path_prefix` (default `/_settings-file`, must be outside `web_ui.path_prefix`),
+- `nowo:instance-settings:purge-files [--dry-run] [--include-unknown-sections]`: clears the orphan mark of every
+  referenced image, marks images no live setting references (fields removed from code) and deletes images orphaned for
+  `files.orphan_retention` days, re-reading the references inside the delete transaction, so a referenced image is
+  never deleted. Images of sections that are not registered are kept unless `--include-unknown-sections`.
+- Configuration: `files.enabled` (default `false`, literal boolean; the container refuses to compile without GD
+  when it is on), `files.path_prefix` (default `/_settings-file`, must be outside `web_ui.path_prefix`),
   `files.orphan_retention` (default 30 days), `portability.max_file_bytes` (default 8 MiB).
 - Audit: the "Instance settings saved." log line lists image changes (12-character hash prefix, type, dimensions,
   size); `SettingsChangedEvent::$fileChanges` (`field => {old, new}` hashes). Never content.
-- `docs/SECURITY.md`: image fields threat model (IF1–IF15) with the tests that cover each threat.
+- `docs/SECURITY.md`: image fields threat model (IF1–IF16) with the tests that cover each threat; CDN (query string
+  in the cache key, purge on withdrawal) and firewall (private images) notes in USAGE / CONFIGURATION.
 
 ### Changed
 

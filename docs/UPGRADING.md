@@ -24,9 +24,18 @@ Towards **1.4.0** (image setting fields). From **1.3.x**:
 composer update nowo-tech/instance-settings-bundle
 ```
 
-1. **Schema.** A new table holds image files. Generate a migration (`doctrine:migrations:diff`) or apply the DDL below
-   (shown without `doctrine.table_prefix`; with a prefix, prefix the table and both index names). The table stays
-   empty while no section declares an image field.
+1. **No schema change unless you enable image fields.** Image fields are opt-in (`files.enabled`, default `false`):
+   by default the bundle maps no new entity, `doctrine:migrations:diff` and `doctrine:schema:validate` see the 1.3
+   schema, and no file route, file store or purge command is registered.
+2. **Only hosts that set `nowo_instance_settings.files.enabled: true`** (to declare image fields) get the new table
+   `instance_setting_file`. Generate a migration (`doctrine:migrations:diff`) or apply the DDL below (shown without
+   `doctrine.table_prefix`; with a prefix, prefix the table and both index names):
+
+   ```yaml
+   nowo_instance_settings:
+       files:
+           enabled: true
+   ```
 
    MySQL / MariaDB:
 
@@ -42,13 +51,16 @@ composer update nowo-tech/instance-settings-bundle
    CREATE UNIQUE INDEX uniq_instance_setting_file_ref ON instance_setting_file (section, name, sha256, variant);
    ```
 
-2. **Nothing else changes for hosts without image fields**: no new route, the same forms, exports stay envelope
-   version 1.
-3. **Hosts that add an image field** need `ext-gd` with PNG, JPEG and WebP, a `PUBLIC_ACCESS` `access_control` line for
-   `files.path_prefix` (default `/_settings-file`) when their firewall covers it, and a scheduled
-   `nowo:instance-settings:purge-files`. Raise `portability.max_upload_bytes` (up to 16 MiB) if exports include the
-   images. A 1.3 instance cannot import a version 2 export.
-4. **Custom `InstanceSettingsInterface` implementations** (rare: decorators, test doubles) must add
+3. **Nothing else changes for hosts without image fields**: no new table, no new route, the same forms, exports stay
+   envelope version 1.
+4. **Hosts that add an image field** need `files.enabled: true` (a section declaring an image field without it fails
+   when the definitions load), `ext-gd` with PNG, JPEG and WebP (the container refuses to compile without it once the
+   flag is on), a `PUBLIC_ACCESS` `access_control` line for `files.path_prefix` (default `/_settings-file`) when their
+   firewall covers it (and a firewall over that prefix for private image fields), and a scheduled
+   `nowo:instance-settings:purge-files`. Behind a CDN, ignore the query string in the cache key for that prefix and
+   purge the CDN when you withdraw an image. Raise `portability.max_upload_bytes` (up to 16 MiB) if exports include
+   the images. A 1.3 instance cannot import a version 2 export.
+5. **Custom `InstanceSettingsInterface` implementations** (rare: decorators, test doubles) must add
    `getFile(string $key): ?StoredSettingFile`. Listeners constructing `SettingsChangedEvent` themselves are unaffected
    (`fileChanges` is optional).
 

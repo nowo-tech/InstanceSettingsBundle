@@ -58,8 +58,11 @@ log type, dimensions and size), never content.
 ## Requirements
 
 - FR-001 `SettingType::Image`, `SettingField::image()`, `ImageSpec`; references `isf:<sha256>` only.
-- FR-002 Content sniffing (magic bytes + `getimagesizefromstring()`), header limits before decoding (16 MP, field
-  limits, memory budget), GD re-encode, PNG variants; fail closed without GD.
+- FR-000 Opt-in `files.enabled` (default false): the file entity (`FileEntity\SettingFile`) is mapped, and the store,
+  file controller and purge command registered, only with the flag; an image field without it fails closed. Hosts
+  without image fields keep the 1.3 schema (coordinator decision Q1, audit IO-L2).
+- FR-002 Content sniffing (magic bytes + `getimagesizefromstring()`), header limits before decoding (4096 × 4096 px,
+  field limits, memory budget), GD re-encode, PNG variants; fail closed without GD (compile time with the flag).
 - FR-003 `InstanceSettingsInterface::getFile()`, `instance_setting_file()`; `get()` never returns a reference.
 - FR-004 Database store behind `SettingFileStoreInterface`, content-addressed per field, orphan marking in the save
   transaction.
@@ -67,7 +70,8 @@ log type, dimensions and size), never content.
   every miss; area check for private fields; old hashes served until purged.
 - FR-006 Uploads only through the section form (CSRF, area role).
 - FR-007 Envelope v2 `files`, version 1 kept without image fields, full re-validation on import.
-- FR-008 `purge-files` with retention and dry run; fields removed from code orphan their images.
+- FR-008 `purge-files` with retention and dry run; fields removed from code orphan their images; referenced images
+  are never deleted (marks heal, references re-read at delete time; audit IO-L1).
 - FR-009 Audit fields (log, event).
 
 ## Success Criteria
@@ -79,5 +83,5 @@ log type, dimensions and size), never content.
 ## Deviations from the contract
 
 See the pull request description (blobs bound to their field instead of one global row per hash, integer ids instead
-of UUIDs, `variant` column instead of `variant_of`, GD checked when the section definitions load instead of at
-container compile time, 304 path costs one metadata query instead of a memo lookup).
+of UUIDs, `variant` column instead of `variant_of`, GD checked at container compile time only with `files.enabled`
+(and again when the section definitions load), the body read whole instead of streamed (≤ 5 MiB), 304 path costs one metadata query instead of a memo lookup).

@@ -304,7 +304,16 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 
 ## Image fields
 
-Since 1.4 a field can hold a raster image (logo, icon, mascot): `SettingField::image()`.
+Since 1.4 a field can hold a raster image (logo, icon, mascot): `SettingField::image()`. Image fields are **opt-in**:
+set `nowo_instance_settings.files.enabled: true` (it maps the file table, see [UPGRADING](UPGRADING.md#unreleased) for
+the migration). Without it a section that declares an image field fails when the section definitions load (router
+warm-up, first request), with a message naming the field.
+
+```yaml
+nowo_instance_settings:
+    files:
+        enabled: true
+```
 
 ```php
 yield SettingField::image('logo', 'brand.logo', maxWidth: 2400, maxHeight: 800, public: true);
@@ -316,7 +325,7 @@ yield SettingField::image('id_scan', 'kyc.scan', types: ['image/jpeg'], maxBytes
 | --- | --- | --- |
 | `types` | PNG, WebP, JPEG | Accepted types, a subset of those three. SVG, GIF, ICO, BMP, TIFF, AVIF / HEIC and PDF are never accepted. |
 | `maxBytes` | 1 MiB | Largest upload (ceiling 5 MiB). |
-| `maxWidth` / `maxHeight` | 4096 | Largest dimensions (after the JPEG EXIF orientation). Every image is also capped at 16 MP. |
+| `maxWidth` / `maxHeight` | 4096 | Largest dimensions (after the JPEG EXIF orientation). Every image is also capped at 4096 × 4096 pixels (16 777 216 px; a wider image must be shorter), within the memory budget. |
 | `minWidth` / `minHeight` | 1 | Smallest dimensions. |
 | `square` | `false` | Width and height within 2 % (nothing is cropped or padded). |
 | `variants` | `[]` | Longest side of each PNG variant generated on upload (icons), never upscaled; at most 8. |
@@ -324,7 +333,8 @@ yield SettingField::image('id_scan', 'kyc.scan', types: ['image/jpeg'], maxBytes
 | `required` | `false` | A stored image is required. |
 
 Image fields cannot be secret, cannot declare a default (config default assets come with the `brand` section) and
-cannot use or control `visible_when`. They need `ext-gd` with PNG, JPEG and WebP support.
+cannot use or control `visible_when`. They need `ext-gd` with PNG, JPEG and WebP support: with `files.enabled: true`
+the container refuses to compile without it.
 
 **What happens to an upload.** The type is decided only from the content (magic bytes and `getimagesizefromstring()`
 must agree; the client name and type are ignored), the dimensions are read from the header before anything is decoded
@@ -368,7 +378,20 @@ sandbox`, `ETag` (`If-None-Match` → 304 without reading the bytes), `Referrer-
 `X-Robots-Tag: noindex`; public fields `public, max-age=31536000, immutable` + `Cross-Origin-Resource-Policy:
 cross-origin`, private fields `private, max-age=3600` + `same-origin`. An unknown section, field, hash, variant or
 extension, and a private image the viewer may not open, all answer the same empty 404. A replaced image keeps
-answering until it is purged.
+answering until it is purged. The body is read from the database whole (bounded by the field's `maxBytes`, at most
+5 MiB) and sent; it is not streamed.
+
+**Caching and CDNs.** Public URLs are immutable, so a CDN in front of `files.path_prefix` absorbs the traffic. The
+controller ignores the query string (`?v=…` still answers 200 with the same body), so configure the CDN to **ignore the
+query string in its cache key** for that prefix; otherwise random query strings bypass the cache. Withdrawing an image
+(remove, then `purge-files`, with retention 0 for an immediate withdrawal) does not reach browsers or CDNs that cached
+it as `immutable` for a year: **purge the URL from your CDN** too. On a stateful firewall, a request that carries a
+session cookie may be turned `private` by Symfony's session listener; it is then not CDN-cached (harmless).
+
+**Private images and the firewall.** Images of non-public fields check the section's area in the file controller,
+which trusts the user only when a firewall matched the request. A firewall whose pattern does not cover
+`files.path_prefix` (for example `^/admin` only) makes every private image a 404, even for admins: cover the file
+prefix with the same firewall (context) as the admin UI and keep the `PUBLIC_ACCESS` `access_control` line for it.
 
 **Replacing, removing, purging.** A replaced or removed image is marked orphaned (not deleted) in the same
 transaction. Schedule the purge (daily is plenty):
@@ -378,8 +401,18 @@ php bin/console nowo:instance-settings:purge-files --dry-run
 php bin/console nowo:instance-settings:purge-files
 ```
 
-It first marks images that no live setting references (a field removed from code, a row deleted by hand), then
-deletes those orphaned for `files.orphan_retention` days or more.
+It first reconciles the orphan marks with the setting rows: an image that is referenced again (a restore, an import,
+an earlier run that missed it) loses its mark, and an image that no live setting references (a field removed from
+code, a row deleted by hand) is marked. Then it deletes the images orphaned for `files.orphan_retention` days or more,
+re-reading the setting rows inside the delete transaction: an image that is referenced at that moment is never
+deleted. Rows of a section that is not registered (a section behind a feature flag, a broken deploy) keep their images;
+pass `--include-unknown-sections` to purge those once the section is gone for good. The command is registered only
+with `files.enabled: true`.
+
+**Import.** Each imported file runs the whole upload pipeline twice: once while the envelope is validated (so a bad
+file refuses the whole import before anything is written) and once when it is saved. That doubles the CPU cost of an
+import (admin or CLI only, bounded by `portability.max_file_bytes`). Re-encoding an imported JPEG (or lossy WebP) yields new bytes,
+so the stored `isf:` reference can differ from the one in the envelope; this is expected.
 
 **Audit.** The "Instance settings saved." log line gets `files`: `logo=3f1c9a0b7e21 image/png 512x512 20480B` (or
 `logo=removed`); `SettingsChangedEvent::$fileChanges` gives `field => {old, new}` full hashes. Never content.
@@ -564,10 +597,11 @@ Section and field labels use each section's own domain. The secret widget copy (
 
 ## Doctrine schema and migrations
 
-The bundle maps two entities (the mapping is prepended to `doctrine.orm.mappings` automatically):
+The bundle maps one entity, two with `files.enabled: true` (the mappings are prepended to `doctrine.orm.mappings`
+automatically):
 
 - `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`).
-- `Nowo\InstanceSettingsBundle\Entity\SettingFile` (1.4, image fields) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Created even without image fields (it stays empty); see [UPGRADING](UPGRADING.md#unreleased) for the DDL.
+- `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#unreleased) for the DDL.
 
 Create and apply the schema with Doctrine Migrations in the application:
 

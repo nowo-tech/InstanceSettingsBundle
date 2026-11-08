@@ -42,11 +42,12 @@ nowo_instance_settings:
         sealed_secrets: true           # allow exporting / importing secrets sealed with the instance key
         max_file_bytes: 8388608        # image fields (1.4): decoded bytes of all the files of one envelope (0 … 16777216)
     files:                             # image fields (1.4)
+        enabled: false                 # opt-in: maps the file table, registers the store, route and purge command; needs ext-gd
         path_prefix: /_settings-file   # file route prefix; must be outside web_ui.path_prefix
         orphan_retention: 30           # days a replaced / removed image stays servable before purge-files deletes it (0 … 3650)
 ```
 
-Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`) must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built.
+Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`) and `files.enabled` must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built.
 
 ## doctrine
 
@@ -147,17 +148,22 @@ security:
 
 ## files
 
-Image setting fields (1.4, [USAGE](USAGE.md#image-fields)). Nothing here matters for hosts without image fields: the
-file route is only added when a section declares one.
+Image setting fields (1.4, [USAGE](USAGE.md#image-fields)). Opt-in: with the default `enabled: false` the bundle maps
+no file table (the schema is the one of 1.3), registers no file store, file controller or purge command, and adds no
+file route.
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `path_prefix` | `/_settings-file` | Prefix of the file route `{prefix}/{section}/{field}/{hash12}[-{variant}].{ext}`. Must be outside `web_ui.path_prefix` (and not contain it): public images must not depend on the admin firewall. The container refuses an overlap. Add a `PUBLIC_ACCESS` `access_control` line for it when your firewall covers it. |
+| `enabled` | `false` | Maps the file entity (`<prefix>instance_setting_file`, Doctrine mapping `NowoInstanceSettingsFiles`) and registers the file store, the file controller and `nowo:instance-settings:purge-files`. Required by image fields: a section declaring one without it fails when the section definitions load. With `true` the container refuses to compile without `ext-gd` (PNG, JPEG, WebP). Literal boolean only (the mapping is decided before the configuration is processed). The file route is still added only when a section declares an image field. |
+| `path_prefix` | `/_settings-file` | Prefix of the file route `{prefix}/{section}/{field}/{hash12}[-{variant}].{ext}`. Must be outside `web_ui.path_prefix` (and not contain it): public images must not depend on the admin firewall. The container refuses an overlap. Add a `PUBLIC_ACCESS` `access_control` line for it when your firewall covers it. **Private (non-public) image fields need a firewall over this prefix** (the same context as the admin UI): the controller trusts the user only when a firewall matched the request, so without one every private image is a 404. For a CDN, ignore the query string in the cache key for this prefix and purge the CDN when you withdraw an image ([USAGE](USAGE.md#image-fields)). |
 | `orphan_retention` | `30` | Days a replaced or removed image (and its variants) stays in the database and servable, so e-mails already sent keep showing it, before `nowo:instance-settings:purge-files` deletes it. `0` deletes on the next run. |
 
 ```yaml
 # config/packages/security.yaml
 security:
+    firewalls:
+        main:                                   # no pattern, or one that covers the file prefix as well:
+            lazy: true                          # private image fields need the firewall over it
     access_control:
         - { path: ^/_settings-file/, roles: PUBLIC_ACCESS }   # public image fields; private ones check the section area themselves
         - { path: ^/admin/settings, roles: ROLE_ADMIN }
@@ -204,7 +210,7 @@ REQ-CFG-001 does not apply: the bundle has one configuration tree. Variants are 
 
 ## Container parameters
 
-`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`, `.files.path_prefix`, `.files.orphan_retention`.
+`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`, `.files.enabled`, `.files.path_prefix`, `.files.orphan_retention`.
 
 ## Seeding from fallbacks
 
@@ -229,7 +235,10 @@ The container refuses to compile when:
 - `security.access_roles` (or an `area_roles` list) is empty without a custom checker;
 - `security.area_roles` restricts sections without an explicit `_portability` entry while the import / export page is on;
 - a security switch is an env placeholder instead of a literal boolean;
-- `files.path_prefix` overlaps `web_ui.path_prefix`.
+- `files.path_prefix` overlaps `web_ui.path_prefix`;
+- `files.enabled` is true and `ext-gd` lacks PNG, JPEG or WebP support.
 
-When the section definitions load, a section declaring an image field without `ext-gd` (with PNG, JPEG and WebP
-support) throws a `LogicException`: images are never stored without the re-encode step.
+When the section definitions load (router warm-up, first request), a section declaring an image field throws a
+`LogicException` without `files.enabled: true` (the file table is not mapped) or without `ext-gd` with PNG, JPEG and
+WebP support (checked again for a container compiled on another machine): images are never stored without the
+re-encode step.

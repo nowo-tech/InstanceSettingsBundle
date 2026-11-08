@@ -62,7 +62,8 @@ own cryptography and key storage, or what consumers do with a setting value.
 
 ## Image fields threat model (1.4)
 
-Image fields (spec 220 slice S2) add three new surfaces: **binary uploads** through the section form, a new
+Image fields (spec 220 slice S2) are opt-in (`files.enabled: true`; off by default, so hosts without image fields get
+neither the file table nor the file route, store or purge command). They add three new surfaces: **binary uploads** through the section form, a new
 **anonymous endpoint** (the file route) and **binary data in imports**. Everything below is enforced in code and
 covered by tests (`tests/Unit/File/*`, `tests/Unit/Settings/ImageSettingsTest.php`,
 `tests/Unit/Portability/ImagePortabilityTest.php`, `tests/Integration/Functional/ImageFieldsTest.php`,
@@ -82,7 +83,7 @@ covered by tests (`tests/Unit/File/*`, `tests/Unit/Settings/ImageSettingsTest.ph
 | --- | --- | --- | --- |
 | IF1 | **Polyglot / content-type confusion** (PNG + ZIP, JPEG + HTML trailer, SVG or HTML renamed `.png`, GIF renamed) | The type comes only from the content: magic bytes **and** `getimagesizefromstring()` must agree; the client name and MIME type are never read. Every image is decoded and re-encoded with GD, so appended payloads and metadata never reach storage. Served with the stored type, `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`. A URL extension that does not match the stored type answers 404. | `ImageProcessorTest::testRefusesAnythingThatIsNotAnAcceptedRaster`, `testPolyglotTrailersAreDroppedByTheReEncode`, `testWrongDeclaredExtensionOrMimeTypeIsIrrelevant`; `ImageFieldsTest::testUploadServeReplaceAndRemove` |
 | IF2 | **Stored XSS through SVG** (script, `foreignObject`, `use href`, CSS `url()`) | SVG is not an accepted type in v1 (no sanitiser, decision Q-O4); vectors only as committed config default assets (1.5). Uploads are raster only and re-encoded. Consumers must never inline upload bytes into HTML / SVG / PDF markup. | `ImageProcessorTest` (SVG, SVG behind a BOM); `ImageFieldsTest::testRefusedUploadsCsrfAndRoles` |
-| IF3 | **Decompression bomb / memory exhaustion** | Bytes capped before reading whole (`maxBytes`, ≤ 5 MiB; form `File` constraint; `ImageUpload::read()` stops at `max + 1`). Dimensions from the header **before decoding**: 16 MP hard cap, field limits, and a memory budget against the remaining `memory_limit` (4 B/px × 2 decoded copies, + 6 B/px for any JPEG). Variants are made largest first from the previous one (at most two decoded images alive) and never upscaled. | `testDecompressionBombIsRefusedFromTheHeaderBeforeDecoding` (30 000 × 30 000), `testMemoryBudgetRefusesBeforeDecoding`, `testFieldLimits` |
+| IF3 | **Decompression bomb / memory exhaustion** | Bytes capped before reading whole (`maxBytes`, ≤ 5 MiB; form `File` constraint; `ImageUpload::read()` stops at `max + 1`). Dimensions from the header **before decoding**: 4096 × 4096 px hard cap (the default maximum dimensions), field limits, and a memory budget against the remaining `memory_limit` (4 B/px × 2 decoded copies, + 6 B/px for any JPEG). Variants are made largest first from the previous one (at most two decoded images alive) and never upscaled. | `testDecompressionBombIsRefusedFromTheHeaderBeforeDecoding` (30 000 × 30 000), `testMemoryBudgetRefusesBeforeDecoding`, `testFieldLimits` |
 | IF4 | **Animated images / frame bombs** | Animated WebP refused (VP8X animation flag or an `ANIM` / `ANMF` chunk, found by walking the RIFF chunk list); APNG keeps its default frame only (GD decodes one). GIF is not accepted. | `testAnimatedWebpIsRefusedAndApngKeepsOneFrame` |
 | IF5 | **Privacy leak through metadata** (EXIF GPS, camera serials, XMP, ICC text) | Re-encode drops every metadata chunk; the EXIF orientation is applied first (read without ext-exif, bounds-checked parser), so the result is upright. | `testExifIsStrippedAndTheJpegTurnedUpright`, `testEveryExifOrientation`, `testOrientationParserIsRobust` |
 | IF6 | **Path traversal / file system writes** | No path is ever built from input: files live in the database; the route's section and field are looked up in the registry and the file by `(section, field, hash prefix, variant)` with bound parameters; route requirements allow only `[a-z0-9_]` names, 12 lower-case hex characters, a numeric variant and `png|jpg|webp`. The upload's client name is never stored nor used (the `Content-Disposition` name is `<section>-<field>.<ext>`). | `SettingFileControllerTest::testSame404ForEveryMiss` (traversal, uppercase), `FileValueObjectsTest::testImageUploadReadsWithAHardCap` (`../../etc/passwd.png` name) |
@@ -93,8 +94,9 @@ covered by tests (`tests/Unit/File/*`, `tests/Unit/Settings/ImageSettingsTest.ph
 | IF11 | **Import tampering** (malformed base64, wrong hash, wrong type, oversize, smuggled files, files for a forbidden section, v1 file with `files`) | Envelope v2 only; `files` keys must be `<section>.<field>` of a portable image field present in `settings` with the same hash (`unexpected_file` otherwise); forbidden sections refused from the raw keys before any decoding; base64 length bounded **before** decoding, strict decode; per-file `maxBytes` and total `portability.max_file_bytes`; declared hash compared with the decoded bytes; declared type must equal the sniffed type; then the whole upload pipeline; all-or-nothing transaction; reason codes name `files.<section>.<field>`, never content. A reference without its file is refused (`missing_image_file`) unless it is already the current one. | `ImagePortabilityTest::testTamperedFilesAreRefused`, `testFilesForAForbiddenSectionAreRefusedBeforeAnyDecoding`, `testVersionOneFilesImportUnchanged` |
 | IF12 | **Disclosure through logs / events** | Log line: field, 12-character hash prefix, type, dimensions, byte size (`logo=3f1c9a0b7e21 image/png 512x512 20480B`); `SettingsChangedEvent::$fileChanges` carries hashes only. Never content, never the client file name. | `ImageSettingsTest::testAuditRecordsHashesNeverContent` |
 | IF13 | **Worker-mode leaks (FrankenPHP)** | Processor, store, controller and URL builder are stateless; the store detaches the rows it wrote (no blob in the identity map) and reads metadata with scalar DQL (the blob is read only to answer a 200); the metadata memo of `getFile()` is cleared with the settings memo (`kernel.reset`, new main request, after saves). | `DoctrineSettingFileStoreTest::testStoreLifecycle` (identity map empty), `ImageSettingsTest::testNoBlobIsKeptAcrossResets`; Igor audit |
-| IF14 | **Missing GD / weaker decoder** | A section declaring an image field fails when the definitions load unless GD has PNG, JPEG and WebP support (fail closed; never stored without re-encode). | `ImageFieldDefinitionTest::testRegistryKnowsImageFieldsAndFailsClosedWithoutGd` |
-| IF15 | **Unexpected new endpoint for hosts without images** | The file route is added only when a section declares an image field; otherwise the routes are exactly those of 1.3 and exports stay envelope version 1. The route sits outside `web_ui.path_prefix` (overlap refused at compile time) and is not guarded by the admin listener. | `ImageFieldsTest::testHostsWithoutImageFieldsGetNoFileRoute`, `InstanceSettingsRouteLoaderTest`, `NowoInstanceSettingsExtensionTest::testFilePrefixMustBeOutsideTheAdminPrefix` |
+| IF14 | **Missing GD / weaker decoder** | With `files.enabled: true` the container refuses to compile unless GD has PNG, JPEG and WebP support (`FileSupportPass`); a section declaring an image field also fails when the definitions load without it (a container compiled elsewhere), and without `files.enabled` (fail closed; never stored without re-encode). | `CompilerPassesTest::testFileSupportPassChecksGdOnlyWithTheFlag`, `ImageFieldDefinitionTest::testRegistryKnowsImageFieldsAndFailsClosedWithoutGd`, `FileTableOptInTest::testAnImageFieldWithoutTheFlagFailsClosed` |
+| IF15 | **Unexpected new endpoint or schema for hosts without images** | `files.enabled` is off by default: no file entity is mapped (the schema is the one of 1.3), and no file store, file controller or purge command is registered. The file route is added only when a section declares an image field; otherwise the routes are exactly those of 1.3 and exports stay envelope version 1. The route sits outside `web_ui.path_prefix` (overlap refused at compile time) and is not guarded by the admin listener. | `ImageFieldsTest::testHostsWithoutImageFieldsGetNoFileRoute`, `InstanceSettingsRouteLoaderTest`, `NowoInstanceSettingsExtensionTest::testFilePrefixMustBeOutsideTheAdminPrefix`, `testFilesOffRegistersNoStoreRouteControllerOrPurge`, `FileTableOptInTest` |
+| IF16 | **Purge deletes a live image** (a purge run racing an admin save, a section not registered during a run, rows restored outside the bundle) | Every `purge-files` run clears the orphan mark of every referenced image before marking the unreferenced ones, so a wrong mark heals on the next run. The delete re-reads the setting rows inside its transaction and skips referenced images; each delete also re-checks the mark, so an image referenced again concurrently is kept. Rows of a section the registry does not know keep their images unless `--include-unknown-sections`. | `ImageFieldsTest::testPurgeNeverDeletesTheLiveLogo`, `DoctrineSettingFileStoreTest::testStoreLifecycle`, `PurgeFilesCommandTest::testStaleMarksHealAndUnknownSectionsKeepTheirImages` |
 
 ### Residual risks (image fields)
 
@@ -102,10 +104,17 @@ covered by tests (`tests/Unit/File/*`, `tests/Unit/Settings/ImageSettingsTest.ph
   the section's area (admins) can upload, the header checks bound the work, and the re-encode output is what is
   served; keep the PHP image libraries patched.
 - **Rate limiting.** The bundle does not rate-limit the anonymous file route; a 304 costs one indexed metadata query,
-  a 200 one blob read (≤ 5 MiB). Public-facing hosts rate-limit `files.path_prefix` (or put a CDN in front: URLs are
-  immutable).
-- **Orphan retention.** A removed image stays publicly reachable by its exact URL until purged (default 30 days). Set
-  `files.orphan_retention: 0` and run `purge-files` to withdraw an image at once.
+  a 200 one blob read (≤ 5 MiB, read whole and sent, not streamed). Public-facing hosts rate-limit `files.path_prefix`
+  (or put a CDN in front: URLs are immutable).
+- **CDN cache keys.** The route ignores the query string: `?bust=<random>` answers a full 200. A CDN that keys on the
+  query string can be bypassed that way, so configure it to ignore the query string for `files.path_prefix`.
+- **Orphan retention and withdrawal.** A removed image stays publicly reachable by its exact URL until purged (default
+  30 days). Set `files.orphan_retention: 0` and run `purge-files` to withdraw an image at once. Public responses are
+  `immutable` for a year, so browsers and CDNs that cached the URL keep it: purge the URL from the CDN as well.
+- **Private images need the firewall.** The file controller trusts the user only when a firewall matched the request.
+  A firewall that does not cover `files.path_prefix` makes every private image a 404 (fail closed, also for admins).
+- **Double pipeline on import.** An imported file is processed once to validate the envelope and once when saved
+  (admin or CLI only, bounded by `portability.max_file_bytes`).
 - **Lossy JPEG re-encode.** Every JPEG upload or import is re-encoded at quality 90 (generation loss, new hash on each
   import of a JPEG).
 
@@ -145,7 +154,7 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
 - Imports: `portability.max_upload_bytes` (default 1 MiB, max 16 MiB), JSON depth 64; image files: per field
   `maxBytes` (≤ 5 MiB) and `portability.max_file_bytes` (default 8 MiB) decoded bytes per envelope, base64 length
   bounded before decoding.
-- Image uploads: `maxBytes` before reading whole, 16 MP and memory budget from the header before decoding, at most
+- Image uploads: `maxBytes` before reading whole, 4096 × 4096 px and memory budget from the header before decoding, at most
   two decoded images alive, ≤ 8 variants.
 - File route: one indexed metadata query per request; the blob is read only for a 200 (never for a 304 or `HEAD`).
 - No outbound HTTP, processes or long-running work (REQ-RUNTIME-001 not applicable).
