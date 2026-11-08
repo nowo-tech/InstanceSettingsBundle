@@ -68,3 +68,70 @@ image:
   upload: 'Carregar uma imagem (PNG, JPEG ou WebP)'
   replace: 'Substituir a imagem guardada'
   remove: 'Remover a imagem guardada'
+brand:
+  section:
+    label: Marca
+    intro: Nome, textos e imagens desta instância. As imagens são PNG, JPEG ou WebP (sem envio de SVG), recodificadas no envio e servidas publicamente.
+  field:
+    name: Nome
+    short_name: Nome curto
+    eyebrow: Sobretítulo
+    wordmark: Logótipo de texto
+    logo_light: Logótipo (fundos claros)
+    logo_dark: Logótipo (fundos escuros)
+    mark: Símbolo da marca
+    app_icon: Ícone da app
+    favicon: Favicon
+    extra: Imagem adicional
+  help:
+    name: Mostrado no cabeçalho, nos títulos, nos e-mails e no manifesto da app. No máximo 80 caracteres.
+    short_name: No máximo 12 caracteres (etiqueta no ecrã inicial). Vazio = o nome cortado a 12.
+    eyebrow: Linha curta acima do nome. Vazio = o valor configurado.
+    wordmark: Forma de texto do logótipo. Vazio = o nome em minúsculas.
+    logo_light: Logótipo horizontal para fundos claros, no máximo 2400 × 800 px. Vazio = o configurado ou, se não houver, o nome.
+    logo_dark: O mesmo logótipo para fundos escuros. Vazio = o logótipo claro.
+    mark: Símbolo quadrado de 64 a 1024 px (menu de ícones, telemóveis, PDF). Vazio = o ícone da app.
+    app_icon: Quadrado, opaco, pelo menos 512 × 512 px; são geradas versões de 512, 192 e 180 px. Vazio = um símbolo quadrado de 512 px ou mais.
+    favicon: Quadrado, pelo menos 32 × 32 px; são geradas versões de 32 e 16 px. Vazio = o símbolo e depois o ícone da app.
+appearance:
+  section:
+    label: Aparência
+    intro: Cores e disposição da interface. Uma cor vazia segue o tema selecionado.
+  field:
+    preset: Tema (modo claro)
+    preset_dark: Tema (modo escuro)
+    light_accent: 'Claro: destaque'
+    light_accent_deep: 'Claro: destaque escuro'
+    light_danger: 'Claro: perigo'
+    light_warn: 'Claro: aviso'
+    light_paper: 'Claro: fundo da página'
+    light_ink: 'Claro: texto'
+    light_surface: 'Claro: superfície'
+    dark_accent: 'Escuro: destaque'
+    dark_accent_deep: 'Escuro: destaque escuro'
+    dark_danger: 'Escuro: perigo'
+    dark_warn: 'Escuro: aviso'
+    dark_paper: 'Escuro: fundo da página'
+    dark_ink: 'Escuro: texto'
+    dark_surface: 'Escuro: superfície'
+    corner_style: Cantos
+    border_strength: Intensidade das margens
+    footer_fixed: Rodapé fixo
+  help:
+    preset: As cores vazias do modo claro seguem este tema.
+    preset_dark: As cores vazias do modo escuro seguem este tema.
+    color: '#rrggbb. Vazio = a cor do tema selecionado.'
+    corner_style: sharp, soft ou rounded.
+    border_strength: subtle, medium ou strong.
+    footer_fixed: Mantém o rodapé visível no fundo da janela.
+  contrast:
+    light:
+      text_on_paper: 'Modo claro: o texto sobre o fundo da página não atinge o contraste WCAG AA (4,5:1).'
+      text_on_surface: 'Modo claro: o texto sobre a superfície não atinge o contraste WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Modo claro: o texto sobre a cor de destaque não atinge o contraste WCAG AA (4,5:1).'
+      primary_on_surface: 'Modo claro: a cor de destaque sobre a superfície não atinge 3:1 (WCAG 1.4.11).'
+    dark:
+      text_on_paper: 'Modo escuro: o texto sobre o fundo da página não atinge o contraste WCAG AA (4,5:1).'
+      text_on_surface: 'Modo escuro: o texto sobre a superfície não atinge o contraste WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Modo escuro: o texto sobre a cor de destaque não atinge o contraste WCAG AA (4,5:1).'
+      primary_on_surface: 'Modo escuro: a cor de destaque sobre a superfície não atinge 3:1 (WCAG 1.4.11).'

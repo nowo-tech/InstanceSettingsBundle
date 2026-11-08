@@ -68,3 +68,70 @@ image:
   upload: 'Bild hochladen (PNG, JPEG oder WebP)'
   replace: 'Gespeichertes Bild ersetzen'
   remove: 'Gespeichertes Bild entfernen'
+brand:
+  section:
+    label: Marke
+    intro: Name, Texte und Bilder dieser Instanz. Bilder sind PNG, JPEG oder WebP (kein SVG-Upload), werden beim Hochladen neu kodiert und öffentlich ausgeliefert.
+  field:
+    name: Name
+    short_name: Kurzname
+    eyebrow: Dachzeile
+    wordmark: Wortmarke
+    logo_light: Logo (helle Hintergründe)
+    logo_dark: Logo (dunkle Hintergründe)
+    mark: Markenzeichen
+    app_icon: App-Symbol
+    favicon: Favicon
+    extra: Zusätzliches Bild
+  help:
+    name: Erscheint in der Kopfzeile, in Seitentiteln, E-Mails und im App-Manifest. Höchstens 80 Zeichen.
+    short_name: Höchstens 12 Zeichen (Beschriftung auf dem Startbildschirm). Leer = der Name, auf 12 gekürzt.
+    eyebrow: Kurze Zeile über dem Namen. Leer = der konfigurierte Wert.
+    wordmark: Textform des Logos. Leer = der Name in Kleinbuchstaben.
+    logo_light: Querformat-Logo für helle Hintergründe, höchstens 2400 × 800 px. Leer = das konfigurierte, sonst der Name.
+    logo_dark: Dasselbe Logo für dunkle Hintergründe. Leer = das helle Logo.
+    mark: Quadratisches Zeichen, 64 bis 1024 px (Symbolmenü, Smartphones, PDF). Leer = das App-Symbol.
+    app_icon: Quadratisch, deckend, mindestens 512 × 512 px; Versionen mit 512, 192 und 180 px werden erzeugt. Leer = ein quadratisches Zeichen ab 512 px.
+    favicon: Quadratisch, mindestens 32 × 32 px; Versionen mit 32 und 16 px werden erzeugt. Leer = das Zeichen, dann das App-Symbol.
+appearance:
+  section:
+    label: Erscheinungsbild
+    intro: Farben und Layout der Oberfläche. Eine leere Farbe folgt der gewählten Vorlage.
+  field:
+    preset: Vorlage (heller Modus)
+    preset_dark: Vorlage (dunkler Modus)
+    light_accent: 'Hell: Akzent'
+    light_accent_deep: 'Hell: dunkler Akzent'
+    light_danger: 'Hell: Gefahr'
+    light_warn: 'Hell: Warnung'
+    light_paper: 'Hell: Seitenhintergrund'
+    light_ink: 'Hell: Text'
+    light_surface: 'Hell: Fläche'
+    dark_accent: 'Dunkel: Akzent'
+    dark_accent_deep: 'Dunkel: dunkler Akzent'
+    dark_danger: 'Dunkel: Gefahr'
+    dark_warn: 'Dunkel: Warnung'
+    dark_paper: 'Dunkel: Seitenhintergrund'
+    dark_ink: 'Dunkel: Text'
+    dark_surface: 'Dunkel: Fläche'
+    corner_style: Ecken
+    border_strength: Rahmenstärke
+    footer_fixed: Fixierte Fußzeile
+  help:
+    preset: Leere Farben des hellen Modus folgen dieser Vorlage.
+    preset_dark: Leere Farben des dunklen Modus folgen dieser Vorlage.
+    color: '#rrggbb. Leer = die Farbe der gewählten Vorlage.'
+    corner_style: sharp, soft oder rounded.
+    border_strength: subtle, medium oder strong.
+    footer_fixed: Hält die Fußzeile am unteren Fensterrand sichtbar.
+  contrast:
+    light:
+      text_on_paper: 'Heller Modus: Text auf dem Seitenhintergrund erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
+      text_on_surface: 'Heller Modus: Text auf der Fläche erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
+      primary_contrast_on_primary: 'Heller Modus: Text auf der Akzentfarbe erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
+      primary_on_surface: 'Heller Modus: die Akzentfarbe auf der Fläche erreicht 3:1 nicht (WCAG 1.4.11).'
+    dark:
+      text_on_paper: 'Dunkler Modus: Text auf dem Seitenhintergrund erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
+      text_on_surface: 'Dunkler Modus: Text auf der Fläche erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
+      primary_contrast_on_primary: 'Dunkler Modus: Text auf der Akzentfarbe erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
+      primary_on_surface: 'Dunkler Modus: die Akzentfarbe auf der Fläche erreicht 3:1 nicht (WCAG 1.4.11).'

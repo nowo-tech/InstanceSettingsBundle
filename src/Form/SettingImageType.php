@@ -61,7 +61,9 @@ final class SettingImageType extends AbstractType
     }
 
     /**
-     * Options: `stored` (an image is stored), `max_bytes`, `types` (accepted types).
+     * Options: `stored` (an image is stored), `max_bytes`, `types` (accepted types), `preview` (1.5: the section page shows
+     * the stored image above the form, through its file route URL only; set it with
+     * `SettingField::withFormOptions(['preview' => true])`).
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -72,8 +74,10 @@ final class SettingImageType extends AbstractType
             'stored'         => false,
             'max_bytes'      => 1_048_576,
             'types'          => [],
+            'preview'        => false,
             'error_bubbling' => false,
         ]);
+        $resolver->setAllowedTypes('preview', 'bool');
         $resolver->setAllowedTypes('stored', 'bool');
         $resolver->setAllowedTypes('max_bytes', 'int');
         $resolver->setAllowedTypes('types', 'array');

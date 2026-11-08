@@ -40,6 +40,9 @@ final readonly class SettingField
     /** A stored image reference: `isf:` + the lower-case hex SHA-256 of the re-encoded file. */
     public const IMAGE_REFERENCE_PATTERN = '/^isf:[0-9a-f]{64}$/';
 
+    /** Allowed form groups (1.5): dot-separated lower snake case segments, e.g. `colors.light`. */
+    public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/';
+
     /** @var list<Constraint> */
     public array $constraints;
 
@@ -53,6 +56,9 @@ final readonly class SettingField
 
     /** Upload rules of an {@see SettingType::Image} field (1.4); null for every other type. */
     public ?ImageSpec $image;
+
+    /** Form group of the field (1.5, {@see self::withGroup()}); null = no group. */
+    public ?string $group;
 
     /**
      * @param string $name field name, unique inside its section ({@see self::NAME_PATTERN})
@@ -69,6 +75,7 @@ final readonly class SettingField
      * @param array{field?: mixed, in?: mixed}|null $visibleWhen `{field: '<name>', in: [...]}`: show the field only while
      *                                                           that field of the section holds one of the values (1.3)
      * @param ImageSpec|null $image upload rules of an image field (1.4; null = the defaults); only for {@see SettingType::Image}
+     * @param string|null $group form group (1.5, {@see self::GROUP_PATTERN}); null = no group
      */
     public function __construct(
         public string $name,
@@ -84,6 +91,7 @@ final readonly class SettingField
         public array $formOptions = [],
         ?array $visibleWhen = null,
         ?ImageSpec $image = null,
+        ?string $group = null,
     ) {
         if (preg_match(self::NAME_PATTERN, $name) !== 1) {
             throw new InvalidArgumentException(sprintf('Invalid setting field name "%s": expected lower snake case matching %s.', $name, self::NAME_PATTERN));
@@ -103,6 +111,9 @@ final readonly class SettingField
         if ($type !== SettingType::Image && $image instanceof ImageSpec) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": image rules only apply to image fields.', $name));
         }
+        if ($group !== null && preg_match(self::GROUP_PATTERN, $group) !== 1) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": invalid group "%s" (expected dot-separated lower snake case segments matching %s).', $name, $group, self::GROUP_PATTERN));
+        }
         if ($default !== null && !self::matchesType($type, $default, $choices)) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": the default value does not match the %s type.', $name, $type->value));
         }
@@ -114,6 +125,7 @@ final readonly class SettingField
         $this->constraints = $list;
         $this->visibleWhen = $visibleWhen === null ? null : $this->normalizeVisibleWhen($name, $visibleWhen);
         $this->image       = $type === SettingType::Image ? $image ?? new ImageSpec() : null;
+        $this->group       = $group;
     }
 
     /**
@@ -242,7 +254,7 @@ final readonly class SettingField
      */
     public function notPortable(): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $this->group);
     }
 
     /**
@@ -252,7 +264,7 @@ final readonly class SettingField
      */
     public function withFormOptions(array $formOptions): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image, $this->group);
     }
 
     /**
@@ -272,7 +284,19 @@ final readonly class SettingField
             $values[] = $value;
         }
 
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values], $this->image);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values], $this->image, $this->group);
+    }
+
+    /**
+     * Copy placed in a form group (1.5): the admin form marks the row with `data-nowo-instance-settings-group="<group>"`
+     * (rows keep the field order; keep the fields of a group together), so a host form theme or stylesheet can lay the
+     * groups out as fieldsets or tabs. Groups never change storage, export or validation.
+     *
+     * @param string $group dot-separated lower snake case segments ({@see self::GROUP_PATTERN}), e.g. `colors.light`
+     */
+    public function withGroup(string $group): self
+    {
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $group);
     }
 
     /**

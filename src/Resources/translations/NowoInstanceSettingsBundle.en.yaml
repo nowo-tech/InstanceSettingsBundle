@@ -68,3 +68,70 @@ image:
   upload: 'Upload an image (PNG, JPEG or WebP)'
   replace: 'Replace the stored image'
   remove: 'Remove the stored image'
+brand:
+  section:
+    label: Brand
+    intro: Name, texts and images of this instance. Images are PNG, JPEG or WebP (no SVG upload), re-encoded on upload and served publicly.
+  field:
+    name: Name
+    short_name: Short name
+    eyebrow: Eyebrow
+    wordmark: Wordmark
+    logo_light: Logo (light backgrounds)
+    logo_dark: Logo (dark backgrounds)
+    mark: Brand mark
+    app_icon: App icon
+    favicon: Favicon
+    extra: Extra image
+  help:
+    name: Shown in the header, page titles, e-mails and the app manifest. At most 80 characters.
+    short_name: At most 12 characters (home screen label). Empty = the name cut at 12.
+    eyebrow: Short line above the name. Empty = the configured default.
+    wordmark: Text form of the logo. Empty = the name in lower case.
+    logo_light: Horizontal logo for light backgrounds, at most 2400 × 800 px. Empty = the configured default, else the name.
+    logo_dark: Same logo for dark backgrounds. Empty = the light logo.
+    mark: Square mark, 64 to 1024 px (icons-only menu, phones, PDFs). Empty = the app icon.
+    app_icon: Square, opaque, at least 512 × 512 px; 512, 192 and 180 px versions are generated. Empty = a square mark of 512 px or more.
+    favicon: Square, at least 32 × 32 px; 32 and 16 px versions are generated. Empty = the mark, then the app icon.
+appearance:
+  section:
+    label: Appearance
+    intro: Colours and layout of the interface. An empty colour follows the selected preset.
+  field:
+    preset: Preset (light mode)
+    preset_dark: Preset (dark mode)
+    light_accent: 'Light: accent'
+    light_accent_deep: 'Light: deep accent'
+    light_danger: 'Light: danger'
+    light_warn: 'Light: warning'
+    light_paper: 'Light: page background'
+    light_ink: 'Light: text'
+    light_surface: 'Light: surface'
+    dark_accent: 'Dark: accent'
+    dark_accent_deep: 'Dark: deep accent'
+    dark_danger: 'Dark: danger'
+    dark_warn: 'Dark: warning'
+    dark_paper: 'Dark: page background'
+    dark_ink: 'Dark: text'
+    dark_surface: 'Dark: surface'
+    corner_style: Corner style
+    border_strength: Border strength
+    footer_fixed: Fixed footer
+  help:
+    preset: Colours left empty in light mode follow this preset.
+    preset_dark: Colours left empty in dark mode follow this preset.
+    color: '#rrggbb. Empty = the colour of the selected preset.'
+    corner_style: sharp, soft or rounded.
+    border_strength: subtle, medium or strong.
+    footer_fixed: Keep the footer visible at the bottom of the window.
+  contrast:
+    light:
+      text_on_paper: 'Light mode: text on the page background is below WCAG AA contrast (4.5:1).'
+      text_on_surface: 'Light mode: text on the surface is below WCAG AA contrast (4.5:1).'
+      primary_contrast_on_primary: 'Light mode: text on the accent colour is below WCAG AA contrast (4.5:1).'
+      primary_on_surface: 'Light mode: the accent colour on the surface is below 3:1 contrast (WCAG 1.4.11).'
+    dark:
+      text_on_paper: 'Dark mode: text on the page background is below WCAG AA contrast (4.5:1).'
+      text_on_surface: 'Dark mode: text on the surface is below WCAG AA contrast (4.5:1).'
+      primary_contrast_on_primary: 'Dark mode: text on the accent colour is below WCAG AA contrast (4.5:1).'
+      primary_on_surface: 'Dark mode: the accent colour on the surface is below 3:1 contrast (WCAG 1.4.11).'

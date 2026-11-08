@@ -43,7 +43,7 @@
         "doctrine/persistence": "^3.1 || ^4.0",
         "nowo-tech/doctrine-encrypt-bundle": "^2.10",
         "nowo-tech/form-kit-bundle": "^2.17",
-        "nowo-tech/ui-kit-bundle": "^2.23",
+        "nowo-tech/ui-kit-bundle": "^2.40",
         "psr/clock": "^1.0",
         "psr/event-dispatcher": "^1.0",
         "psr/log": "^2.0 || ^3.0",
@@ -72,6 +72,7 @@
         "doctrine/dbal": "^3.8 || ^4.0",
         "friendsofphp/php-cs-fixer": "^3.0",
         "igor-php/igor-php": "^0.10.1",
+        "nowo-tech/brand-contracts": "^1.0",
         "nowo-tech/phpstan-frankenphp": "^1.0",
         "phpstan/extension-installer": "^1.4",
         "phpstan/phpstan": "^2.0",
@@ -90,9 +91,13 @@
     },
     "suggest": {
         "ext-gd": "Required (with PNG, JPEG and WebP support) when a section declares an image field (1.4)",
+        "nowo-tech/brand-contracts": "Required for the brand bridge (brand.enabled: true, 1.5): BrandProviderInterface for UiKit, Pwa, MailKit, LegalKit and SeoKit",
         "symfony/flex": "For automatic recipe installation",
         "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
         "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()"
+    },
+    "conflict": {
+        "nowo-tech/brand-contracts": "<1.0 || >=2.0"
     },
     "autoload": {
         "psr-4": {

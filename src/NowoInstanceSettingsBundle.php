@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle;
 
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
@@ -38,7 +39,7 @@ final class NowoInstanceSettingsBundle extends Bundle
     public const PORTABILITY_PROVIDER_TAG = 'nowo_instance_settings.portability_provider';
 
     /**
-     * Registers the compiler passes: Twig paths, CSRF and encryption fail-closed guards, demo-only unauthenticated access, section tags.
+     * Registers the compiler passes: Twig paths, CSRF and encryption fail-closed guards, demo-only unauthenticated access, the brand bridge, section tags.
      */
     public function build(ContainerBuilder $container): void
     {
@@ -48,6 +49,8 @@ final class NowoInstanceSettingsBundle extends Bundle
         $container->addCompilerPass(new UnauthenticatedAccessPass());
         $container->addCompilerPass(new SecretEncryptionPass());
         $container->addCompilerPass(new FileSupportPass());
+        // 1.5 brand bridge: takes UiKit's appearance provider over when the host set none (either pass order).
+        $container->addCompilerPass(new BrandBridgePass());
         // Before the tagged iterators are resolved (PassConfig::TYPE_BEFORE_OPTIMIZATION, priority 10).
         $container->addCompilerPass(new SettingsSectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
     }

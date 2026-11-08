@@ -4,15 +4,28 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\DependencyInjection;
 
+use InvalidArgumentException;
 use LogicException;
+use Nowo\Brand\Contract\BrandAssetReaderInterface;
+use Nowo\Brand\Contract\BrandAssetSlot;
+use Nowo\Brand\Contract\BrandProviderInterface;
 use Nowo\DoctrineEncryptBundle\Encryptors\EncryptorRegistry;
 use Nowo\DoctrineEncryptBundle\Util\EncryptUtil;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
+use Nowo\InstanceSettingsBundle\Brand\AppearanceSection;
+use Nowo\InstanceSettingsBundle\Brand\BrandDefaults;
+use Nowo\InstanceSettingsBundle\Brand\BrandPalettes;
+use Nowo\InstanceSettingsBundle\Brand\BrandSection;
+use Nowo\InstanceSettingsBundle\Brand\BrandTwigExtension;
+use Nowo\InstanceSettingsBundle\Brand\DefaultAsset;
+use Nowo\InstanceSettingsBundle\Brand\InstanceBrandAssetReader;
+use Nowo\InstanceSettingsBundle\Brand\InstanceBrandProvider;
 use Nowo\InstanceSettingsBundle\Command\ExportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\ImportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
@@ -48,6 +61,7 @@ use Nowo\InstanceSettingsBundle\Twig\InstanceSettingsTwigExtension;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Symfony\Component\Config\Resource\FileResource;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -61,6 +75,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
 use function array_key_exists;
 use function array_keys;
 use function in_array;
+use function interface_exists;
 use function is_array;
 use function is_bool;
 use function is_string;
@@ -76,6 +91,17 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 {
     /** Doctrine mapping name of the opt-in file entity (`files.enabled: true`). */
     public const FILES_MAPPING = 'NowoInstanceSettingsFiles';
+
+    /** Parameter set by prepend(): whether the file entity mapping was prepended (audit IO-I10). */
+    public const FILES_MAPPED_PARAMETER = 'nowo_instance_settings.files.mapped';
+
+    /**
+     * @param bool|null $brandContracts whether nowo-tech/brand-contracts is installed (null = detect; tests)
+     */
+    public function __construct(
+        private readonly ?bool $brandContracts = null,
+    ) {
+    }
 
     /**
      * `nowo_instance_settings`.
@@ -102,7 +128,11 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                 ],
             ];
             // Opt-in (1.4): hosts without image fields keep the 1.3 schema (no file table, no migration diff).
-            if (self::filesEnabled($container->getExtensionConfig(Configuration::ALIAS))) {
+            // brand.enabled (1.5) implies the files: decided here, in this extension's own prepend (audit IO-I10).
+            $filesMapped = self::filesEnabled($container->getExtensionConfig(Configuration::ALIAS));
+            // load() compares with this: a flag another extension prepends after this one fails with a clear message.
+            $container->setParameter(self::FILES_MAPPED_PARAMETER, $filesMapped);
+            if ($filesMapped) {
                 $mappings[self::FILES_MAPPING] = [
                     'type'      => 'attribute',
                     'dir'       => __DIR__ . '/../FileEntity',
@@ -125,7 +155,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -143,7 +173,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setParameter('nowo_instance_settings.web_ui.templates', $config['web_ui']['templates']);
         $container->setParameter('nowo_instance_settings.security.allow_unauthenticated', $config['security']['allow_unauthenticated']);
         $container->setParameter('nowo_instance_settings.portability.schema', $portability['schema']);
-        $container->setParameter('nowo_instance_settings.files.enabled', $config['files']['enabled']);
         $container->setParameter('nowo_instance_settings.files.path_prefix', $config['files']['path_prefix']);
         $container->setParameter('nowo_instance_settings.files.orphan_retention', $config['files']['orphan_retention']);
 
@@ -153,13 +182,119 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $definition->addTag(NowoInstanceSettingsBundle::SECTION_TAG, ['priority' => $attribute->priority]);
         });
 
-        $filesEnabled = $config['files']['enabled'];
+        // brand.enabled (1.5) implies the files (its image fields need the file table).
+        $brandEnabled = $config['brand']['enabled'];
+        $filesEnabled = $config['files']['enabled'] || $brandEnabled;
+        $container->setParameter('nowo_instance_settings.files.enabled', $filesEnabled);
+        $container->setParameter(BrandBridgePass::PARAMETER, $brandEnabled);
+        $this->assertFilesMapped($container, $filesEnabled);
         $this->registerStore($container, $config['doctrine'], $filesEnabled);
         $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files']['orphan_retention']);
         $this->registerPortability($container, $portability, $filesEnabled);
         // The access checker / guard also serve kits (their own actions, CLI) when the admin UI is off.
         $this->registerAccess($container, $config['security']);
         $this->registerWebUi($container, $config);
+        if ($brandEnabled) {
+            $this->registerBrand($container, $config['brand']);
+        }
+    }
+
+    /**
+     * The brand bridge (1.5, spec 220 S3): the `brand` and `appearance` sections, the contract provider and asset
+     * reader, `nowo_brand()`. UiKit's appearance provider is re-aliased by {@see BrandBridgePass}.
+     *
+     * @param array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>} $brand
+     */
+    private function registerBrand(ContainerBuilder $container, array $brand): void
+    {
+        if (!($this->brandContracts ?? interface_exists(BrandProviderInterface::class))) {
+            throw new LogicException('NowoInstanceSettingsBundle: brand.enabled needs nowo-tech/brand-contracts (composer require nowo-tech/brand-contracts).');
+        }
+
+        /** @var array{name: string, short_name: string|null, eyebrow: array{text: string|null, key: string|null, domain: string}, wordmark: string|null} $defaults */
+        $defaults  = $brand['defaults'];
+        $publicDir = (string) $container->getParameterBag()->resolveValue($brand['public_dir']);
+        $assets    = [];
+        $paths     = [];
+        foreach (BrandSection::FIXED_SLOTS as $slot) {
+            $paths[$slot] = $brand['defaults'][$slot] ?? null;
+        }
+        $extras = [];
+        foreach ($brand['extra_images'] as $id => $rules) {
+            $paths[BrandAssetSlot::extra((string) $id)] = $rules['default'];
+            unset($rules['default']);
+            $extras[(string) $id] = $rules;
+        }
+        foreach ($paths as $slot => $path) {
+            if (!is_string($path) || $path === '') {
+                continue;
+            }
+            try {
+                $assets[$slot] = DefaultAsset::fromFile($slot, $path, $publicDir)->toArray();
+            } catch (InvalidArgumentException $e) {
+                throw new InvalidConfigurationException('nowo_instance_settings.brand: ' . $e->getMessage(), 0, $e);
+            }
+            $container->addResource(new FileResource($assets[$slot]['path']));
+        }
+
+        $container->setDefinition(BrandDefaults::class, new Definition(BrandDefaults::class, [
+            $defaults['name'],
+            $defaults['short_name'],
+            $defaults['eyebrow']['text'],
+            $defaults['eyebrow']['key'],
+            $defaults['eyebrow']['domain'],
+            $defaults['wordmark'],
+            $assets,
+            $extras,
+        ]));
+        $container->setDefinition(BrandPalettes::class, new Definition(BrandPalettes::class, [
+            // UiKit's private, never-decorated defaults (2.40); absent while UiKit's appearance is disabled.
+            new Reference('nowo_ui_kit.appearance.defaults_provider', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('nowo_ui_kit.appearance.preset_registry', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]));
+        $container->setDefinition(InstanceBrandProvider::class, (new Definition(InstanceBrandProvider::class, [
+            new Reference(InstanceSettingsInterface::class),
+            new Reference(BrandDefaults::class),
+            new Reference(BrandPalettes::class),
+            new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->setPublic(true));
+        // A host alias of the interface in its own services wins (application definitions are applied after the
+        // extensions).
+        $container->setAlias(BrandProviderInterface::class, InstanceBrandProvider::class)->setPublic(true);
+
+        $container->setDefinition(InstanceBrandAssetReader::class, new Definition(InstanceBrandAssetReader::class, [
+            new Reference(BrandDefaults::class),
+            new Reference(SettingFileStoreInterface::class),
+        ]));
+        $container->setAlias(BrandAssetReaderInterface::class, InstanceBrandAssetReader::class)->setPublic(true);
+
+        $fallbacks = is_string($brand['fallback_provider']) && $brand['fallback_provider'] !== '' ? new Reference($brand['fallback_provider']) : null;
+        $container->setDefinition(BrandSection::class, (new Definition(BrandSection::class, [
+            new Reference(BrandDefaults::class),
+            $fallbacks,
+        ]))->addTag(NowoInstanceSettingsBundle::SECTION_TAG));
+        $container->setDefinition(AppearanceSection::class, (new Definition(AppearanceSection::class, [
+            new Reference(BrandPalettes::class),
+            new Reference(InstanceBrandProvider::class),
+            $fallbacks,
+        ]))->addTag(NowoInstanceSettingsBundle::SECTION_TAG));
+
+        $container->setDefinition(BrandTwigExtension::class, (new Definition(BrandTwigExtension::class, [
+            new Reference(InstanceBrandProvider::class),
+        ]))->addTag('twig.extension'));
+    }
+
+    /**
+     * Audit IO-I10: the file table is mapped in prepend() from the raw configs. If another extension prepends
+     * `files.enabled` / `brand.enabled` after that, the store would be registered without its entity: refuse at compile
+     * time instead of a Doctrine mapping error on the first image save.
+     */
+    private function assertFilesMapped(ContainerBuilder $container, bool $filesEnabled): void
+    {
+        if ($filesEnabled && $container->hasParameter(self::FILES_MAPPED_PARAMETER) && $container->getParameter(self::FILES_MAPPED_PARAMETER) === false) {
+            throw new LogicException('NowoInstanceSettingsBundle: files.enabled (or brand.enabled) was set by a configuration prepended after this bundle, so the file table is not mapped. Set it in the host configuration (config/packages/nowo_instance_settings.yaml).');
+        }
     }
 
     /**
@@ -181,19 +316,30 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * Whether the raw `nowo_instance_settings` configs enable the files (the last literal `files.enabled` wins). Read in
-     * prepend(), before the configuration is processed: a non-boolean value never enables the mapping, and load()
-     * refuses it anyway (literal booleans only).
+     * Whether the raw `nowo_instance_settings` configs enable the files: the last literal `files.enabled` wins, and a
+     * literal `brand.enabled: true` (1.5, the last one wins) enables them too. Read in prepend(), before the
+     * configuration is processed: a non-boolean value never enables the mapping, and load() refuses it anyway
+     * (literal booleans only).
      *
      * @param array<array<string, mixed>> $configs
      */
     public static function filesEnabled(array $configs): bool
     {
+        return self::rawSwitch($configs, 'files') || self::rawSwitch($configs, 'brand');
+    }
+
+    /**
+     * The last literal `<node>.enabled` of the raw configs (false when none is set or it is not a boolean).
+     *
+     * @param array<array<string, mixed>> $configs
+     */
+    private static function rawSwitch(array $configs, string $node): bool
+    {
         $enabled = false;
         foreach ($configs as $config) {
-            $files = $config['files'] ?? null;
-            if (is_array($files) && array_key_exists('enabled', $files)) {
-                $enabled = $files['enabled'] === true;
+            $branch = $config[$node] ?? null;
+            if (is_array($branch) && array_key_exists('enabled', $branch)) {
+                $enabled = $branch['enabled'] === true;
             }
         }
 
@@ -516,6 +662,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             'portability.web_ui'             => $config['portability']['web_ui'] ?? null,
             'portability.sealed_secrets'     => $config['portability']['sealed_secrets'] ?? null,
             'files.enabled'                  => $config['files']['enabled'] ?? null,
+            'brand.enabled'                  => $config['brand']['enabled'] ?? null,
         ];
         foreach ($switches as $path => $value) {
             if (!is_bool($value)) {

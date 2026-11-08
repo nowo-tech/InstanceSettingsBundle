@@ -26,6 +26,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
+use Nowo\InstanceSettingsBundle\Ui\ImagePreview;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -110,12 +111,19 @@ final class SettingsController extends AbstractController
         $fields     = $this->registry->fields($section);
         $stored     = [];
         $images     = [];
+        $previews   = [];
         foreach ($fields as $name => $field) {
             if ($field->secret) {
                 $stored[$name] = $this->settings->hasSecret($section . '.' . $name);
             }
             if ($field->image !== null) {
-                $images[$name] = $this->settings->getFile($section . '.' . $name) instanceof StoredSettingFile;
+                $file          = $this->settings->getFile($section . '.' . $name);
+                $images[$name] = $file instanceof StoredSettingFile;
+                // 1.5 (audit IO Q3): opt-in preview of the stored image, by its file route URL only.
+                $preview = $file instanceof StoredSettingFile && ($field->formOptions['preview'] ?? false) === true ? ImagePreview::of($file, $field, $definition->getTranslationDomain()) : null;
+                if ($preview instanceof ImagePreview) {
+                    $previews[] = $preview;
+                }
             }
         }
 
@@ -148,9 +156,10 @@ final class SettingsController extends AbstractController
         $notices = $definition instanceof SettingsSectionNoticesInterface ? $this->pages->notices($definition->getNotices($context), $definition->getTranslationDomain()) : [];
 
         return $this->render($this->pages->template('section'), [
-            'page'    => $this->pages->section($this->accessibleSections(), $section, $form->createView(), $actions, $this->canUsePortability()),
-            'section' => $section,
-            'notices' => $notices,
+            'page'           => $this->pages->section($this->accessibleSections(), $section, $form->createView(), $actions, $this->canUsePortability()),
+            'section'        => $section,
+            'notices'        => $notices,
+            'image_previews' => $previews,
         ], new Response(status: $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK));
     }
 

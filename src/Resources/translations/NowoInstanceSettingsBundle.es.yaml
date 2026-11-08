@@ -68,3 +68,70 @@ image:
   upload: 'Subir una imagen (PNG, JPEG o WebP)'
   replace: 'Sustituir la imagen guardada'
   remove: 'Quitar la imagen guardada'
+brand:
+  section:
+    label: Marca
+    intro: Nombre, textos e imágenes de esta instancia. Las imágenes son PNG, JPEG o WebP (no se sube SVG), se recodifican al subirlas y se sirven públicamente.
+  field:
+    name: Nombre
+    short_name: Nombre corto
+    eyebrow: Antetítulo
+    wordmark: Logotipo de texto
+    logo_light: Logo (fondos claros)
+    logo_dark: Logo (fondos oscuros)
+    mark: Símbolo de marca
+    app_icon: Icono de la app
+    favicon: Favicon
+    extra: Imagen adicional
+  help:
+    name: Se muestra en la cabecera, los títulos, los correos y el manifiesto de la app. Máximo 80 caracteres.
+    short_name: Máximo 12 caracteres (etiqueta en la pantalla de inicio). Vacío = el nombre cortado a 12.
+    eyebrow: Línea corta sobre el nombre. Vacío = el valor configurado.
+    wordmark: Forma de texto del logo. Vacío = el nombre en minúsculas.
+    logo_light: Logo horizontal para fondos claros, máximo 2400 × 800 px. Vacío = el configurado o, si no hay, el nombre.
+    logo_dark: El mismo logo para fondos oscuros. Vacío = el logo claro.
+    mark: Símbolo cuadrado de 64 a 1024 px (menú de iconos, móviles, PDF). Vacío = el icono de la app.
+    app_icon: Cuadrado, opaco, mínimo 512 × 512 px; se generan versiones de 512, 192 y 180 px. Vacío = un símbolo cuadrado de 512 px o más.
+    favicon: Cuadrado, mínimo 32 × 32 px; se generan versiones de 32 y 16 px. Vacío = el símbolo y luego el icono de la app.
+appearance:
+  section:
+    label: Apariencia
+    intro: Colores y diseño de la interfaz. Un color vacío sigue el tema seleccionado.
+  field:
+    preset: Tema (modo claro)
+    preset_dark: Tema (modo oscuro)
+    light_accent: 'Claro: acento'
+    light_accent_deep: 'Claro: acento oscuro'
+    light_danger: 'Claro: peligro'
+    light_warn: 'Claro: aviso'
+    light_paper: 'Claro: fondo de página'
+    light_ink: 'Claro: texto'
+    light_surface: 'Claro: superficie'
+    dark_accent: 'Oscuro: acento'
+    dark_accent_deep: 'Oscuro: acento oscuro'
+    dark_danger: 'Oscuro: peligro'
+    dark_warn: 'Oscuro: aviso'
+    dark_paper: 'Oscuro: fondo de página'
+    dark_ink: 'Oscuro: texto'
+    dark_surface: 'Oscuro: superficie'
+    corner_style: Esquinas
+    border_strength: Intensidad del borde
+    footer_fixed: Pie fijo
+  help:
+    preset: Los colores vacíos del modo claro siguen este tema.
+    preset_dark: Los colores vacíos del modo oscuro siguen este tema.
+    color: '#rrggbb. Vacío = el color del tema seleccionado.'
+    corner_style: sharp, soft o rounded.
+    border_strength: subtle, medium o strong.
+    footer_fixed: Mantiene el pie visible en la parte inferior de la ventana.
+  contrast:
+    light:
+      text_on_paper: 'Modo claro: el texto sobre el fondo de página no llega al contraste WCAG AA (4,5:1).'
+      text_on_surface: 'Modo claro: el texto sobre la superficie no llega al contraste WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Modo claro: el texto sobre el color de acento no llega al contraste WCAG AA (4,5:1).'
+      primary_on_surface: 'Modo claro: el color de acento sobre la superficie no llega a 3:1 (WCAG 1.4.11).'
+    dark:
+      text_on_paper: 'Modo oscuro: el texto sobre el fondo de página no llega al contraste WCAG AA (4,5:1).'
+      text_on_surface: 'Modo oscuro: el texto sobre la superficie no llega al contraste WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Modo oscuro: el texto sobre el color de acento no llega al contraste WCAG AA (4,5:1).'
+      primary_on_surface: 'Modo oscuro: el color de acento sobre la superficie no llega a 3:1 (WCAG 1.4.11).'

@@ -63,6 +63,9 @@ final class SettingsSectionType extends AbstractType
     /** Placeholder handed to {@see SecretType} as `current_value` when a secret is stored (only its presence counts). */
     private const STORED_SECRET_MARKER = 'stored';
 
+    /** Row attribute carrying the form group of a field (1.5, {@see SettingField::withGroup()}). */
+    public const GROUP_ATTRIBUTE = 'data-nowo-instance-settings-group';
+
     /**
      * Adds one form field per setting field.
      *
@@ -79,6 +82,10 @@ final class SettingsSectionType extends AbstractType
                 $controller  = $field->visibleWhen['field'];
                 $rowAttr     = VisibleWhen::attributes($root === '' ? $controller : $root . '[' . $controller . ']', $field->visibleWhen['in']);
                 $dependent[] = $field;
+            }
+            if ($field->group !== null) {
+                // 1.5 SettingField::withGroup(): a marker for host themes / stylesheets (no markup otherwise).
+                $rowAttr[self::GROUP_ATTRIBUTE] = $field->group;
             }
             $base = [
                 'label'              => $field->labelKey(),
