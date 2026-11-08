@@ -184,7 +184,7 @@ fail-closed container check, no `csrf_protection: false` on bundle forms. The CL
 | Cryptography | DoctrineEncrypt (Halite / Defuse); sealing fails closed. |
 | Permissions / exposure | Opt-in routes, roles + area roles, firewall-only token trust, fail-closed compile checks. |
 | Limits / DoS | One query per request, upload cap. |
-| AI security audit (REQ-SEC-004) | Passed — Appendix BY, final grade **Pass (good) / Low**; every finding fixed before 1.0.0 — see below. Image fields (1.4): **immediate audit pending** before the 1.4.0 tag (spec 220, decision Q-O5). |
+| AI security audit (REQ-SEC-004) | Passed — Appendix BY, final grade **Pass (good) / Low**; every finding fixed before 1.0.0 — see below. Image fields (1.4): immediate audit **Appendix IO**, final grade after Delta IO **Pass** (IO-L1 purge never deletes a referenced image, IO-L2 `files.enabled` opt-in, IO-I2/I3 fixed; IO-I4..I7, IO-I9, IO-I10 documented; IO-I8 pre-existing `paragonie/halite` advisory via doctrine-encrypt-bundle). |
 
 ## AI security audit (REQ-SEC-004)
 

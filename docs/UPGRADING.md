@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.4.0](#to-140)
 - [To 1.3.1](#to-131)
 - [To 1.3.0](#to-130)
 - [To 1.2.0](#to-120)
@@ -17,6 +18,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.4.0
+
+From **1.3.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 Towards **1.4.0** (image setting fields). From **1.3.x**:
 

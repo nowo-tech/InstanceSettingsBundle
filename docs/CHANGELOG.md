@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.4.0] - 2026-11-08](#140---2026-11-08)
 - [[1.3.1] - 2026-11-02](#131---2026-11-02)
 - [[1.3.0] - 2026-11-02](#130---2026-11-02)
 - [[1.2.0] - 2026-11-02](#120---2026-11-02)
@@ -14,6 +15,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.4.0] - 2026-11-08
 
 Image setting fields (spec 220 slice S2): upload pipeline, database file store, file route, envelope v2, purge, audit.
 Opt-in with `files.enabled: true`: hosts that do not enable it keep the 1.3 schema, routes, forms and version 1 exports.
