@@ -16,6 +16,54 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Brand bridge (spec 220 slice S3, target 1.5.0). Opt-in with `brand.enabled: true`: hosts that do not enable it keep
+the 1.4 services, routes, forms, pages (byte for byte) and schema.
+
+### Added
+
+- `nowo_instance_settings.brand` (`enabled`, `public_dir`, `fallback_provider`, `defaults`, `extra_images`). With
+  `enabled: true` the bundle registers two sections and the bridge:
+  - `brand` (`Brand\BrandSection`): `name` (required, default `brand.defaults.name`, ≤ 80), `short_name` (≤ 12),
+    `eyebrow` (≤ 120), `wordmark` (≤ 40), and the public image fields `logo_light`, `logo_dark` (≤ 2400 × 800),
+    `mark` (square, 64–1024 px), `app_icon` (square, ≥ 512 px, variants 512 / 192 / 180), `favicon` (square, ≥ 32 px,
+    variants 32 / 16) and one `extra_<id>` per `brand.extra_images` entry. Texts refuse control characters, bidi
+    controls and line separators (the brand contract's rules). Uploads are PNG / JPEG / WebP only, on the 1.4 pipeline.
+  - `appearance` (`Brand\AppearanceSection`): `preset` / `preset_dark` (UiKit preset ids, `custom` allowed), seven
+    `#rrggbb` colours per mode (`light_accent` … `dark_surface`), `corner_style`, `border_strength`, `footer_fixed`.
+    An empty colour follows the selected preset; a saved colour equal to it is dropped, so a later preset change still
+    reaches untouched fields. Advisory WCAG contrast notices (owner decision Q-O8: warn, never refuse).
+  - `Brand\InstanceBrandProvider`: implements `nowo-tech/brand-contracts` `BrandProviderInterface` (aliased; a host
+    alias wins) and UiKit's `AppearanceProviderInterface`. Stored values over `brand.defaults` (texts, a translatable
+    eyebrow `{key, domain}` that follows the viewer's locale, committed default assets that may be SVG / ICO) and over
+    UiKit's appearance defaults. `isDefault` while nothing is stored. A store failure is logged and gives the defaults.
+  - `Brand\InstanceBrandAssetReader` (`BrandAssetReaderInterface`): bytes of an uploaded asset (original or PNG
+    variant) or of a config default file, for CID e-mails and PDFs.
+  - `DependencyInjection\Compiler\BrandBridgePass`: points `nowo_ui_kit.appearance.provider` at the bridge when UiKit's
+    appearance is enabled and the host set no provider (`nowo_ui_kit.appearance.provider_is_default`), in either order
+    with UiKit's `BrandAppearanceProviderPass` (audit IS-I6). A host provider (config or a services alias) always wins.
+  - Twig `nowo_brand()`: the contract `Brand`.
+  - `Brand\BrandFallbackProviderInterface` (`brand.fallback_provider`): host values the two sections seed from
+    (`nowo:instance-settings:seed-from-fallbacks`); colours equal to the preset are not seeded.
+- `SettingField::withGroup('colors.light')` (`$group`): the admin row carries `data-nowo-instance-settings-group`.
+- `Section\SettingsSectionSaveFilterInterface`: a section may rewrite the values of a save (form, API, import) before
+  they are validated.
+- Image field admin preview (deferred from 1.4, audit IO Q3), opt-in per field with
+  `withFormOptions(['preview' => true])` (every brand image field has it): the section page shows the stored image by
+  its file route URL in an auto-escaped `<img src>`; never bytes, `data:` or base64. `Ui\ImagePreview`.
+
+### Changed
+
+- Requires `nowo-tech/ui-kit-bundle` `^2.40` (was `^2.23`): the bridge uses `AppearanceLogos`, the private defaults
+  provider and `provider_is_default`. `nowo-tech/brand-contracts` `^1.0` is suggested (required for `brand.enabled`).
+- `brand.enabled: true` implies the files (`files.enabled`), decided in this bundle's own prepend (audit IO-I10). A
+  `files.enabled` / `brand.enabled` prepended by another extension after this one now fails at compile time with a
+  clear message instead of a Doctrine mapping error on the first image save.
+
+### Security
+
+- Audit status: S3 is batch-audited before its tag (owner decision Q-O5); **re-verification pending**. See
+  [SECURITY.md](SECURITY.md#brand-bridge-threat-model-15).
+
 ## [1.4.0] - 2026-11-08
 
 Image setting fields (spec 220 slice S2): upload pipeline, database file store, file route, envelope v2, purge, audit.

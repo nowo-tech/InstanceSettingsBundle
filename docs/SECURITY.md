@@ -8,6 +8,7 @@ Bundle-specific security analysis. The short GitHub reporting policy lives in [`
 - [Attack surface](#attack-surface)
 - [Threat model and mitigations](#threat-model-and-mitigations)
 - [Image fields threat model (1.4)](#image-fields-threat-model-14)
+- [Brand bridge threat model (1.5)](#brand-bridge-threat-model-15)
 - [Admin UI exposure and allow_unauthenticated](#admin-ui-exposure-and-allow_unauthenticated)
 - [Secrets and cryptography](#secrets-and-cryptography)
 - [Logging](#logging)
@@ -24,7 +25,8 @@ Bundle-specific security analysis. The short GitHub reporting policy lives in [`
 Covers the settings store (`InstanceSettings`, repository, entity), the encrypted secret fields, the admin UI
 (controller, forms, access listener / checker, route loader), config portability (export / import service, upload
 reader, sealing, CLI commands), the image fields (upload pipeline, file store, file route, envelope v2 `files`, purge
-command, 1.4), the Twig functions and the configuration tree. It does **not** cover the host
+command, 1.4), the brand bridge (sections, contract provider, asset reader, UiKit provider pass, 1.5), the Twig
+functions and the configuration tree. It does **not** cover the host
 firewall, the sections and portability providers contributed by the host or other bundles, DoctrineEncryptBundle's
 own cryptography and key storage, or what consumers do with a setting value.
 
@@ -118,6 +120,31 @@ covered by tests (`tests/Unit/File/*`, `tests/Unit/Settings/ImageSettingsTest.ph
 - **Lossy JPEG re-encode.** Every JPEG upload or import is re-encoded at quality 90 (generation loss, new hash on each
   import of a JPEG).
 
+## Brand bridge threat model (1.5)
+
+The brand bridge (spec 220 slice S3) is opt-in (`brand.enabled: true`); without it nothing is registered and the admin
+pages are byte for byte those of 1.4. It adds no endpoint and no new storage: the brand images are image fields
+(threats IF1–IF16 above apply unchanged, the file route is not modified), the texts and colours are plain settings.
+Batch audit before the tag (owner decision Q-O5): **re-verification pending**.
+
+| # | Threat | Mitigation | Tests |
+| --- | --- | --- | --- |
+| BB1 | **Markup or script through a brand image** (SVG upload, inlined bytes, `data:` in the admin preview) | Uploads are PNG / JPEG / WebP only and re-encoded (IF1, IF2). The admin preview prints only the stored file's route URL in an auto-escaped `<img src>` (audit IO Q3): no bytes, no `data:`, no base64, no `\|raw`. A pre-save preview is not part of this release (no client script). Uploaded assets are `BrandAssetOrigin::Uploaded`, never inline-safe. | `BrandBridgeTest::testAdminPagesUploadPreviewServeAndRead`, `GroupsPreviewAndSaveFilterTest::testImagePreviewScalesAndNeedsAUrl` |
+| BB2 | **Trusted default assets pointing outside the public directory** (traversal, absolute path, symbolic link, URL) | Default asset paths are checked when the container compiles: relative, `[A-Za-z0-9._/-]` segments, no `.` / `..`, a real file whose real path is inside `public_dir`, not a symbolic link, an image extension, a readable raster. The URL is `/` + the checked path. A config error fails the build; the asset reader re-checks the SHA-256 recorded at compile time before returning bytes. | `BrandAssetsTest::testUnsafeOrInvalidPathsAreRefused`, `testSymlinksOutOfThePublicDirectoryAreRefused`, `testReaderRefusesADefaultChangedSinceCompile`, `BrandExtensionTest::testAnUnsafeDefaultAssetFailsTheBuild` |
+| BB3 | **Reading another field's image through the asset reader** (forged `BrandAsset`) | Uploads are looked up by the field of the asset's slot in the `brand` section and its full hash; the returned row must carry that hash. Defaults must match the configured file of the slot and its hash. Errors name the slot and a 12-character hash prefix, never a path or content. | `BrandAssetsTest::testReaderReadsUploadsVariantsAndDefaults` |
+| BB4 | **Header / manifest / e-mail injection through brand texts** (control characters, bidi overrides, line separators) | The fields refuse them (`Regex` + `Length`), the config defaults too; a stored value written outside the form that the contract refuses falls back to the configured texts. A translated default eyebrow with such characters is dropped before it reaches UiKit (audit IS-I4). Consumers keep auto-escaping. | `BrandSectionsTest::testTextConstraintsRefuseControlCharactersAndLength`, `InstanceBrandProviderTest::testAStoredTextTheContractRefusesFallsBackToTheDefaults`, `testATranslatedEyebrowWithUnsafeCharactersIsDropped`, `BrandExtensionTest::testInvalidBrandConfiguration` |
+| BB5 | **CSS injection through colours** | Stored colours are `#rrggbb` only (form constraint, re-checked when read); contract colours are strict hex (non-hex UiKit preset values fall back to the kit's for the contract); UiKit's emitter sanitises again. | `BrandPalettesTest`, `BrandSectionsTest::testInvalidColourIsRefused` |
+| BB6 | **Silent switch of UiKit's provider on upgrade** (UiKit's `appearance.brand: auto` reads any `BrandProviderInterface`) | `BrandProviderInterface` is registered only with `brand.enabled: true` (audit IS-I6). UiKit's provider is taken over only when UiKit's appearance is enabled and `provider_is_default` is true and the alias still targets UiKit's own config provider or brand candidate (either pass order); a host provider in config or a services alias always wins. | `BrandBridgeTest::testWithoutBrandEnabledUiKitKeepsItsProvider`, `testAHostProviderWins`, `BrandBridgePassTest` |
+| BB7 | **Unauthorised brand change** | The two sections are ordinary sections: area roles (`security.area_roles.brand` / `.appearance`), CSRF per section, imports area-aware. | Existing access and CSRF tests apply (`AdminUiTest`, `ImageFieldsTest::testRefusedUploadsCsrfAndRoles`) |
+| BB8 | **Disclosure through notices** | Contrast notices are fixed messages per mode and check: never a stored value. | `BrandSectionsTest::testContrastNoticesNameCodesOnly`, `BrandBridgeTest::testAppearancePageShowsContrastNotices` |
+| BB9 | **Availability: brand provider failure** | A store `Exception` is logged and the configured defaults are returned (an error page or manifest never fails); programming errors (`Error`) are not swallowed. | `InstanceBrandProviderTest::testAStoreFailureIsLoggedAndGivesTheDefaults`, `testProgrammingErrorsAreNotSwallowed` |
+| BB10 | **Worker-mode leaks** | Provider, palettes, sections, reader and Twig extension are stateless; values come from the request-bound memo of `InstanceSettings`. | Igor audit |
+| BB11 | **File mapping missing** (flag prepended after this bundle, audit IO-I10) | `brand.enabled` implies the files and is read in this bundle's own prepend; a flag prepended later fails at compile time with a clear message. | `BrandExtensionTest::testAFlagPrependedAfterThisExtensionFailsClearly`, `testPrependMapsTheFilesForTheBrandAndRecordsIt` |
+
+Residual risks: default assets are trusted, committed files (an SVG default may contain script; it is served by the web
+server and only printed as `<img src>` by the kit, but a host that inlines it must trust its repository); the brand
+images are public by design (do not upload anything confidential to a brand slot); colour contrast is advisory only.
+
 ## Admin UI exposure and allow_unauthenticated
 
 The admin UI edits instance-wide behaviour and secrets: keep it behind the firewall (`access_control` on
@@ -184,7 +211,7 @@ fail-closed container check, no `csrf_protection: false` on bundle forms. The CL
 | Cryptography | DoctrineEncrypt (Halite / Defuse); sealing fails closed. |
 | Permissions / exposure | Opt-in routes, roles + area roles, firewall-only token trust, fail-closed compile checks. |
 | Limits / DoS | One query per request, upload cap. |
-| AI security audit (REQ-SEC-004) | Passed — Appendix BY, final grade **Pass (good) / Low**; every finding fixed before 1.0.0 — see below. Image fields (1.4): immediate audit **Appendix IO**, final grade after Delta IO **Pass** (IO-L1 purge never deletes a referenced image, IO-L2 `files.enabled` opt-in, IO-I2/I3 fixed; IO-I4..I7, IO-I9, IO-I10 documented; IO-I8 pre-existing `paragonie/halite` advisory via doctrine-encrypt-bundle). |
+| AI security audit (REQ-SEC-004) | Passed — Appendix BY, final grade **Pass (good) / Low**; every finding fixed before 1.0.0 — see below. Image fields (1.4): immediate audit **Appendix IO**, final grade after Delta IO **Pass** (IO-L1 purge never deletes a referenced image, IO-L2 `files.enabled` opt-in, IO-I2/I3 fixed; IO-I4..I7, IO-I9, IO-I10 documented; IO-I8 pre-existing `paragonie/halite` advisory via doctrine-encrypt-bundle). Brand bridge (1.5): batch audit before the tag, **re-verification pending**. |
 
 ## AI security audit (REQ-SEC-004)
 

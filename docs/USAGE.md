@@ -18,6 +18,10 @@
 - [Writing settings from code](#writing-settings-from-code)
 - [Secrets](#secrets)
 - [Image fields](#image-fields)
+- [Brand bridge](#brand-bridge)
+  - [Reading the brand](#reading-the-brand)
+  - [UiKit appearance](#uikit-appearance)
+  - [Migrating a host appearance entity](#migrating-a-host-appearance-entity)
 - [Seeding from fallbacks (DB-only mode)](#seeding-from-fallbacks-db-only-mode)
   - [Calling the seeder from a migration](#calling-the-seeder-from-a-migration)
 - [Export and import (config portability)](#export-and-import-config-portability)
@@ -79,7 +83,7 @@ final class SiteSettingsSection extends AbstractSettingsSection
 | `choice($name, $choices, $default, $label, $help, $required)` | `choice` | one of the values of `$choices` (label key => value) | `ChoiceType` |
 | `secret($name, $label, $help, $required, $constraints, $type = String)` | string-like, `secret: true` | encrypted at rest, read with `getSecret()` | DoctrineEncrypt `SecretType` |
 
-Every typed factory accepts `$constraints` (for example an `https://` or host allow-list check on a provider URL). Modifiers: `->notPortable()` (left out of exports, refused on imports — for flags that must never travel between instances) and `->withFormOptions([...])` (extra options merged into the admin form field). The full constructor also takes `$portable`, `$constraints` (Symfony Validator constraints, applied on save and import) and `$choices`.
+Every typed factory accepts `$constraints` (for example an `https://` or host allow-list check on a provider URL). Modifiers: `->notPortable()` (left out of exports, refused on imports — for flags that must never travel between instances), `->withFormOptions([...])` (extra options merged into the admin form field; `['preview' => true]` on an image field shows the stored image on the section page, 1.5) and `->withGroup('colors.light')` (1.5: the row carries `data-nowo-instance-settings-group="colors.light"` for host themes or stylesheets that lay groups out as fieldsets or tabs; keep the fields of a group together, groups never change storage or validation). The full constructor also takes `$portable`, `$constraints` (Symfony Validator constraints, applied on save and import) and `$choices`.
 
 Definition errors fail fast: a field name must be lower snake case (`^[a-z][a-z0-9_]{0,63}$`), a secret must be string-typed and has no default, a choice needs choices, a default must match the type; section names follow the same pattern and must be unique, field names must be unique in their section.
 
@@ -131,6 +135,11 @@ return translation keys of its domain, UiKit `Label`s or `TranslatableMessage`s.
 UiKit `flash_warning` alert (`role="alert"`, `data-testid="instance-settings-notice"`) above the form. Typical use: "the
 selected provider is missing its API key". Notices are rendered in the page: name the fields, **never** echo a stored
 value.
+
+A section may also implement `SettingsSectionSaveFilterInterface::filterValues(array $values, array $current)` (1.5):
+it rewrites the values of every `save()` (form, API, import) before they are validated, for example to lower-case
+colours or to drop a value equal to a runtime default (return null for it: the row is removed and the default applies).
+The fallback seeder writes rows directly, so apply the same rule in `getFallbacks()`.
 
 ### Provider-dependent fields (visible_when)
 
@@ -416,6 +425,70 @@ so the stored `isf:` reference can differ from the one in the envelope; this is 
 
 **Audit.** The "Instance settings saved." log line gets `files`: `logo=3f1c9a0b7e21 image/png 512x512 20480B` (or
 `logo=removed`); `SettingsChangedEvent::$fileChanges` gives `field => {old, new}` full hashes. Never content.
+
+## Brand bridge
+
+Since 1.5 (spec 220 S3), `brand.enabled: true` ([CONFIGURATION](CONFIGURATION.md#brand)) stores the instance brand as
+settings, in two sections:
+
+| Section | Fields |
+| --- | --- |
+| `brand` | `name` (required; default `brand.defaults.name`), `short_name`, `eyebrow`, `wordmark`; images `logo_light`, `logo_dark`, `mark`, `app_icon` (variants 512, 192, 180), `favicon` (variants 32, 16), `extra_<id>` per `brand.extra_images` |
+| `appearance` | `preset`, `preset_dark` (UiKit preset ids or `custom`), `light_accent`, `light_accent_deep`, `light_danger`, `light_warn`, `light_paper`, `light_ink`, `light_surface` and the same seven `dark_*`, `corner_style`, `border_strength`, `footer_fixed` |
+
+- Every brand image is an image field (1.4 pipeline): PNG, JPEG or still WebP, re-encoded, **public**, never SVG (owner
+  decision Q-O4; a vector logo is a committed default asset). The section page previews the stored images by their
+  file route URL.
+- Colours are `#rrggbb` (lower-cased on save). An empty colour follows the preset selected for its mode, read from
+  UiKit's preset registry at runtime; a saved colour equal to that preset's is not stored, so a later preset change
+  still reaches it. The appearance page warns (never refuses, Q-O8) when a mode fails WCAG AA: text on paper or surface
+  below 4.5:1, text on the accent below 4.5:1, accent on surface below 3:1.
+- Without a stored value: the texts of `brand.defaults` (a `{key, domain}` eyebrow follows the viewer's locale), the
+  config default assets, UiKit's `nowo_ui_kit.appearance.defaults` (or the kit defaults `slate` / `midnight` when
+  UiKit's appearance is disabled). Asset fallbacks follow the contract: `logo_dark` → `logo_light`, `mark` →
+  `app_icon`, `app_icon` → a square `mark` of 512 px or more, `favicon` → `mark` → `app_icon`.
+
+### Reading the brand
+
+```php
+use Nowo\Brand\Contract\BrandProviderInterface;
+use Nowo\Brand\Contract\BrandAssetReaderInterface;
+
+$brand = $brands->getBrand();          // Nowo\Brand\Contract\Brand
+$brand->name;                          // stored, else brand.defaults.name
+$brand->light->primary;                // '#1f6f54'
+$brand->asset('favicon')?->url;        // '/_settings-file/brand/favicon/3f1c9a0b7e21.png' or '/brand/favicon.svg'
+$brand->isDefault;                     // true while nothing is stored in either section
+$brand->version;                       // changes with any value: ETags, cache keys
+
+// E-mails / PDFs (CID, image objects): bytes of an asset, or of a generated PNG variant of an upload.
+$png = $reader->read($brand->asset('mark'), 512);
+```
+
+Twig: `{{ nowo_brand().name }}`, `{{ nowo_brand().asset('logo_light').url ?? '' }}`. Print brand values with Twig's
+auto-escaping (never `|raw`), and inline asset bytes into HTML, SVG or PDF markup only when `asset.isInlineSafe()`
+(config defaults); uploads go in as `<img src>`, a CID attachment or a raster data URI (spec 220 §7.5).
+
+A store failure (database down) is logged as a warning and the configured defaults are returned, so a manifest or an
+error page never fails because of the brand. The bridge reads through `InstanceSettingsInterface` (one query per request
+for every row) and keeps nothing between requests.
+
+### UiKit appearance
+
+With `nowo_ui_kit.appearance.enabled: true` and no `nowo_ui_kit.appearance.provider` (UiKit's parameter
+`provider_is_default`), the bridge becomes UiKit's appearance provider: brand name, eyebrow, colours, logos, plus the
+stored preset ids, corner style, border strength and fixed footer. With an empty store and `brand.defaults.name` /
+`eyebrow` equal to UiKit's `defaults.brand_name` / `brand_eyebrow`, the emitted tokens are byte for byte those of UiKit's
+config provider. A host provider (config `provider:` or a services alias of `nowo_ui_kit.appearance.provider`) is never
+replaced. UiKit memoises the appearance per main request: the section form redirects after a save.
+
+### Migrating a host appearance entity
+
+Implement `Brand\BrandFallbackProviderInterface::getFallbacks(string $section)` (`brand` or `appearance`; field =>
+value, only the values that differ from the code defaults), set `brand.fallback_provider` to its service id, and run
+`bin/console nowo:instance-settings:seed-from-fallbacks --section=brand --section=appearance` (first with
+`--dry-run`). It is insert-only and idempotent; colours equal to the selected preset are not seeded, image keys are
+skipped (keep the images as config default assets or upload them). Remove the old entity in a later release.
 
 ## Seeding from fallbacks (DB-only mode)
 
