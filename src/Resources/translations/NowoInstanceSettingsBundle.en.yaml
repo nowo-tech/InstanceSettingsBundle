@@ -18,6 +18,8 @@ portability:
     intro_secrets: 'Downloads every portable setting. Secrets are left out unless you include them sealed: only an instance with the same encryption key can import them.'
     include_secrets: Include the secrets, sealed with this instance key
     include_secrets_help: 'Keep the file private: anyone holding it and this instance key can read the secrets.'
+    include_files: 'Include the images of image fields'
+    include_files_help: 'Adds the stored images (base64), so the file can be large.'
     submit: Download JSON
   import:
     title: Import
@@ -55,3 +57,14 @@ portability:
     forbidden_section: 'You may not change this section: %key%.'
     secret_context_mismatch: 'The sealed secret belongs to another field or application: %key%.'
     unsupported_encryptor: Sealed secrets need an authenticated encryption profile (Halite or Defuse), not MysqlAes.
+    invalid_files: 'The "files" block is invalid.'
+    invalid_file: 'Not an accepted image: %key%.'
+    file_too_large: 'The image is too large: %key%.'
+    files_too_large: 'The images are larger than this instance accepts in one file.'
+    file_hash_mismatch: 'The image does not match its declared hash: %key%.'
+    missing_image_file: 'The image is missing from the file: %key%.'
+    unexpected_file: 'This image does not match a setting of the file: %key%.'
+image:
+  upload: 'Upload an image (PNG, JPEG or WebP)'
+  replace: 'Replace the stored image'
+  remove: 'Remove the stored image'

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\DependencyInjection;
 
+use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityEnvelope;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
@@ -35,6 +36,12 @@ final class Configuration implements ConfigurationInterface
 
     /** Default upload / file size cap of imports (1 MiB). */
     public const DEFAULT_MAX_UPLOAD_BYTES = 1_048_576;
+
+    /** Default URL prefix of the image file route (1.4), outside the admin prefix. */
+    public const DEFAULT_FILE_PATH_PREFIX = '/_settings-file';
+
+    /** Default days a replaced / removed image is kept before `purge-files` deletes it. */
+    public const DEFAULT_ORPHAN_RETENTION = 30;
 
     /**
      * Builds the tree.
@@ -162,6 +169,32 @@ final class Configuration implements ConfigurationInterface
                         ->booleanNode('sealed_secrets')
                             ->info('Allow exporting / importing secrets sealed with the instance DoctrineEncrypt key. false = secrets never leave the instance.')
                             ->defaultTrue()
+                        ->end()
+                        ->integerNode('max_file_bytes')
+                            ->info('Image fields (1.4): cap of the decoded bytes of all the files of one envelope. max_upload_bytes stays the outer bound of the JSON file (raise it for branded instances).')
+                            ->defaultValue(ConfigPortability::DEFAULT_MAX_FILE_BYTES)
+                            ->min(0)
+                            ->max(16_777_216)
+                        ->end()
+                    ->end()
+                ->end()
+                ->arrayNode('files')
+                    ->info('Image setting fields (1.4): file route and orphan retention.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('path_prefix')
+                            ->info('URL prefix of the image file route; must be outside web_ui.path_prefix (public images must not sit under the admin firewall). Add an access_control PUBLIC_ACCESS line for it.')
+                            ->defaultValue(self::DEFAULT_FILE_PATH_PREFIX)
+                            ->validate()
+                                ->ifTrue(static fn (mixed $v): bool => !is_string($v) || trim($v, '/ ') === '' || !str_starts_with($v, '/') || preg_match('#^/[A-Za-z0-9._~/-]*$#', $v) !== 1)
+                                ->thenInvalid('nowo_instance_settings.files.path_prefix must be an absolute path such as "/_settings-file", got %s.')
+                            ->end()
+                        ->end()
+                        ->integerNode('orphan_retention')
+                            ->info('Days a replaced or removed image stays servable (e-mails already sent keep it) before nowo:instance-settings:purge-files deletes it.')
+                            ->defaultValue(self::DEFAULT_ORPHAN_RETENTION)
+                            ->min(0)
+                            ->max(3650)
                         ->end()
                     ->end()
                 ->end()

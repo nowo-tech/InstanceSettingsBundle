@@ -19,7 +19,22 @@ final class ConfigurationTest extends TestCase
         self::assertSame(['table_prefix' => '', 'entity_manager' => null], $config['doctrine']);
         self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'templates' => []], $config['web_ui']);
         self::assertSame(['access_roles' => ['ROLE_ADMIN'], 'area_roles' => [], 'access_checker' => null, 'allow_unauthenticated' => false], $config['security']);
-        self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true], $config['portability']);
+        self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true, 'max_file_bytes' => 8_388_608], $config['portability']);
+        self::assertSame(['path_prefix' => '/_settings-file', 'orphan_retention' => 30], $config['files']);
+    }
+
+    public function testFilesConfiguration(): void
+    {
+        self::assertSame(['path_prefix' => '/media/brand', 'orphan_retention' => 0], $this->process(['files' => ['path_prefix' => '/media/brand', 'orphan_retention' => 0]])['files']);
+
+        foreach ([['path_prefix' => 'media'], ['path_prefix' => '/'], ['path_prefix' => '/a b'], ['path_prefix' => '/x?y'], ['orphan_retention' => -1]] as $files) {
+            try {
+                $this->process(['files' => $files]);
+                self::fail('Expected InvalidConfigurationException');
+            } catch (InvalidConfigurationException) {
+                $this->addToAssertionCount(1);
+            }
+        }
     }
 
     public function testFullConfiguration(): void

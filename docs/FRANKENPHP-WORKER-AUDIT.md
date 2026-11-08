@@ -46,7 +46,8 @@ A bundle safe under **B** is safe under **A**, classic mode and PHP-FPM.
 
 | Service | Mutable state | Scenario A | Scenario B |
 |---------|---------------|------------|------------|
-| `InstanceSettings` | rows memo + weak reference to its main request; reset by `kernel.reset` and saves | ✅ | ✅ (new main request ⇒ reload) |
+| `InstanceSettings` | rows memo + weak reference to its main request + image metadata memo (1.4, cleared with the rows); reset by `kernel.reset` and saves | ✅ | ✅ (new main request ⇒ reload) |
+| `ImageProcessor`, `DoctrineSettingFileStore`, `SettingFileController`, `SettingFileUrls`, `PurgeFilesCommand` (1.4) | none (`readonly`; image bytes live only in the current call / response; the store detaches the rows it writes) | ✅ | ✅ |
 | `SettingsSectionRegistry` | section map built once from stateless tagged services (`@igor-ignore` with justification) | ✅ | ✅ |
 | `InstanceSettingsRouteLoader` | `loaded` flag (cache warm-up only) | ✅ | ✅ |
 | `DoctrineSettingValueRepository`, `ValueNormalizer`, `ConfigPortability`, `JsonUploadReader`, `DoctrineEncryptSecretSealer`, `TablePrefixListener` | none (`readonly`) | ✅ | ✅ |

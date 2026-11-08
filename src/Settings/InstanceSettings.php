@@ -4,11 +4,20 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Settings;
 
+use DateTimeImmutable;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\File\ImageProcessor;
+use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
+use Nowo\InstanceSettingsBundle\File\ImageUpload;
+use Nowo\InstanceSettingsBundle\File\ProcessedImage;
+use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
+use Nowo\InstanceSettingsBundle\File\SettingFileUrls;
+use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
+use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
@@ -16,16 +25,21 @@ use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Clock\NativeClock;
+use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Contracts\Service\ResetInterface;
 use WeakReference;
 
+use function array_key_exists;
 use function implode;
 use function is_float;
 use function is_int;
 use function is_string;
+use function preg_match;
 use function sprintf;
+use function substr;
+use function trim;
 
 /**
  * Default {@see InstanceSettingsInterface}: one query per request for every row, memoized for the current main request
@@ -40,6 +54,9 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
     /** @var WeakReference<Request>|null main request the memo belongs to (null outside HTTP) */
     private ?WeakReference $rowsRequest = null;
 
+    /** @var array<string, StoredSettingFile|null> `<section>.<field>` => file metadata, cleared with the rows memo */
+    private array $files = [];
+
     /**
      * @param SettingValueRepositoryInterface $repository storage
      * @param SettingsSectionRegistry $registry registered sections
@@ -48,6 +65,9 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      * @param RequestStack|null $requestStack binds the memo to the main request
      * @param ClockInterface|null $clock `updated_at` source
      * @param LoggerInterface|null $logger logs section + field names of each save (never values)
+     * @param SettingFileStoreInterface|null $fileStore image field storage (1.4; required to save an image)
+     * @param ImageProcessor $images image sniffing, limits and re-encoding (1.4)
+     * @param SettingFileUrls $fileUrls file route URLs (1.4)
      */
     public function __construct(
         private readonly SettingValueRepositoryInterface $repository,
@@ -57,11 +77,14 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         private readonly ?RequestStack $requestStack = null,
         private readonly ?ClockInterface $clock = null,
         private readonly ?LoggerInterface $logger = null,
+        private readonly ?SettingFileStoreInterface $fileStore = null,
+        private readonly ImageProcessor $images = new ImageProcessor(),
+        private readonly SettingFileUrls $fileUrls = new SettingFileUrls(),
     ) {
     }
 
     /**
-     * Effective plain value (stored, else default).
+     * Effective plain value (stored, else default); always null for an image field (read it with getFile()).
      */
     public function get(string $key): bool|float|int|string|null
     {
@@ -70,7 +93,48 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             throw new LogicException(sprintf('Instance setting "%s" is a secret: read it with getSecret().', $key));
         }
 
-        return $this->effective($section, $name, $field);
+        return $field->type === SettingType::Image ? null : $this->effective($section, $name, $field);
+    }
+
+    /**
+     * Stored image of an image field, or null (nothing stored, or the file is gone).
+     */
+    public function getFile(string $key): ?StoredSettingFile
+    {
+        [$section, $name, $field] = $this->registry->resolve($key);
+        if ($field->image === null) {
+            throw new LogicException(sprintf('Instance setting "%s" is not an image field.', $key));
+        }
+        $sha = self::imageHash($this->effective($section, $name, $field));
+        if ($sha === null || !$this->fileStore instanceof SettingFileStoreInterface) {
+            return null;
+        }
+        if (array_key_exists($key, $this->files)) {
+            return $this->files[$key];
+        }
+
+        $records  = $this->fileStore->findImage($section, $name, $sha);
+        $original = $records[0] ?? null;
+        $file     = null;
+        if ($original !== null) {
+            $urls = [0 => $this->fileUrls->path($section, $name, $sha, $original->mimeType)];
+            foreach ($field->image->variants as $size) {
+                if (isset($records[$size])) {
+                    $urls[$size] = $this->fileUrls->path($section, $name, $sha, 'image/png', $size);
+                }
+            }
+            $file = new StoredSettingFile($section, $name, $sha, $original->mimeType, $original->width, $original->height, $original->byteSize, $field->image->public, $urls);
+        }
+
+        return $this->files[$key] = $file;
+    }
+
+    /**
+     * SHA-256 of a stored `isf:` reference, or null.
+     */
+    public static function imageHash(mixed $value): ?string
+    {
+        return is_string($value) && preg_match(SettingField::IMAGE_REFERENCE_PATTERN, $value) === 1 ? substr($value, 4) : null;
     }
 
     /**
@@ -159,13 +223,13 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
     }
 
     /**
-     * Effective plain values of a section (no secrets).
+     * Effective plain values of a section (no secrets, no image fields).
      */
     public function getSection(string $section): array
     {
         $values = [];
         foreach ($this->registry->fields($section) as $name => $field) {
-            if (!$field->secret) {
+            if (!$field->secret && $field->type !== SettingType::Image) {
                 $values[$name] = $this->effective($section, $name, $field);
             }
         }
@@ -178,13 +242,28 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      */
     public function save(string $section, array $values, string $origin = SettingsChangedEvent::ORIGIN_API): array
     {
-        $fields     = $this->registry->fields($section);
-        $normalized = [];
-        $violations = [];
-        $required   = [];
+        $fields      = $this->registry->fields($section);
+        $normalized  = [];
+        $imageValues = [];
+        $violations  = [];
+        $required    = [];
         // Pass 1: normalize every value; `required` is decided in pass 2, once the controlling values are normalized.
         foreach ($values as $name => $value) {
-            $field              = $this->registry->field($section, (string) $name);
+            $field = $this->registry->field($section, (string) $name);
+            if ($field->type === SettingType::Image) {
+                [$image, $messages] = $this->normalizeImage($section, $field, $value);
+                if ($messages !== []) {
+                    $violations[$field->name] = $messages;
+
+                    continue;
+                }
+                $imageValues[$field->name] = $image;
+                if ($image === null) {
+                    $required[$field->name] = $value;
+                }
+
+                continue;
+            }
             [$clean, $messages] = $this->normalizer->normalize($field, $value, false);
             if ($messages !== []) {
                 $violations[$field->name] = $messages;
@@ -221,11 +300,14 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             $existing[$row->getName()] = $row;
         }
 
-        $now     = $this->clock?->now() ?? (new NativeClock())->now();
-        $save    = [];
-        $remove  = [];
-        $changed = [];
-        $secrets = [];
+        $now         = $this->clock?->now() ?? (new NativeClock())->now();
+        $save        = [];
+        $remove      = [];
+        $changed     = [];
+        $secrets     = [];
+        $fileChanges = [];
+        $newImages   = [];
+        $orphans     = [];
         foreach ($normalized as $name => $value) {
             $field = $fields[$name];
             $row   = $existing[$name] ?? null;
@@ -252,6 +334,27 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             $changed[] = $name;
         }
 
+        foreach ($imageValues as $name => $value) {
+            $row = $existing[$name] ?? null;
+            $old = $row === null ? null : self::imageHash($row->getValue());
+            $new = $value instanceof ProcessedImage ? $value->sha256() : null;
+            if (is_string($value) || ($row === null && $value === null) || ($new !== null && $new === $old)) {
+                // Unchanged reference, nothing to remove, or the same image uploaded again.
+                continue;
+            }
+            if ($row !== null && $value === null) {
+                $remove[] = $row;
+            } else {
+                $newImages[$name] = $value;
+                $save[]           = ($row ?? new SettingValue($section, $name, $now))->storeValue(SettingField::IMAGE_REFERENCE_PREFIX . $new, $now);
+            }
+            if ($old !== null) {
+                $orphans[] = [$name, $old];
+            }
+            $changed[]          = $name;
+            $fileChanges[$name] = ['old' => $old, 'new' => $new];
+        }
+
         foreach ($changed as $name) {
             if ($fields[$name]->secret) {
                 $secrets[] = $name;
@@ -262,16 +365,24 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             return [];
         }
 
-        $this->repository->apply($save, $remove);
+        if ($fileChanges === []) {
+            $this->repository->apply($save, $remove);
+        } else {
+            $this->applyWithFiles($section, $save, $remove, $newImages, $orphans, $now);
+        }
         $this->reset();
 
-        $this->logger?->info('Instance settings saved.', [
+        $context = [
             'bundle'  => 'NowoInstanceSettingsBundle',
             'section' => $section,
             'fields'  => implode(',', $changed),
             'origin'  => $origin,
-        ]);
-        $this->dispatcher?->dispatch(new SettingsChangedEvent($section, $changed, $secrets, $origin));
+        ];
+        if ($fileChanges !== []) {
+            $context['files'] = $this->describeFiles($fileChanges, $newImages);
+        }
+        $this->logger?->info('Instance settings saved.', $context);
+        $this->dispatcher?->dispatch(new SettingsChangedEvent($section, $changed, $secrets, $origin, $fileChanges));
 
         return $changed;
     }
@@ -304,6 +415,82 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         // Reset every memoized property here (not only through a helper) so the worker-state audit can see it.
         $this->rows        = null;
         $this->rowsRequest = null;
+        $this->files       = [];
+    }
+
+    /**
+     * Image input of a save: null / '' (remove), the current `isf:` reference (keep), or an upload ({@see ImageUpload}
+     * or {@see UploadedFile}) checked and re-encoded. Anything else, including another reference, is refused: a field
+     * can only point to an image uploaded or imported into it.
+     *
+     * @return array{0: ProcessedImage|string|null, 1: list<string>}
+     */
+    private function normalizeImage(string $section, SettingField $field, mixed $value): array
+    {
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            return [null, []];
+        }
+        if (is_string($value)) {
+            $current = $this->rows()[$section][$field->name] ?? null;
+
+            return $current !== null && $current->getValue() === $value && self::imageHash($value) !== null ? [$value, []] : [null, ['This value is not a valid image.']];
+        }
+        if ($value instanceof UploadedFile) {
+            $value = ImageUpload::fromUploadedFile($value);
+        }
+        if (!$value instanceof ImageUpload || !$field->image instanceof ImageSpec) {
+            return [null, ['This value is not a valid image.']];
+        }
+
+        try {
+            return [$this->images->process($field->image, $value->read($field->image->maxBytes)), []];
+        } catch (ImageRefusedException $e) {
+            return [null, [$e->describe()]];
+        }
+    }
+
+    /**
+     * Writes the image files, orphans the replaced ones and applies the rows in one transaction.
+     *
+     * @param list<SettingValue> $save
+     * @param list<SettingValue> $remove
+     * @param array<string, ProcessedImage|null> $newImages
+     * @param list<array{0: string, 1: string}> $orphans field => replaced hash
+     */
+    private function applyWithFiles(string $section, array $save, array $remove, array $newImages, array $orphans, DateTimeImmutable $now): void
+    {
+        $store = $this->fileStore ?? throw new LogicException('Instance settings image fields need a file store (SettingFileStoreInterface).');
+        // @igor-ignore - The closure runs synchronously inside the transaction and is not stored by the repository.
+        $this->repository->transactional(function () use ($store, $section, $save, $remove, $newImages, $orphans, $now): void {
+            foreach ($newImages as $name => $image) {
+                if ($image instanceof ProcessedImage) {
+                    $store->save($section, $name, $image, $now);
+                }
+            }
+            foreach ($orphans as [$name, $sha]) {
+                $store->orphan($section, $name, $sha, $now);
+            }
+            $this->repository->apply($save, $remove);
+        });
+    }
+
+    /**
+     * Log context of the image changes: field, hash prefix, type, dimensions and size; never content.
+     *
+     * @param array<string, array{old: string|null, new: string|null}> $fileChanges
+     * @param array<string, ProcessedImage|null> $newImages
+     */
+    private function describeFiles(array $fileChanges, array $newImages): string
+    {
+        $parts = [];
+        foreach ($fileChanges as $name => $change) {
+            $image   = $newImages[$name] ?? null;
+            $parts[] = $name . '=' . ($image instanceof ProcessedImage
+                ? sprintf('%s %s %dx%d %dB', substr($image->sha256(), 0, 12), $image->original->mimeType, $image->original->width, $image->original->height, $image->original->byteSize())
+                : 'removed');
+        }
+
+        return implode('; ', $parts);
     }
 
     private function effective(string $section, string $name, SettingField $field): bool|float|int|string|null
@@ -329,7 +516,8 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             return $this->rows;
         }
 
-        $rows = [];
+        $this->files = [];
+        $rows        = [];
         foreach ($this->repository->findAll() as $row) {
             $rows[$row->getSection()][$row->getName()] = $row;
         }

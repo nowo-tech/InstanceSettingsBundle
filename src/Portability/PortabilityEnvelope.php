@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Portability;
 use DateTimeInterface;
 
 use function array_diff;
+use function array_key_exists;
 use function array_keys;
 use function ctype_digit;
 use function is_int;
@@ -21,34 +22,43 @@ use function is_string;
  *  "secrets": {"sealed": true, "algorithm": "doctrine_encrypt:default", "values": {"<section>": {"<field>": "enc:v2:…"}}},
  *  "providers": {"<name>": {…}}}
  * ```
+ *
+ * Version 2 (1.4) adds `files`: `{"<section>.<field>": {"type": "image/png", "sha256": "…", "data": "<base64>"}}` for
+ * image fields, whose `settings` value is their `isf:<sha256>` reference. An export without image fields stays
+ * version 1, so older instances still import it.
  */
 final class PortabilityEnvelope
 {
-    /** Current envelope version. */
-    public const VERSION = 1;
+    /** Current envelope version (2: `files`, 1.4). */
+    public const VERSION = 2;
+
+    /** Version of envelopes without image fields (readable by every 1.x). */
+    public const VERSION_WITHOUT_FILES = 1;
 
     /** Default `schema` value (configurable with `portability.schema`). */
     public const DEFAULT_SCHEMA = 'nowo-instance-settings';
 
     /** Top-level keys an envelope may carry. */
-    public const KEYS = ['schema', 'version', 'exported_at', 'settings', 'secrets', 'providers'];
+    public const KEYS = ['schema', 'version', 'exported_at', 'settings', 'secrets', 'providers', 'files'];
 
     /**
      * Header of a new export.
      *
+     * @param int $version {@see self::VERSION}, or {@see self::VERSION_WITHOUT_FILES} when no image field is exported
+     *
      * @return array{schema: string, version: int, exported_at: string}
      */
-    public static function header(string $schema, DateTimeInterface $exportedAt): array
+    public static function header(string $schema, DateTimeInterface $exportedAt, int $version = self::VERSION): array
     {
         return [
             'schema'      => $schema,
-            'version'     => self::VERSION,
+            'version'     => $version,
             'exported_at' => $exportedAt->format(DateTimeInterface::ATOM),
         ];
     }
 
     /**
-     * Checks schema, version (1 … {@see self::VERSION}) and top-level keys.
+     * Checks schema, version (1 … {@see self::VERSION}) and top-level keys (`files` only from version 2).
      *
      * @param array<string, mixed> $payload
      *
@@ -73,6 +83,9 @@ final class PortabilityEnvelope
 
         foreach (array_diff(array_keys($payload), self::KEYS) as $unknown) {
             throw new PortabilityException('unknown_key:' . $unknown);
+        }
+        if ($version < self::VERSION && array_key_exists('files', $payload)) {
+            throw new PortabilityException('unknown_key:files');
         }
 
         return $version;

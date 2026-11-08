@@ -89,6 +89,7 @@
         "symfony/yaml": "^7.4 || ^8.0"
     },
     "suggest": {
+        "ext-gd": "Required (with PNG, JPEG and WebP support) when a section declares an image field (1.4)",
         "symfony/flex": "For automatic recipe installation",
         "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
         "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()"

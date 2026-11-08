@@ -26,9 +26,9 @@ final class PortabilityExportType extends AbstractType
     public const CSRF_TOKEN_ID = 'nowo_instance_settings_export';
 
     /**
-     * Field `include_secrets` when sealed secrets are allowed.
+     * Field `include_secrets` when sealed secrets are allowed; `include_files` (checked) when image fields exist (1.4).
      *
-     * @param array{allow_secrets: bool} $options
+     * @param array{allow_secrets: bool, allow_files: bool} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -40,21 +40,32 @@ final class PortabilityExportType extends AbstractType
                 'required' => false,
             ]);
         }
+        if ($options['allow_files']) {
+            $this->addWithDefaults($builder, 'include_files', CheckboxType::class, [
+                'label'    => 'portability.export.include_files',
+                'help'     => 'portability.export.include_files_help',
+                'mapped'   => false,
+                'required' => false,
+                'data'     => true,
+            ]);
+        }
     }
 
     /**
-     * Option `allow_secrets`.
+     * Options `allow_secrets`, `allow_files`.
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
         $resolver->setDefaults([
             'data_class'         => null,
             'allow_secrets'      => false,
+            'allow_files'        => false,
             'csrf_protection'    => true,
             'csrf_field_name'    => '_token',
             'csrf_token_id'      => self::CSRF_TOKEN_ID,
             'translation_domain' => NowoInstanceSettingsBundle::TRANSLATION_DOMAIN,
         ]);
         $resolver->setAllowedTypes('allow_secrets', 'bool');
+        $resolver->setAllowedTypes('allow_files', 'bool');
     }
 }

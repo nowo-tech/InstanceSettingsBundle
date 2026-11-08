@@ -8,6 +8,7 @@
   - [Layout and CSS stack (UiKit)](#layout-and-css-stack-uikit)
 - [security](#security)
 - [portability](#portability)
+- [files](#files)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
 - [Profiles](#profiles)
@@ -39,6 +40,10 @@ nowo_instance_settings:
         schema: nowo-instance-settings # envelope "schema"; imports with another schema are refused
         max_upload_bytes: 1048576      # import size cap (1024 … 16777216)
         sealed_secrets: true           # allow exporting / importing secrets sealed with the instance key
+        max_file_bytes: 8388608        # image fields (1.4): decoded bytes of all the files of one envelope (0 … 16777216)
+    files:                             # image fields (1.4)
+        path_prefix: /_settings-file   # file route prefix; must be outside web_ui.path_prefix
+        orphan_retention: 30           # days a replaced / removed image stays servable before purge-files deletes it (0 … 3650)
 ```
 
 Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`) must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built.
@@ -138,6 +143,25 @@ security:
 | `schema` | `nowo-instance-settings` | Envelope `schema` written on export and required on import (`^[a-z0-9][a-z0-9._-]{0,99}$`). Use a product-specific value (`acme-instance-config`) so files from another application are refused. |
 | `max_upload_bytes` | `1048576` | Size cap of the uploaded file and of the CLI import file (the reader stops after `max + 1` bytes). |
 | `sealed_secrets` | `true` | Enables the "Include the secrets" export option and the `secrets` block on import. With `false`, secrets never leave the instance and a file with `secrets` is refused. |
+| `max_file_bytes` | `8388608` | Image fields (1.4): cap of the decoded bytes of every file of one envelope (export and import, `files_too_large`). Each file is also capped by its field's `maxBytes`. `max_upload_bytes` stays the outer bound of the JSON file: base64 adds a third, so raise it (up to 16 MiB) for instances that export their images. |
+
+## files
+
+Image setting fields (1.4, [USAGE](USAGE.md#image-fields)). Nothing here matters for hosts without image fields: the
+file route is only added when a section declares one.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `path_prefix` | `/_settings-file` | Prefix of the file route `{prefix}/{section}/{field}/{hash12}[-{variant}].{ext}`. Must be outside `web_ui.path_prefix` (and not contain it): public images must not depend on the admin firewall. The container refuses an overlap. Add a `PUBLIC_ACCESS` `access_control` line for it when your firewall covers it. |
+| `orphan_retention` | `30` | Days a replaced or removed image (and its variants) stays in the database and servable, so e-mails already sent keep showing it, before `nowo:instance-settings:purge-files` deletes it. `0` deletes on the next run. |
+
+```yaml
+# config/packages/security.yaml
+security:
+    access_control:
+        - { path: ^/_settings-file/, roles: PUBLIC_ACCESS }   # public image fields; private ones check the section area themselves
+        - { path: ^/admin/settings, roles: ROLE_ADMIN }
+```
 
 ## FormKit profile
 
@@ -180,7 +204,7 @@ REQ-CFG-001 does not apply: the bundle has one configuration tree. Variants are 
 
 ## Container parameters
 
-`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`.
+`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`, `.files.path_prefix`, `.files.orphan_retention`.
 
 ## Seeding from fallbacks
 
@@ -204,4 +228,8 @@ The container refuses to compile when:
 - `security.allow_unauthenticated` is true without `kernel.debug`;
 - `security.access_roles` (or an `area_roles` list) is empty without a custom checker;
 - `security.area_roles` restricts sections without an explicit `_portability` entry while the import / export page is on;
-- a security switch is an env placeholder instead of a literal boolean.
+- a security switch is an env placeholder instead of a literal boolean;
+- `files.path_prefix` overlaps `web_ui.path_prefix`.
+
+When the section definitions load, a section declaring an image field without `ext-gd` (with PNG, JPEG and WebP
+support) throws a `LogicException`: images are never stored without the re-encode step.

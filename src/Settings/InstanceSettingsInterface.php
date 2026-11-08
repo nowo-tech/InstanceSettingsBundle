@@ -8,6 +8,8 @@ use LogicException;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
 use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
+use Nowo\InstanceSettingsBundle\File\ImageUpload;
+use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 
 /**
  * Typed read / write access to the instance settings. Keys are `<section>.<field>`.
@@ -18,7 +20,7 @@ use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
 interface InstanceSettingsInterface
 {
     /**
-     * Effective value of a plain (non-secret) setting.
+     * Effective value of a plain (non-secret) setting; always null for an image field (use {@see self::getFile()}).
      *
      * @throws UnknownSettingException
      * @throws LogicException when the field is a secret (use {@see self::getSecret()})
@@ -26,7 +28,7 @@ interface InstanceSettingsInterface
     public function get(string $key): bool|float|int|string|null;
 
     /**
-     * Effective value of a string-typed setting (string, text, email, url or string choice).
+     * Effective value of a string-typed setting (string, text, email, url or string choice); null for an image field.
      */
     public function getString(string $key): ?string;
 
@@ -58,12 +60,21 @@ interface InstanceSettingsInterface
     public function hasSecret(string $key): bool;
 
     /**
+     * Stored image of an image field (1.4): hash, type, dimensions, size and the file route URLs; null when nothing is
+     * stored (or the file is gone).
+     *
+     * @throws UnknownSettingException
+     * @throws LogicException when the field is not an image field
+     */
+    public function getFile(string $key): ?StoredSettingFile;
+
+    /**
      * Whether a value is stored (not the default) for that field.
      */
     public function isOverridden(string $key): bool;
 
     /**
-     * Effective plain values of a section (secrets left out), keyed by field name.
+     * Effective plain values of a section (secrets and image fields left out), keyed by field name.
      *
      * @return array<string, bool|float|int|string|null>
      */
@@ -73,7 +84,10 @@ interface InstanceSettingsInterface
      * Validates and stores values of one section, all-or-nothing, then dispatches {@see SettingsChangedEvent}.
      *
      * Plain fields: `null` (or '') removes the stored value (the default applies again). Secret fields: a non-empty
-     * string replaces the secret, `null` (or '') removes it, an absent key keeps it.
+     * string replaces the secret, `null` (or '') removes it, an absent key keeps it. Image fields (1.4): an
+     * {@see ImageUpload} or an `UploadedFile` is checked, re-encoded and stored,
+     * `null` (or '') removes the stored image (kept as an orphan for `files.orphan_retention`), the current `isf:`
+     * reference keeps it.
      *
      * @param array<string, mixed> $values field name => value
      *

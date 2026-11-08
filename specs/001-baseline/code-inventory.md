@@ -117,7 +117,53 @@ Files changed by [003](../003-provider-dependent-fields/spec.md) (no new file; m
 | `src/Settings/InstanceSettings.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-008 |
 | `src/Settings/ValueNormalizer.php` | [003](../003-provider-dependent-fields/spec.md) | FR-VIS-008 |
 
+## Image fields (spec 004, contract 220 S2)
+
+New files of [004](../004-image-fields/spec.md):
+
+| Source file | Spec section | Requirement IDs |
+| --- | --- | --- |
+| `src/Section/ImageSpec.php` | [004](../004-image-fields/spec.md) | FR-001 |
+| `src/Entity/SettingFile.php` | [004](../004-image-fields/spec.md) | FR-004 |
+| `src/File/DoctrineSettingFileStore.php` | [004](../004-image-fields/spec.md) | FR-004, FR-008 |
+| `src/File/EncodedImage.php` | [004](../004-image-fields/spec.md) | FR-002 |
+| `src/File/GdSupport.php` | [004](../004-image-fields/spec.md) | FR-002 |
+| `src/File/ImageProcessor.php` | [004](../004-image-fields/spec.md) | FR-002 |
+| `src/File/ImageRefusedException.php` | [004](../004-image-fields/spec.md) | FR-002 |
+| `src/File/ImageUpload.php` | [004](../004-image-fields/spec.md) | FR-002, FR-006 |
+| `src/File/ProcessedImage.php` | [004](../004-image-fields/spec.md) | FR-002 |
+| `src/File/SettingFileController.php` | [004](../004-image-fields/spec.md) | FR-005 |
+| `src/File/SettingFileRecord.php` | [004](../004-image-fields/spec.md) | FR-004 |
+| `src/File/SettingFileStoreInterface.php` | [004](../004-image-fields/spec.md) | FR-004 |
+| `src/File/SettingFileUrls.php` | [004](../004-image-fields/spec.md) | FR-003, FR-005 |
+| `src/File/StoredSettingFile.php` | [004](../004-image-fields/spec.md) | FR-003 |
+| `src/Form/SettingImageType.php` | [004](../004-image-fields/spec.md) | FR-006 |
+| `src/Command/PurgeFilesCommand.php` | [004](../004-image-fields/spec.md) | FR-008 |
+
+Files changed by [004](../004-image-fields/spec.md) (mapped above as well):
+
+| Source file | Spec section | Requirement IDs |
+| --- | --- | --- |
+| `src/Section/SettingType.php` | [004](../004-image-fields/spec.md) | FR-001 |
+| `src/Section/SettingField.php` | [004](../004-image-fields/spec.md) | FR-001 |
+| `src/Section/SettingsSectionRegistry.php` | [004](../004-image-fields/spec.md) | FR-002 |
+| `src/Settings/InstanceSettings.php` | [004](../004-image-fields/spec.md) | FR-003, FR-004, FR-009 |
+| `src/Settings/InstanceSettingsInterface.php` | [004](../004-image-fields/spec.md) | FR-003 |
+| `src/Settings/ValueNormalizer.php` | [004](../004-image-fields/spec.md) | FR-001 |
+| `src/Event/SettingsChangedEvent.php` | [004](../004-image-fields/spec.md) | FR-009 |
+| `src/Portability/ConfigPortability.php` | [004](../004-image-fields/spec.md) | FR-007 |
+| `src/Portability/PortabilityEnvelope.php` | [004](../004-image-fields/spec.md) | FR-007 |
+| `src/Form/SettingsSectionType.php` | [004](../004-image-fields/spec.md) | FR-006 |
+| `src/Form/PortabilityExportType.php` | [004](../004-image-fields/spec.md) | FR-007 |
+| `src/Controller/SettingsController.php` | [004](../004-image-fields/spec.md) | FR-006, FR-007 |
+| `src/Command/ExportSettingsCommand.php` | [004](../004-image-fields/spec.md) | FR-007 |
+| `src/Routing/InstanceSettingsRouteLoader.php` | [004](../004-image-fields/spec.md) | FR-005 |
+| `src/Routing/InstanceSettingsRoutes.php` | [004](../004-image-fields/spec.md) | FR-005 |
+| `src/Twig/InstanceSettingsTwigExtension.php` | [004](../004-image-fields/spec.md) | FR-003 |
+| `src/DependencyInjection/Configuration.php` | [004](../004-image-fields/spec.md) | FR-005, FR-007, FR-008 |
+| `src/DependencyInjection/NowoInstanceSettingsExtension.php` | [004](../004-image-fields/spec.md) | FR-004, FR-005, FR-008 |
+
 ## Totals
 
-- Mapped files: **67/67** (100%).
+- Mapped files: **83/83** (100%).
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

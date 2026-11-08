@@ -14,15 +14,18 @@ final class PortabilityEnvelopeTest extends TestCase
 {
     public function testHeaderAndValidation(): void
     {
-        $header = PortabilityEnvelope::header('s', new DateTimeImmutable('2026-10-31T10:00:00+00:00'));
+        $header = PortabilityEnvelope::header('s', new DateTimeImmutable('2026-10-31T10:00:00+00:00'), PortabilityEnvelope::VERSION_WITHOUT_FILES);
         self::assertSame(['schema' => 's', 'version' => 1, 'exported_at' => '2026-10-31T10:00:00+00:00'], $header);
         self::assertSame(1, PortabilityEnvelope::assertValid($header, 's'));
+        self::assertSame(2, PortabilityEnvelope::header('s', new DateTimeImmutable())['version']);
+        self::assertSame(2, PortabilityEnvelope::assertValid(['schema' => 's', 'version' => 2, 'files' => []], 's'));
         self::assertSame(1, PortabilityEnvelope::assertValid(['schema' => 's', 'version' => '1'], 's'));
 
         $cases = [
             'invalid_schema'      => ['schema' => 'x', 'version' => 1],
             'invalid_version'     => ['schema' => 's', 'version' => 'one'],
-            'unsupported_version' => ['schema' => 's', 'version' => 2],
+            'unsupported_version' => ['schema' => 's', 'version' => 3],
+            'unknown_key:files'   => ['schema' => 's', 'version' => 1, 'files' => []],
             'unknown_key:extra'   => ['schema' => 's', 'version' => 1, 'extra' => true],
         ];
         foreach ($cases as $reason => $payload) {

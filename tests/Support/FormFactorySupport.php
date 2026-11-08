@@ -10,6 +10,7 @@ use Nowo\FormKitBundle\Form\FormOptionsMerger;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
 use Nowo\InstanceSettingsBundle\Form\PortabilityExportType;
 use Nowo\InstanceSettingsBundle\Form\PortabilityImportType;
+use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Symfony\Component\Form\Extension\Csrf\CsrfExtension;
@@ -40,7 +41,7 @@ final class FormFactorySupport
     public static function factory(bool $validCsrf = true): FormFactoryInterface
     {
         $merger = self::merger();
-        $types  = [new SettingsSectionType(), new PortabilityImportType(), new PortabilityExportType()];
+        $types  = [new SettingsSectionType(), new SettingImageType(), new PortabilityImportType(), new PortabilityExportType()];
         foreach ($types as $type) {
             $type->setFormOptionsMerger($merger);
         }

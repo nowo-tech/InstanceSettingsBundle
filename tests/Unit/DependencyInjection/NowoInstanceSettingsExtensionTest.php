@@ -6,17 +6,24 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\DependencyInjection;
 
 use LogicException;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
+use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
+use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
+use Nowo\InstanceSettingsBundle\File\SettingFileController;
+use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
+use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
+use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
@@ -102,6 +109,38 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $bare = new ContainerBuilder();
         (new NowoInstanceSettingsExtension())->prepend($bare);
         self::assertSame([], $bare->getExtensionConfig('doctrine'));
+    }
+
+    public function testImageFileServices(): void
+    {
+        $container = $this->load(['files' => ['path_prefix' => '/media/settings', 'orphan_retention' => 7]], withSecurity: true);
+
+        self::assertSame(DoctrineSettingFileStore::class, (string) $container->getAlias(SettingFileStoreInterface::class));
+        $controller = $container->getDefinition(SettingFileController::class);
+        self::assertTrue($controller->isPublic());
+        self::assertFalse($controller->isAutoconfigured());
+        self::assertSame(7, $container->getDefinition(PurgeFilesCommand::class)->getArgument(3));
+        self::assertSame('/media/settings', $container->getParameter('nowo_instance_settings.files.path_prefix'));
+        self::assertSame('/media/settings', $container->getDefinition(InstanceSettingsRouteLoader::class)->getArgument(5));
+        self::assertTrue($container->hasDefinition(SettingImageType::class));
+    }
+
+    public function testFilePrefixMustBeOutsideTheAdminPrefix(): void
+    {
+        foreach ([
+            ['files' => ['path_prefix' => '/admin/settings']],
+            ['files' => ['path_prefix' => '/admin/settings/files/']],
+            ['files' => ['path_prefix' => '/admin'], 'web_ui' => ['path_prefix' => '/admin/settings']],
+        ] as $config) {
+            try {
+                $this->load($config, withSecurity: true);
+                self::fail('Expected InvalidConfigurationException');
+            } catch (InvalidConfigurationException $e) {
+                self::assertStringContainsString('must be outside web_ui.path_prefix', $e->getMessage());
+            }
+        }
+        $this->load(['files' => ['path_prefix' => '/admin/settingsfiles']], withSecurity: true);
+        $this->addToAssertionCount(1);
     }
 
     /**
