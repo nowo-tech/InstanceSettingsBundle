@@ -57,12 +57,19 @@ composer update nowo-tech/instance-settings-bundle nowo-tech/ui-kit-bundle
    - Two sections appear in the admin UI, `brand` and `appearance` (area roles `security.area_roles.brand` /
      `.appearance`, default the UI roles). A host section already named `brand` or `appearance` conflicts: rename it
      before enabling the bridge.
-   - **UiKit's appearance provider switches to the bridge** when `nowo_ui_kit.appearance.enabled: true` and you set no
-     `nowo_ui_kit.appearance.provider` (and no services alias of `nowo_ui_kit.appearance.provider`). With an empty store
+   - **UiKit's appearance provider switches to the bridge** when `nowo_ui_kit.appearance.enabled: true`, you set no
+     `nowo_ui_kit.appearance.provider` (and no services alias of `nowo_ui_kit.appearance.provider`) and you kept
+     `nowo_ui_kit.appearance.brand: auto` (the default). With `brand: off` UiKit keeps its config look while Pwa, mail,
+     legal and SEO still read the stored brand (audit IU-L1). A host **decorator** of
+     `nowo_ui_kit.appearance.config_provider` no longer applies once the bridge takes over (audit IU-I1): set
+     `nowo_ui_kit.appearance.provider` to your own provider, or `brand: off`, to keep it. With an empty store
      the output equals UiKit's config provider when `brand.defaults.name` / `eyebrow` match
      `nowo_ui_kit.appearance.defaults.brand_name` / `brand_eyebrow`. A host provider always wins.
-   - `BrandProviderInterface` and `BrandAssetReaderInterface` are aliased to the bridge; a host alias in its own
-     services wins. Pwa, MailKit, LegalKit and SeoKit read them in their brand-aware releases.
+   - `BrandProviderInterface` and `BrandAssetReaderInterface` are aliased to the bridge. A host service or alias of
+     `BrandProviderInterface` next to `brand.enabled: true` fails the build (two brands, audit IU-I2): keep one source.
+   - Default asset URLs are `/<path>?v=<12 hex of the SHA-256>`, so a changed committed file gets a new URL (audit
+     IU-I3). They are root-relative and ignore a request base path: an app served under a sub-path needs the files
+     reachable at `/<path>` or uploads instead. Pwa, MailKit, LegalKit and SeoKit read them in their brand-aware releases.
    - Migrating from a host appearance entity: implement `Brand\BrandFallbackProviderInterface` (one read of the old
      row, only values that differ from the defaults), set `brand.fallback_provider` to its service id, run
      `bin/console nowo:instance-settings:seed-from-fallbacks --section=brand --section=appearance --dry-run`, then

@@ -63,6 +63,15 @@ final class BrandBridgeTest extends KernelTestCase
         self::assertInstanceOf(InstanceBrandProvider::class, $this->container($kernel)->get(BrandProviderInterface::class), 'the contract is still served');
     }
 
+    public function testUiKitBrandOffKeepsTheConfigProvider(): void
+    {
+        // Audit IU-L1: the host keeps UiKit's look from config and serves the brand to the other consumers.
+        $kernel = $this->brandKernel(['brand' => 'off']);
+
+        self::assertInstanceOf(ConfigAppearanceProvider::class, $this->container($kernel)->get(AppearanceProviderInterface::class));
+        self::assertInstanceOf(InstanceBrandProvider::class, $this->container($kernel)->get(BrandProviderInterface::class));
+    }
+
     public function testBrandWithoutUiKitAppearanceStillServesTheContract(): void
     {
         $kernel = $this->bootKernel(['brand' => ['enabled' => true, 'defaults' => ['name' => 'Solo']]], fixtures: false);
@@ -104,7 +113,8 @@ final class BrandBridgeTest extends KernelTestCase
         $logo = $brand->getBrand()->asset('logo_light');
         self::assertSame([$file->url(), BrandAssetOrigin::Uploaded, 'Globex'], [$logo?->url, $logo?->origin, $brand->getBrand()->name]);
         $mark = $brand->getBrand()->asset('mark');
-        self::assertSame([BrandAssetOrigin::ConfigDefault, '/brand/mark.png'], [$mark?->origin, $mark?->url]);
+        self::assertSame(BrandAssetOrigin::ConfigDefault, $mark?->origin);
+        self::assertMatchesRegularExpression('#^/brand/mark\.png\?v=[0-9a-f]{12}$#', (string) $mark->url);
 
         $reader = $this->container($kernel)->get(BrandAssetReaderInterface::class);
         self::assertInstanceOf(BrandAssetReaderInterface::class, $reader);

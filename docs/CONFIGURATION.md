@@ -192,13 +192,13 @@ registered (no section, no service, no alias, no Twig function) and UiKit's appe
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `enabled` | `false` | Registers the `brand` and `appearance` sections, `Brand\InstanceBrandProvider` (aliased as `Nowo\Brand\Contract\BrandProviderInterface`), `Brand\InstanceBrandAssetReader` (`BrandAssetReaderInterface`), `nowo_brand()`, and takes over `nowo_ui_kit.appearance.provider` when UiKit's appearance is enabled and the host set no provider. Needs `nowo-tech/brand-contracts` (compile error otherwise). **Implies `files.enabled: true`** (the brand images are image fields). Literal boolean only. |
+| `enabled` | `false` | Registers the `brand` and `appearance` sections, `Brand\InstanceBrandProvider` (aliased as `Nowo\Brand\Contract\BrandProviderInterface`), `Brand\InstanceBrandAssetReader` (`BrandAssetReaderInterface`), `nowo_brand()`, and takes over `nowo_ui_kit.appearance.provider` when UiKit's appearance is enabled, the host set no provider and kept `nowo_ui_kit.appearance.brand: auto` (with `brand: off` UiKit keeps its config look). Needs `nowo-tech/brand-contracts` (compile error otherwise). **Implies `files.enabled: true`** (the brand images are image fields). Literal boolean only. |
 | `public_dir` | `%kernel.project_dir%/public` | Directory the default asset paths are relative to. Default assets are served by your web server as plain static files at `/<path>`. |
 | `fallback_provider` | `null` | Service id of a `Brand\BrandFallbackProviderInterface`: values the two sections seed from (`nowo:instance-settings:seed-from-fallbacks`). |
 | `defaults.name` | `null` | Brand name while none is stored. **Required** with `enabled: true`. At most 80 printable characters (no control characters, bidi controls or line separators). |
 | `defaults.short_name` / `wordmark` | `null` | At most 12 / 40 characters; null = the contract defaults (the name cut at 12; the lower-cased name). |
 | `defaults.eyebrow` | `null` | A literal string (≤ 120), or `{key, domain}`: a translation key translated in the viewer's locale while nothing is stored. A stored eyebrow is a literal. |
-| `defaults.<slot>` | `null` | `logo_light`, `logo_dark`, `mark`, `app_icon`, `favicon`: a path relative to `public_dir` (letters, digits, `.`, `_`, `-`, `/`; no `..`, no leading `/`, no symbolic link out of `public_dir`) of a PNG, JPEG, WebP, GIF, SVG or ICO file. Read when the container compiles (type from the extension, dimensions, SHA-256; a missing or unreadable file fails the build), trusted (`isInlineSafe()`), and replaced by an upload of the same slot. The container is rebuilt in debug when the file changes; in production, clear the cache after replacing a committed default. |
+| `defaults.<slot>` | `null` | `logo_light`, `logo_dark`, `mark`, `app_icon`, `favicon`: a path relative to `public_dir` (letters, digits, `.`, `_`, `-`, `/`; no `..`, no leading `/`, no symbolic link out of `public_dir`) of a PNG, JPEG, WebP, GIF, SVG or ICO file. Read when the container compiles (type from the extension, dimensions, SHA-256; a missing or unreadable file fails the build), trusted (`isInlineSafe()`), served at `/<path>?v=<12 hex of its SHA-256>` (root-relative: a request base path is not added), and replaced by an upload of the same slot. The container is rebuilt in debug when the file changes; in production, clear the cache after replacing a committed default. |
 | `extra_images.<id>` | — | Extra brand image (`[a-z][a-z0-9_]{0,57}`): field `extra_<id>`, slot `extra.<id>`, public. `label` / `help` (translation keys in the bundle domain; null = `brand.field.extra`), `max_width` / `max_height` (≤ 4096), `max_bytes` (≤ 5 MiB), `square`, `default` (as `defaults.<slot>`). |
 
 The brand images are always public (served anonymously by the file route): keep the `PUBLIC_ACCESS` line of
@@ -273,6 +273,8 @@ The container refuses to compile when:
 - `files.path_prefix` overlaps `web_ui.path_prefix`;
 - `files.enabled` is true and `ext-gd` lacks PNG, JPEG or WebP support;
 - `files.enabled` or `brand.enabled` was prepended after this bundle, so the file entity is not mapped (1.5, audit IO-I10);
+- `brand.enabled` is true and the host defines its own `BrandProviderInterface` service or alias (two brands, 1.5,
+  audit IU-I2);
 - `brand.enabled` is true without `nowo-tech/brand-contracts`, without `brand.defaults.name`, or with a default asset
   path that is unsafe, missing or not an image (1.5).
 

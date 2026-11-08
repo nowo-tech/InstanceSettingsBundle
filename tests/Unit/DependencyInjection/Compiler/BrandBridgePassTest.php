@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\DependencyInjection\Compiler;
 
+use LogicException;
 use Nowo\Brand\Contract\BrandProviderInterface;
 use Nowo\InstanceSettingsBundle\Brand\InstanceBrandProvider;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
@@ -62,6 +63,47 @@ final class BrandBridgePassTest extends TestCase
         self::assertSame('app.provider', (string) $container->getAlias('nowo_ui_kit.appearance.provider'));
     }
 
+    /**
+     * @param list<CompilerPassInterface> $passes
+     */
+    #[DataProvider('orders')]
+    public function testUiKitBrandOffKeepsTheConfigProvider(array $passes): void
+    {
+        // Audit IU-L1: with `appearance.brand: off` UiKit never registers its brand candidate.
+        $container = $this->container(candidate: false);
+        foreach ($passes as $pass) {
+            $pass->process($container);
+        }
+
+        self::assertSame('nowo_ui_kit.appearance.config_provider', (string) $container->getAlias('nowo_ui_kit.appearance.provider'));
+    }
+
+    public function testAHostBrandProviderNextToTheBridgeFailsTheBuild(): void
+    {
+        // Audit IU-I2: two brand sources.
+        foreach (['alias' => false, 'definition' => true] as $case => $definition) {
+            $container = $this->container();
+            if ($definition) {
+                $container->removeAlias(BrandProviderInterface::class);
+                $container->register(BrandProviderInterface::class, stdClass::class);
+            } else {
+                $container->setAlias(BrandProviderInterface::class, 'app.brand');
+            }
+            try {
+                (new BrandBridgePass())->process($container);
+                self::fail($case);
+            } catch (LogicException $e) {
+                self::assertStringContainsString('Use one brand source', $e->getMessage(), $case);
+            }
+        }
+
+        // Without brand.enabled the host provider is the only brand: nothing to refuse.
+        $host = $this->container(brand: false);
+        $host->setAlias(BrandProviderInterface::class, 'app.brand');
+        (new BrandBridgePass())->process($host);
+        self::assertSame('app.brand', (string) $host->getAlias(BrandProviderInterface::class));
+    }
+
     public function testNothingChangesWithoutTheConditions(): void
     {
         foreach ([
@@ -80,14 +122,16 @@ final class BrandBridgePassTest extends TestCase
         self::assertFalse($noAlias->hasAlias('nowo_ui_kit.appearance.provider'));
     }
 
-    private function container(bool $brand = true, bool $appearance = true, bool $providerIsDefault = true, bool $bridge = true): ContainerBuilder
+    private function container(bool $brand = true, bool $appearance = true, bool $providerIsDefault = true, bool $bridge = true, bool $candidate = true): ContainerBuilder
     {
         $container = new ContainerBuilder();
         $container->setParameter(BrandBridgePass::PARAMETER, $brand);
         $container->setParameter('nowo_ui_kit.appearance.enabled', $appearance);
         $container->setParameter('nowo_ui_kit.appearance.provider_is_default', $providerIsDefault);
         $container->register('nowo_ui_kit.appearance.config_provider', stdClass::class);
-        $container->register(BrandAppearanceProviderPass::CANDIDATE, stdClass::class);
+        if ($candidate) {
+            $container->register(BrandAppearanceProviderPass::CANDIDATE, stdClass::class);
+        }
         $container->setAlias('nowo_ui_kit.appearance.provider', 'nowo_ui_kit.appearance.config_provider')->setPublic(true);
         if ($bridge) {
             $container->register(InstanceBrandProvider::class, stdClass::class);

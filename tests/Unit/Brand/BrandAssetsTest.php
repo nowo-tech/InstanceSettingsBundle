@@ -56,7 +56,7 @@ final class BrandAssetsTest extends TestCase
     public function testRasterAndSvgDefaults(): void
     {
         $mark = DefaultAsset::fromFile('mark', 'brand/mark.png', $this->dir . '/public');
-        self::assertSame(['/brand/mark.png', 'image/png', 64, 48], [$mark->url, $mark->mimeType, $mark->width, $mark->height]);
+        self::assertSame(['/brand/mark.png?v=' . substr($mark->sha256, 0, 12), 'image/png', 64, 48], [$mark->url, $mark->mimeType, $mark->width, $mark->height]);
         self::assertSame(hash('sha256', (string) file_get_contents($this->dir . '/public/brand/mark.png')), $mark->sha256);
         self::assertEquals($mark, DefaultAsset::fromArray($mark->toArray()));
         $asset = $mark->toBrandAsset();

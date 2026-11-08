@@ -166,9 +166,9 @@ final class InstanceBrandProviderTest extends TestCase
         $brand = $fixture->provider->getBrand();
         $logo  = $brand->asset(BrandAssetSlot::LOGO_LIGHT);
         self::assertNotNull($logo);
-        self::assertSame(['/brand/logo.svg', 'image/svg+xml', null, BrandAssetOrigin::ConfigDefault], [$logo->url, $logo->mimeType, $logo->width, $logo->origin]);
+        self::assertSame(['/brand/logo.svg?v=' . substr($logo->sha256, 0, 12), 'image/svg+xml', null, BrandAssetOrigin::ConfigDefault], [$logo->url, $logo->mimeType, $logo->width, $logo->origin]);
         self::assertTrue($logo->isInlineSafe());
-        self::assertSame('/brand/mascot.png', $brand->asset('extra.mascot')?->url);
+        self::assertStringStartsWith('/brand/mascot.png?v=', (string) $brand->asset('extra.mascot')?->url);
         self::assertTrue($brand->isDefault, 'config defaults are not stored values');
 
         // An upload overrides the extra default.

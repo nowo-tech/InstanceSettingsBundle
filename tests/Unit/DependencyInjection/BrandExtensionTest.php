@@ -94,14 +94,14 @@ final class BrandExtensionTest extends TestCase
         $defaults = $container->getDefinition(BrandDefaults::class)->getArguments();
         self::assertSame(['Acme', 'AC', null, 'brand.eyebrow', 'app', 'acme'], [$defaults[0], $defaults[1], $defaults[2], $defaults[3], $defaults[4], $defaults[5]]);
         self::assertSame(['mark', 'extra.mascot'], array_keys($defaults[6]));
-        self::assertSame(['/brand/mark.png', 'image/png', 32], [$defaults[6]['mark']['url'], $defaults[6]['mark']['mime_type'], $defaults[6]['mark']['width']]);
+        self::assertSame(['/brand/mark.png?v=' . substr($defaults[6]['mark']['sha256'], 0, 12), 'image/png', 32], [$defaults[6]['mark']['url'], $defaults[6]['mark']['mime_type'], $defaults[6]['mark']['width']]);
         self::assertEquals(['label' => 'app.mascot', 'help' => null, 'max_width' => 200, 'max_height' => 4096, 'max_bytes' => 1_048_576, 'square' => false], $defaults[7]['mascot']);
 
         $resources = array_map(static fn (object $r): string => (string) $r, $container->getResources());
         self::assertContains((string) new FileResource($this->dir . '/brand/mark.png'), $resources, 'the default file rebuilds the container in debug');
 
         $defaults = (new BrandDefaults(...$container->getDefinition(BrandDefaults::class)->getArguments()));
-        self::assertSame('/brand/mascot.png', $defaults->asset('extra.mascot')?->url);
+        self::assertStringStartsWith('/brand/mascot.png?v=', (string) $defaults->asset('extra.mascot')?->url);
     }
 
     public function testStringEyebrowAndNoFallbackProvider(): void

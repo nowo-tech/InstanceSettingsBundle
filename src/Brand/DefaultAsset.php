@@ -21,6 +21,7 @@ use function sprintf;
 use function str_contains;
 use function str_starts_with;
 use function strtolower;
+use function substr;
 
 use const DIRECTORY_SEPARATOR;
 use const PATHINFO_EXTENSION;
@@ -37,6 +38,9 @@ final readonly class DefaultAsset
     /** Relative paths: letters, digits, `.`, `_`, `-` and `/` segments; never `..` nor a leading slash. */
     public const PATH_PATTERN = '#^[A-Za-z0-9_][A-Za-z0-9._-]*(?:/[A-Za-z0-9_][A-Za-z0-9._-]*)*$#';
 
+    /** Hex characters of the SHA-256 in the `?v=` cache-busting query of the URL. */
+    public const VERSION_LENGTH = 12;
+
     /** Media type per accepted extension. */
     public const TYPES = [
         'png'  => 'image/png',
@@ -50,7 +54,7 @@ final readonly class DefaultAsset
 
     /**
      * @param string $slot brand slot ({@see BrandSection::FIXED_SLOTS} or `extra.<id>`)
-     * @param string $url root-relative URL (`/` + the relative path)
+     * @param string $url root-relative URL (`/` + the relative path + `?v=` + 12 hex characters of the SHA-256)
      * @param string $path absolute path of the file (read by {@see InstanceBrandAssetReader})
      */
     public function __construct(
@@ -95,7 +99,10 @@ final readonly class DefaultAsset
             [$width, $height] = [$size[0], $size[1]];
         }
 
-        return new self($slot, '/' . $relativePath, $type, $width, $height, (string) hash_file('sha256', $file), $file);
+        $sha256 = (string) hash_file('sha256', $file);
+
+        // Audit IU-I3: the content hash in the query string busts browser and CDN caches when a committed file changes.
+        return new self($slot, '/' . $relativePath . '?v=' . substr($sha256, 0, self::VERSION_LENGTH), $type, $width, $height, $sha256, $file);
     }
 
     /**

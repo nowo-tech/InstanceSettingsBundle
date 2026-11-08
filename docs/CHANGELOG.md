@@ -61,7 +61,11 @@ the 1.4 services, routes, forms, pages (byte for byte) and schema.
 
 ### Security
 
-- Audit status: S3 is batch-audited before its tag (owner decision Q-O5); **re-verification pending**. See
+- Audit IU (batch, Q-O5): Pass-Low. Fixed after it: the bridge leaves UiKit's provider alone with
+  `nowo_ui_kit.appearance.brand: off` (IU-L1); a host `BrandProviderInterface` next to `brand.enabled` fails the build
+  (IU-I2); default asset URLs carry `?v=<sha12>` (IU-I3). Documented: a host decorator of UiKit's `config_provider` is
+  bypassed under the bridge (IU-I1). The brand is not memoised per request (IU-I4: hashing only, no query).
+  Re-verification of this diff pending. See
   [SECURITY.md](SECURITY.md#brand-bridge-threat-model-15).
 
 ## [1.4.0] - 2026-11-08
