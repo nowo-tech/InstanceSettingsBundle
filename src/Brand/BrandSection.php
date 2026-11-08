@@ -29,14 +29,11 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
     /** Section name. */
     public const NAME = 'brand';
 
-    /** The fixed image slots, each stored in the field of the same name. */
-    public const FIXED_SLOTS = [
-        BrandAssetSlot::LOGO_LIGHT,
-        BrandAssetSlot::LOGO_DARK,
-        BrandAssetSlot::MARK,
-        BrandAssetSlot::APP_ICON,
-        BrandAssetSlot::FAVICON,
-    ];
+    /**
+     * The fixed image slots ({@see BrandAssetSlot::FIXED}), each stored in the field of the same name. Literal values:
+     * the configuration tree reads this constant on every host, also without nowo-tech/brand-contracts installed.
+     */
+    public const FIXED_SLOTS = ['logo_light', 'logo_dark', 'mark', 'app_icon', 'favicon'];
 
     /** Field name prefix of an extra image (`extra_<id>` stores slot `extra.<id>`). */
     public const EXTRA_FIELD_PREFIX = 'extra_';
