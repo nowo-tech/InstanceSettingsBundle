@@ -47,7 +47,7 @@ nowo_instance_settings:
         orphan_retention: 30           # days a replaced / removed image stays servable before purge-files deletes it (0 … 3650)
 ```
 
-Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`) and `files.enabled` must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built.
+Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`) and `files.enabled` must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): it is read in InstanceSettings' own prepend step, so a value prepended later registers the file store without mapping its entity and fails closed with a Doctrine error (audit IO-I10).
 
 ## doctrine
 
