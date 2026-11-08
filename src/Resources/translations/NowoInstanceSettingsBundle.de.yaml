@@ -18,6 +18,8 @@ portability:
     intro_secrets: 'Lädt alle portablen Einstellungen herunter. Geheimnisse werden ausgelassen, außer Sie fügen sie versiegelt hinzu: Nur eine Instanz mit demselben Schlüssel kann sie importieren.'
     include_secrets: Geheimnisse einschließen, mit dem Schlüssel dieser Instanz versiegelt
     include_secrets_help: 'Halten Sie die Datei privat: Wer sie und den Schlüssel dieser Instanz besitzt, kann die Geheimnisse lesen.'
+    include_files: 'Bilder der Bildfelder einschließen'
+    include_files_help: 'Fügt die gespeicherten Bilder (Base64) hinzu, die Datei kann daher groß werden.'
     submit: JSON herunterladen
   import:
     title: Importieren
@@ -55,3 +57,14 @@ portability:
     forbidden_section: 'Sie dürfen diesen Bereich nicht ändern: %key%.'
     secret_context_mismatch: 'Das versiegelte Geheimnis gehört zu einem anderen Feld oder einer anderen Anwendung: %key%.'
     unsupported_encryptor: Versiegelte Geheimnisse erfordern ein authentifiziertes Verschlüsselungsprofil (Halite oder Defuse), nicht MysqlAes.
+    invalid_files: 'Der Block "files" ist ungültig.'
+    invalid_file: 'Kein zulässiges Bild: %key%.'
+    file_too_large: 'Das Bild ist zu groß: %key%.'
+    files_too_large: 'Die Bilder überschreiten, was diese Instanz in einer Datei annimmt.'
+    file_hash_mismatch: 'Das Bild passt nicht zu seinem angegebenen Hash: %key%.'
+    missing_image_file: 'Das Bild fehlt in der Datei: %key%.'
+    unexpected_file: 'Dieses Bild gehört zu keiner Einstellung der Datei: %key%.'
+image:
+  upload: 'Bild hochladen (PNG, JPEG oder WebP)'
+  replace: 'Gespeichertes Bild ersetzen'
+  remove: 'Gespeichertes Bild entfernen'

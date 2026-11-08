@@ -53,4 +53,11 @@ final class InvalidConfigurationTest extends KernelTestCase
         $this->expectExceptionMessage('must be a literal boolean');
         $this->bootKernel(['security' => ['allow_unauthenticated' => '%env(bool:SETTINGS_OPEN)%']]);
     }
+
+    public function testEnvPlaceholderFilesSwitchIsRefused(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('files.enabled must be a literal boolean');
+        $this->bootKernel(['files' => ['enabled' => '%env(bool:SETTINGS_FILES)%']]);
+    }
 }

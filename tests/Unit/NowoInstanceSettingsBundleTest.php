@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Unit;
 
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsSectionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\TwigPathsPass;
@@ -23,7 +24,7 @@ final class NowoInstanceSettingsBundleTest extends TestCase
         $bundle->build($container);
 
         $classes = array_map(static fn (object $pass): string => $pass::class, $container->getCompilerPassConfig()->getPasses());
-        foreach ([TwigPathsPass::class, CsrfProtectionPass::class, UnauthenticatedAccessPass::class, SecretEncryptionPass::class, SettingsSectionPass::class] as $pass) {
+        foreach ([TwigPathsPass::class, CsrfProtectionPass::class, UnauthenticatedAccessPass::class, SecretEncryptionPass::class, FileSupportPass::class, SettingsSectionPass::class] as $pass) {
             self::assertContains($pass, $classes);
         }
 

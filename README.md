@@ -38,8 +38,9 @@ Reads cost one query per request and are memoized for the current main request o
 - **Config portability** — versioned JSON envelope (`schema`, `version`, `exported_at`): every portable plain field, secrets only **sealed** with the instance key (only an instance with the same key can import them), tagged `PortabilityProviderInterface` services for data stored elsewhere; size-capped upload reader, credential-shaped keys refused, dry run, single transaction. Admin page plus `nowo:instance-settings:export` / `nowo:instance-settings:import`.
 - **Seed from fallbacks (DB-only mode)** — sections expose their `%env()%` / YAML fallbacks (`SectionFallbackProviderInterface`); `nowo:instance-settings:seed-from-fallbacks` (or the public `FallbackSeeder`) copies them once where nothing is stored: idempotent, secrets encrypted, audited, names only in the output, safe-guarded against phantom MySQL migration transactions. Section notices show warnings (e.g. missing credentials) on the settings page.
 - **Provider-dependent fields** — `SettingField::withVisibleWhen('provider', ['smtp'])` shows a field only for some values of another field (UiKit `visible-when` peer: hidden, never disabled or cleared); saves validate and write only the fields visible for the submitted provider, so the other providers' values survive a switch.
-- **Fail-closed wiring** — the container refuses to compile without DoctrineEncrypt, with the UI on but no form CSRF, with an empty role list, or with `allow_unauthenticated` outside `kernel.debug`.
-- **Doctrine** — one table `instance_setting_value` with a configurable `doctrine.table_prefix`, attribute mapping, migrations-friendly.
+- **Image fields (1.4)** — `SettingField::image()` for logos and icons: PNG / JPEG / still WebP detected from the content, limits checked from the header before decoding, every upload re-encoded with GD (EXIF and polyglot payloads dropped), PNG variants, stored in the database content-addressed per field, served from an immutable hashed URL outside the admin prefix (`nosniff`, sandbox CSP, ETag / 304; anonymous only for `public` fields), exported in envelope version 2 and fully re-validated on import, replaced images purged after a retention. Opt-in (`files.enabled: true`): hosts without image fields keep the 1.3 schema. SVG uploads are refused. `getFile()` / `instance_setting_file()`.
+- **Fail-closed wiring** — the container refuses to compile without DoctrineEncrypt, with the UI on but no form CSRF, with an empty role list, with `allow_unauthenticated` outside `kernel.debug`, or with `files.enabled` and no GD.
+- **Doctrine** — table `instance_setting_value`, plus `instance_setting_file` with `files.enabled: true` (1.4, image fields), with a configurable `doctrine.table_prefix`, attribute mapping, migrations-friendly.
 
 ## Installation
 
@@ -99,6 +100,7 @@ Open `/admin/settings`: one tab per section, the form built from the fields.
 
 - PHP **8.2+** (`>=8.2 <8.6`; Symfony 8.x requires PHP 8.4+)
 - Symfony **7.4**, **8.0** or **8.1** (FrameworkBundle, Form, Validator, Security CSRF, TwigBundle; SecurityBundle for the admin UI)
+- `ext-gd` with PNG, JPEG and WebP support, only with `files.enabled: true` (image fields, 1.4)
 - Doctrine ORM **3.3+** with DoctrineBundle, `nowo-tech/doctrine-encrypt-bundle` **^2.10** (secrets), `nowo-tech/ui-kit-bundle` **^2.23** and `nowo-tech/form-kit-bundle` **^2.17** (admin UI), `twig/extra-bundle`
 
 ## Configuration

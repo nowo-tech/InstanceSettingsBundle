@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle;
 
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsSectionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\TwigPathsPass;
@@ -46,6 +47,7 @@ final class NowoInstanceSettingsBundle extends Bundle
         $container->addCompilerPass(new CsrfProtectionPass());
         $container->addCompilerPass(new UnauthenticatedAccessPass());
         $container->addCompilerPass(new SecretEncryptionPass());
+        $container->addCompilerPass(new FileSupportPass());
         // Before the tagged iterators are resolved (PassConfig::TYPE_BEFORE_OPTIMIZATION, priority 10).
         $container->addCompilerPass(new SettingsSectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
     }

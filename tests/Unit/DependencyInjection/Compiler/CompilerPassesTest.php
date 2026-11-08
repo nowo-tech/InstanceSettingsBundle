@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\DependencyInjection\Compiler;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsSectionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\TwigPathsPass;
@@ -78,6 +79,23 @@ final class CompilerPassesTest extends TestCase
         $this->expectException(LogicException::class);
         $this->expectExceptionMessage('register Nowo\DoctrineEncryptBundle\NowoDoctrineEncryptBundle');
         (new SecretEncryptionPass())->process(new ContainerBuilder());
+    }
+
+    public function testFileSupportPassChecksGdOnlyWithTheFlag(): void
+    {
+        $noGd = ['PNG Support' => true, 'JPEG Support' => false];
+        (new FileSupportPass($noGd))->process(new ContainerBuilder());
+        $off = new ContainerBuilder();
+        $off->setParameter(FileSupportPass::PARAMETER, false);
+        (new FileSupportPass($noGd))->process($off);
+        $on = new ContainerBuilder();
+        $on->setParameter(FileSupportPass::PARAMETER, true);
+        (new FileSupportPass(['PNG Support' => true, 'JPEG Support' => true, 'WebP Support' => true]))->process($on);
+        $this->addToAssertionCount(1);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('missing: JPEG Support, WebP Support');
+        (new FileSupportPass($noGd))->process($on);
     }
 
     public function testSectionPassCollapsesTags(): void

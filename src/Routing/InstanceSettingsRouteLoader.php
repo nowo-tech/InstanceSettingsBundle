@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Routing;
 
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
+use Nowo\InstanceSettingsBundle\File\SettingFileController;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use ReflectionClass;
 use ReflectionMethod;
 use RuntimeException;
 use Symfony\Component\Config\Loader\Loader;
+use Symfony\Component\Config\Resource\ReflectionClassResource;
 use Symfony\Component\Routing\Attribute\Route as RouteAttribute;
 use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouteCollection;
@@ -24,6 +27,10 @@ use function str_starts_with;
  * requirements); this loader reads those attributes and prepends `web_ui.path_prefix`, so the prefix stays configurable
  * while the definitions live on the controller (REQ-SF-004). Import / export routes are skipped when
  * `portability.web_ui` is false.
+ *
+ * The image file route ({@see InstanceSettingsRoutes::FILE}, 1.4) is added under `files.path_prefix` only when a section
+ * declares an image field, whether the admin UI is enabled or not; hosts without image fields get exactly the routes
+ * of 1.3. The section classes are tracked as resources, so adding the first image field rebuilds the router cache.
  */
 final class InstanceSettingsRouteLoader extends Loader
 {
@@ -36,12 +43,16 @@ final class InstanceSettingsRouteLoader extends Loader
      * @param bool $webUiEnabled `web_ui.enabled`
      * @param string $pathPrefix `web_ui.path_prefix`
      * @param bool $portabilityEnabled `portability.web_ui`
+     * @param SettingsSectionRegistry|null $registry sections (image fields decide the file route)
+     * @param string $filePathPrefix `files.path_prefix`
      */
     public function __construct(
         private readonly bool $webUiEnabled,
         private readonly string $pathPrefix,
         private readonly bool $portabilityEnabled = true,
         ?string $env = null,
+        private readonly ?SettingsSectionRegistry $registry = null,
+        private readonly string $filePathPrefix = '/_settings-file',
     ) {
         parent::__construct($env);
     }
@@ -58,6 +69,7 @@ final class InstanceSettingsRouteLoader extends Loader
         $this->loaded = true;
 
         $collection = new RouteCollection();
+        $this->addFileRoute($collection);
         if (!$this->webUiEnabled) {
             return $collection;
         }
@@ -80,6 +92,30 @@ final class InstanceSettingsRouteLoader extends Loader
         }
 
         return $collection;
+    }
+
+    private function addFileRoute(RouteCollection $collection): void
+    {
+        if (!$this->registry instanceof SettingsSectionRegistry) {
+            return;
+        }
+        foreach ($this->registry->all() as $section) {
+            $collection->addResource(new ReflectionClassResource(new ReflectionClass($section)));
+        }
+        if (!$this->registry->hasImageFields()) {
+            return;
+        }
+        $collection->add(InstanceSettingsRoutes::FILE, new Route(
+            rtrim($this->filePathPrefix, '/') . '/{section}/{field}/{file}.{ext}',
+            ['_controller' => SettingFileController::class],
+            [
+                'section' => '[a-z][a-z0-9_]{0,63}',
+                'field'   => '[a-z][a-z0-9_]{0,63}',
+                'file'    => SettingFileController::FILE_REQUIREMENT,
+                'ext'     => SettingFileController::EXT_REQUIREMENT,
+            ],
+            methods: ['GET', 'HEAD'],
+        ));
     }
 
     /**

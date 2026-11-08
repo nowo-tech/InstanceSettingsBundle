@@ -17,6 +17,7 @@
 - [Reading settings](#reading-settings)
 - [Writing settings from code](#writing-settings-from-code)
 - [Secrets](#secrets)
+- [Image fields](#image-fields)
 - [Seeding from fallbacks (DB-only mode)](#seeding-from-fallbacks-db-only-mode)
   - [Calling the seeder from a migration](#calling-the-seeder-from-a-migration)
 - [Export and import (config portability)](#export-and-import-config-portability)
@@ -301,6 +302,121 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 - The admin form never receives the secret: it only knows whether one is stored ("Saved: ••••. Leave blank to keep it."), a blank field keeps it, the "Remove the saved value" checkbox clears it.
 - Exports contain secrets only on request and only **sealed** (`enc:v2:<base64>` of the DoctrineEncrypt ciphertext of the value bound to `<schema>|<section>.<field>`): an instance holding the same key imports them into the same field, any other instance refuses the file (`failed_unseal_secret`) and a value moved to another field is refused (`secret_context_mismatch`). Set `portability.sealed_secrets: false` to keep secrets on the instance.
 
+## Image fields
+
+Since 1.4 a field can hold a raster image (logo, icon, mascot): `SettingField::image()`. Image fields are **opt-in**:
+set `nowo_instance_settings.files.enabled: true` (it maps the file table, see [UPGRADING](UPGRADING.md#unreleased) for
+the migration). Without it a section that declares an image field fails when the section definitions load (router
+warm-up, first request), with a message naming the field.
+
+```yaml
+nowo_instance_settings:
+    files:
+        enabled: true
+```
+
+```php
+yield SettingField::image('logo', 'brand.logo', maxWidth: 2400, maxHeight: 800, public: true);
+yield SettingField::image('app_icon', 'brand.app_icon', minWidth: 512, minHeight: 512, square: true, variants: [512, 192, 180], public: true);
+yield SettingField::image('id_scan', 'kyc.scan', types: ['image/jpeg'], maxBytes: 500_000); // private: section area only
+```
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `types` | PNG, WebP, JPEG | Accepted types, a subset of those three. SVG, GIF, ICO, BMP, TIFF, AVIF / HEIC and PDF are never accepted. |
+| `maxBytes` | 1 MiB | Largest upload (ceiling 5 MiB). |
+| `maxWidth` / `maxHeight` | 4096 | Largest dimensions (after the JPEG EXIF orientation). Every image is also capped at 4096 × 4096 pixels (16 777 216 px; a wider image must be shorter), within the memory budget. |
+| `minWidth` / `minHeight` | 1 | Smallest dimensions. |
+| `square` | `false` | Width and height within 2 % (nothing is cropped or padded). |
+| `variants` | `[]` | Longest side of each PNG variant generated on upload (icons), never upscaled; at most 8. |
+| `public` | `false` | Served to anonymous visitors (brand assets). Otherwise only users of the section's area may load it. |
+| `required` | `false` | A stored image is required. |
+
+Image fields cannot be secret, cannot declare a default (config default assets come with the `brand` section) and
+cannot use or control `visible_when`. They need `ext-gd` with PNG, JPEG and WebP support: with `files.enabled: true`
+the container refuses to compile without it.
+
+**What happens to an upload.** The type is decided only from the content (magic bytes and `getimagesizefromstring()`
+must agree; the client name and type are ignored), the dimensions are read from the header before anything is decoded
+(pixel cap, field limits, memory budget), then the image is decoded and **re-encoded** with GD: PNG → PNG (alpha
+kept), JPEG → JPEG q90 turned upright from its EXIF orientation, still WebP → WebP q90. EXIF / GPS / XMP / ICC and
+anything appended to the file are dropped. Animated WebP is refused; an APNG keeps one frame.
+
+**Storage.** The re-encoded file and its variants go to the table `<prefix>instance_setting_file`, bound to their
+`(section, field)` and content-addressed by the SHA-256 of the re-encoded file; the setting stores the reference
+`isf:<sha256>`. The same image uploaded twice is one row. `SettingFileStoreInterface` is the seam for another store.
+
+**Reading.**
+
+```php
+$file = $settings->getFile('brand.logo');   // ?StoredSettingFile; get() / getString() return null for image fields
+$file?->url();                               // /_settings-file/brand/logo/3f1c9a0b7e21.png
+$file?->url(192);                            // PNG variant, or null when the field does not declare it
+$file?->mimeType; $file?->width; $file?->height; $file?->byteSize; $file?->sha256;
+```
+
+```twig
+{% set logo = instance_setting_file('brand.logo') %}
+{% if logo %}<img src="{{ logo.url }}" width="{{ logo.width }}" height="{{ logo.height }}" alt="">{% endif %}
+```
+
+URLs are immutable (they carry the hash), so a new upload gets a new URL. Never inline the bytes of an upload into
+HTML, SVG or PDF markup; use the URL, a `data:` URI of the raster or a CID attachment.
+
+**Writing.**
+
+- Admin form: a file input per image field (and "Remove the stored image" when one is stored), inside the section's
+  CSRF form; the section's area role is required. An empty file input keeps the stored image.
+- Code: `$settings->save('brand', ['logo' => ImageUpload::fromBytes($bytes)])` (or `ImageUpload::fromPath()`, or an
+  `UploadedFile`); `null` removes the image; the current `isf:` reference keeps it. Any other value is refused: a field
+  can only point to an image uploaded or imported into it.
+
+**Serving.** Route `nowo_instance_settings_file`, `{files.path_prefix}/{section}/{field}/{hash12}[-{variant}].{ext}`,
+`GET` / `HEAD`, outside the admin prefix, added only when a section declares an image field. Headers: stored type,
+`X-Content-Type-Options: nosniff`, `Content-Disposition: inline`, `Content-Security-Policy: default-src 'none';
+sandbox`, `ETag` (`If-None-Match` → 304 without reading the bytes), `Referrer-Policy: no-referrer`,
+`X-Robots-Tag: noindex`; public fields `public, max-age=31536000, immutable` + `Cross-Origin-Resource-Policy:
+cross-origin`, private fields `private, max-age=3600` + `same-origin`. An unknown section, field, hash, variant or
+extension, and a private image the viewer may not open, all answer the same empty 404. A replaced image keeps
+answering until it is purged. The body is read from the database whole (bounded by the field's `maxBytes`, at most
+5 MiB) and sent; it is not streamed.
+
+**Caching and CDNs.** Public URLs are immutable, so a CDN in front of `files.path_prefix` absorbs the traffic. The
+controller ignores the query string (`?v=…` still answers 200 with the same body), so configure the CDN to **ignore the
+query string in its cache key** for that prefix; otherwise random query strings bypass the cache. Withdrawing an image
+(remove, then `purge-files`, with retention 0 for an immediate withdrawal) does not reach browsers or CDNs that cached
+it as `immutable` for a year: **purge the URL from your CDN** too. On a stateful firewall, a request that carries a
+session cookie may be turned `private` by Symfony's session listener; it is then not CDN-cached (harmless).
+
+**Private images and the firewall.** Images of non-public fields check the section's area in the file controller,
+which trusts the user only when a firewall matched the request. A firewall whose pattern does not cover
+`files.path_prefix` (for example `^/admin` only) makes every private image a 404, even for admins: cover the file
+prefix with the same firewall (context) as the admin UI and keep the `PUBLIC_ACCESS` `access_control` line for it.
+
+**Replacing, removing, purging.** A replaced or removed image is marked orphaned (not deleted) in the same
+transaction. Schedule the purge (daily is plenty):
+
+```bash
+php bin/console nowo:instance-settings:purge-files --dry-run
+php bin/console nowo:instance-settings:purge-files
+```
+
+It first reconciles the orphan marks with the setting rows: an image that is referenced again (a restore, an import,
+an earlier run that missed it) loses its mark, and an image that no live setting references (a field removed from
+code, a row deleted by hand) is marked. Then it deletes the images orphaned for `files.orphan_retention` days or more,
+re-reading the setting rows inside the delete transaction: an image that is referenced at that moment is never
+deleted. Rows of a section that is not registered (a section behind a feature flag, a broken deploy) keep their images;
+pass `--include-unknown-sections` to purge those once the section is gone for good. The command is registered only
+with `files.enabled: true`.
+
+**Import.** Each imported file runs the whole upload pipeline twice: once while the envelope is validated (so a bad
+file refuses the whole import before anything is written) and once when it is saved. That doubles the CPU cost of an
+import (admin or CLI only, bounded by `portability.max_file_bytes`). Re-encoding an imported JPEG (or lossy WebP) yields new bytes,
+so the stored `isf:` reference can differ from the one in the envelope; this is expected.
+
+**Audit.** The "Instance settings saved." log line gets `files`: `logo=3f1c9a0b7e21 image/png 512x512 20480B` (or
+`logo=removed`); `SettingsChangedEvent::$fileChanges` gives `field => {old, new}` full hashes. Never content.
+
 ## Seeding from fallbacks (DB-only mode)
 
 Kits used to read bundle configuration (`%env(...)%` / YAML) while a field had nothing stored. Since 1.2.0 a section can
@@ -373,13 +489,26 @@ only); a dry run never writes and is not checked.
 ```json
 {
     "schema": "nowo-instance-settings",
-    "version": 1,
+    "version": 2,
     "exported_at": "2026-10-31T10:00:00+00:00",
-    "settings": {"site": {"name": "Acme Ops", "page_size": 25}, "mailer": {"from": "ops@example.test"}},
+    "settings": {"site": {"name": "Acme Ops", "page_size": 25}, "mailer": {"from": "ops@example.test"}, "brand": {"logo": "isf:3f1c…"}},
     "secrets": {"sealed": true, "algorithm": "doctrine_encrypt:default", "values": {"mailer": {"dsn": "enc:v2:…"}}},
-    "providers": {"appearance": {"accent": "#0d6efd"}}
+    "providers": {"appearance": {"accent": "#0d6efd"}},
+    "files": {"brand.logo": {"type": "image/png", "sha256": "3f1c…", "data": "<base64>"}}
 }
 ```
+
+- **Version.** An export that contains no image field is still version 1 (any 1.x imports it). With image fields it is
+  version 2: `settings` carries each image field's `isf:<sha256>` reference (or `null`) and, when asked (UI checkbox,
+  checked by default; CLI `--include-files`), `files` carries the stored bytes in base64. 1.4 imports both versions; a
+  1.3 instance refuses version 2 (`unsupported_version`).
+- **Images on import.** A reference with its `files` entry is decoded strictly (base64), size-capped (the field's
+  `maxBytes`, and `portability.max_file_bytes` for all files together), checked against its declared hash (the bytes
+  as transferred) and type, then run through the whole upload pipeline (sniffing, limits, re-encode); the stored hash
+  is the one of the re-encoded bytes (a JPEG gets a new one). A reference equal to the current one needs no file;
+  `null` removes the image. Refusals: `invalid_files`, `invalid_file:files.<section>.<field>`, `file_too_large:…`,
+  `files_too_large`, `file_hash_mismatch:…`, `missing_image_file:…` (reference without its file),
+  `unexpected_file:…` (file without its reference). All-or-nothing, as for every other key.
 
 - **Export**: the effective value (stored or default) of every portable plain field, the providers' data, and — only when asked — the stored secrets, sealed. Non-portable fields are left out. From the admin page, only the sections the user may open are exported (CLI: everything); a provider whose data contains a credential-shaped key makes the export fail (`forbidden_key`).
 - **Import**: the file is read with a size cap (`portability.max_upload_bytes`), then validated **as a whole** — schema (`portability.schema`), version, known top-level keys, known sections and fields, from the admin page only sections the user may open (`forbidden_section`), portable fields only, secrets only under `secrets` and only sealed with this instance key, value types and constraints, forbidden sections / providers refused from the raw keys first (admin page), credential-shaped keys refused in provider data (keys normalised from camelCase / `-` / `.`; words such as password, passphrase, secret, token, bearer, credential, apikey, privatekey, signature anywhere, or parts such as pwd, pass, key, dsn, auth, jwt, mfa, seed, webhook, holding strings or structures — a heuristic safety net, not a guarantee), provider validation. Then everything is applied in **one transaction**. A refused file changes nothing; the error names the key (`invalid_value:site.page_size`), never the value.
@@ -391,6 +520,7 @@ only); a dry run never writes and is not checked.
 php bin/console nowo:instance-settings:export                                  # stdout
 php bin/console nowo:instance-settings:export -s site -s mailer -o var/site.json
 php bin/console nowo:instance-settings:export --include-secrets -o var/full.json   # sealed; new file, mode 0600
+php bin/console nowo:instance-settings:export --include-files -o var/brand.json   # with the images of image fields (base64)
 php bin/console nowo:instance-settings:export -o var/full.json --force           # replace an existing regular file (never a symlink)
 php bin/console nowo:instance-settings:import var/full.json --dry-run
 php bin/console nowo:instance-settings:import var/full.json
@@ -467,7 +597,11 @@ Section and field labels use each section's own domain. The secret widget copy (
 
 ## Doctrine schema and migrations
 
-The bundle maps one entity, `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`). The mapping is prepended to `doctrine.orm.mappings` automatically.
+The bundle maps one entity, two with `files.enabled: true` (the mappings are prepended to `doctrine.orm.mappings`
+automatically):
+
+- `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`).
+- `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#unreleased) for the DDL.
 
 Create and apply the schema with Doctrine Migrations in the application:
 

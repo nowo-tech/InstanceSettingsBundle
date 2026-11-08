@@ -18,6 +18,8 @@ portability:
     intro_secrets: 'Downloadt alle overdraagbare instellingen. Geheimen blijven weg tenzij je ze verzegeld meeneemt: alleen een instantie met dezelfde sleutel kan ze importeren.'
     include_secrets: Geheimen meenemen, verzegeld met de sleutel van deze instantie
     include_secrets_help: 'Houd het bestand privé: wie het heeft samen met de sleutel van deze instantie, kan de geheimen lezen.'
+    include_files: 'Afbeeldingen van afbeeldingsvelden meenemen'
+    include_files_help: 'Voegt de opgeslagen afbeeldingen (base64) toe, dus het bestand kan groot worden.'
     submit: JSON downloaden
   import:
     title: Importeren
@@ -55,3 +57,14 @@ portability:
     forbidden_section: 'Je mag deze sectie niet wijzigen: %key%.'
     secret_context_mismatch: 'Het verzegelde geheim hoort bij een ander veld of een andere applicatie: %key%.'
     unsupported_encryptor: Verzegelde geheimen vereisen een geauthenticeerd versleutelingsprofiel (Halite of Defuse), geen MysqlAes.
+    invalid_files: 'Het blok "files" is ongeldig.'
+    invalid_file: 'Geen geaccepteerde afbeelding: %key%.'
+    file_too_large: 'De afbeelding is te groot: %key%.'
+    files_too_large: 'De afbeeldingen zijn groter dan deze instantie in één bestand accepteert.'
+    file_hash_mismatch: 'De afbeelding komt niet overeen met de opgegeven hash: %key%.'
+    missing_image_file: 'De afbeelding ontbreekt in het bestand: %key%.'
+    unexpected_file: 'Deze afbeelding hoort bij geen instelling van het bestand: %key%.'
+image:
+  upload: 'Een afbeelding uploaden (PNG, JPEG of WebP)'
+  replace: 'Opgeslagen afbeelding vervangen'
+  remove: 'Opgeslagen afbeelding verwijderen'

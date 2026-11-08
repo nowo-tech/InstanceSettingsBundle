@@ -57,6 +57,11 @@ final readonly class ValueNormalizer
             return [null, $enforceRequired && $field->required && $field->default === null ? ['This value should not be blank.'] : []];
         }
 
+        if ($field->type === SettingType::Image) {
+            // Image fields take an upload through InstanceSettingsInterface::save() or an import with its file, never
+            // a bare value (a reference could point to a file the field never received).
+            return [null, ['This value is not a valid image.']];
+        }
         if (!SettingField::matchesType($field->type, $value, $field->choices)) {
             return [null, [$field->type === SettingType::Choice ? 'The value is not one of the allowed choices.' : 'This value is not a valid ' . $field->type->value . '.']];
         }

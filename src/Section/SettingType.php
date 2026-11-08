@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Section;
 
+use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
+
 /**
  * Value type of a {@see SettingField}: drives value normalization, the typed getters and the admin form widget.
  */
@@ -32,6 +34,12 @@ enum SettingType: string
 
     /** One of the declared choices (ChoiceType); values are strings or integers. */
     case Choice = 'choice';
+
+    /**
+     * Raster image (PNG, JPEG, still WebP) uploaded through the admin form or imported (1.4). The stored value is a
+     * reference `isf:<sha256>` to the re-encoded file; read it with {@see InstanceSettingsInterface::getFile()}.
+     */
+    case Image = 'image';
 
     /**
      * Whether values of this type are strings (the only types that can be secret).

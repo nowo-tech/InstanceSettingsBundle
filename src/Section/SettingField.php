@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Section;
 
 use InvalidArgumentException;
+use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Symfony\Component\Validator\Constraint;
 
 use function array_key_exists;
@@ -33,6 +34,12 @@ final readonly class SettingField
     /** Allowed field names: lower snake case, 1–64 characters. */
     public const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
 
+    /** Prefix of a stored image reference (`isf:<sha256>`, 1.4). */
+    public const IMAGE_REFERENCE_PREFIX = 'isf:';
+
+    /** A stored image reference: `isf:` + the lower-case hex SHA-256 of the re-encoded file. */
+    public const IMAGE_REFERENCE_PATTERN = '/^isf:[0-9a-f]{64}$/';
+
     /** @var list<Constraint> */
     public array $constraints;
 
@@ -43,6 +50,9 @@ final readonly class SettingField
      * @var array{field: string, in: list<string>}|null
      */
     public ?array $visibleWhen;
+
+    /** Upload rules of an {@see SettingType::Image} field (1.4); null for every other type. */
+    public ?ImageSpec $image;
 
     /**
      * @param string $name field name, unique inside its section ({@see self::NAME_PATTERN})
@@ -58,6 +68,7 @@ final readonly class SettingField
      * @param array<string, mixed> $formOptions extra options merged into the admin form field
      * @param array{field?: mixed, in?: mixed}|null $visibleWhen `{field: '<name>', in: [...]}`: show the field only while
      *                                                           that field of the section holds one of the values (1.3)
+     * @param ImageSpec|null $image upload rules of an image field (1.4; null = the defaults); only for {@see SettingType::Image}
      */
     public function __construct(
         public string $name,
@@ -72,6 +83,7 @@ final readonly class SettingField
         public array $choices = [],
         public array $formOptions = [],
         ?array $visibleWhen = null,
+        ?ImageSpec $image = null,
     ) {
         if (preg_match(self::NAME_PATTERN, $name) !== 1) {
             throw new InvalidArgumentException(sprintf('Invalid setting field name "%s": expected lower snake case matching %s.', $name, self::NAME_PATTERN));
@@ -85,6 +97,12 @@ final readonly class SettingField
         if ($type === SettingType::Choice && $choices === []) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": a choice field needs at least one choice.', $name));
         }
+        if ($type === SettingType::Image && ($default !== null || $visibleWhen !== null)) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": an image field cannot declare a default value nor visible_when.', $name));
+        }
+        if ($type !== SettingType::Image && $image instanceof ImageSpec) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": image rules only apply to image fields.', $name));
+        }
         if ($default !== null && !self::matchesType($type, $default, $choices)) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": the default value does not match the %s type.', $name, $type->value));
         }
@@ -95,6 +113,7 @@ final readonly class SettingField
         }
         $this->constraints = $list;
         $this->visibleWhen = $visibleWhen === null ? null : $this->normalizeVisibleWhen($name, $visibleWhen);
+        $this->image       = $type === SettingType::Image ? $image ?? new ImageSpec() : null;
     }
 
     /**
@@ -189,11 +208,41 @@ final readonly class SettingField
     }
 
     /**
+     * Raster image field (1.4): PNG, JPEG or still WebP, detected from the content, checked against the limits and
+     * re-encoded with GD on every upload. The stored value is a reference `isf:<sha256>`; read the file with
+     * {@see InstanceSettingsInterface::getFile()}. Requires `ext-gd` with PNG,
+     * JPEG and WebP support (checked when the section definitions load).
+     *
+     * @param list<string> $types accepted types (subset of {@see ImageSpec::TYPES})
+     * @param int $maxBytes largest accepted upload (ceiling {@see ImageSpec::MAX_BYTES_CEILING})
+     * @param bool $square width and height within 2 %
+     * @param list<int> $variants longest side of each PNG variant generated from the upload (icons)
+     * @param bool $public served to anonymous visitors by the file route (brand assets)
+     */
+    public static function image(
+        string $name,
+        ?string $label = null,
+        ?string $help = null,
+        array $types = ImageSpec::TYPES,
+        int $maxBytes = ImageSpec::DEFAULT_MAX_BYTES,
+        int $maxWidth = ImageSpec::DEFAULT_MAX_DIMENSION,
+        int $maxHeight = ImageSpec::DEFAULT_MAX_DIMENSION,
+        int $minWidth = 1,
+        int $minHeight = 1,
+        bool $square = false,
+        array $variants = [],
+        bool $public = false,
+        bool $required = false,
+    ): self {
+        return new self($name, SettingType::Image, null, $label, $help, $required, image: new ImageSpec($types, $maxBytes, $maxWidth, $maxHeight, $minWidth, $minHeight, $square, $variants, $public));
+    }
+
+    /**
      * Copy that is left out of exports and refused on imports (for flags that must never travel between instances).
      */
     public function notPortable(): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image);
     }
 
     /**
@@ -203,7 +252,7 @@ final readonly class SettingField
      */
     public function withFormOptions(array $formOptions): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image);
     }
 
     /**
@@ -223,7 +272,7 @@ final readonly class SettingField
             $values[] = $value;
         }
 
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values]);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values], $this->image);
     }
 
     /**
@@ -306,6 +355,7 @@ final readonly class SettingField
             SettingType::Int                                                             => is_int($value),
             SettingType::Float                                                           => is_float($value) || is_int($value),
             SettingType::Choice                                                          => (is_string($value) || is_int($value)) && in_array($value, $choices, true),
+            SettingType::Image                                                           => is_string($value) && preg_match(self::IMAGE_REFERENCE_PATTERN, $value) === 1,
         };
     }
 }

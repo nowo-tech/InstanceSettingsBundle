@@ -18,6 +18,8 @@ portability:
     intro_secrets: 'Scarica tutte le impostazioni portabili. I segreti sono esclusi a meno che non li includa sigillati: solo un''istanza con la stessa chiave di cifratura può importarli.'
     include_secrets: Includi i segreti, sigillati con la chiave di questa istanza
     include_secrets_help: 'Mantieni il file privato: chi lo possiede insieme alla chiave di questa istanza può leggere i segreti.'
+    include_files: 'Includi le immagini dei campi immagine'
+    include_files_help: 'Aggiunge le immagini salvate (base64), quindi il file può essere grande.'
     submit: Scarica JSON
   import:
     title: Importa
@@ -55,3 +57,14 @@ portability:
     forbidden_section: 'Non puoi modificare questa sezione: %key%.'
     secret_context_mismatch: 'Il segreto sigillato appartiene a un altro campo o a un''altra applicazione: %key%.'
     unsupported_encryptor: I segreti sigillati richiedono un profilo di cifratura autenticato (Halite o Defuse), non MysqlAes.
+    invalid_files: 'Il blocco "files" non è valido.'
+    invalid_file: 'Immagine non accettata: %key%.'
+    file_too_large: 'L''immagine è troppo grande: %key%.'
+    files_too_large: 'Le immagini superano quanto questa istanza accetta in un file.'
+    file_hash_mismatch: 'L''immagine non corrisponde al suo hash dichiarato: %key%.'
+    missing_image_file: 'L''immagine manca nel file: %key%.'
+    unexpected_file: 'Questa immagine non corrisponde a nessuna impostazione del file: %key%.'
+image:
+  upload: 'Carica un''immagine (PNG, JPEG o WebP)'
+  replace: 'Sostituisci l''immagine salvata'
+  remove: 'Rimuovi l''immagine salvata'

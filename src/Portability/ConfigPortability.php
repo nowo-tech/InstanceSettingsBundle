@@ -6,9 +6,18 @@ namespace Nowo\InstanceSettingsBundle\Portability;
 
 use LogicException;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
+use Nowo\InstanceSettingsBundle\File\ImageProcessor;
+use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
+use Nowo\InstanceSettingsBundle\File\ImageUpload;
+use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
+use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Secret\SecretSealerInterface;
+use Nowo\InstanceSettingsBundle\Section\ImageSpec;
+use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\Section\SettingType;
+use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
 use Psr\Clock\ClockInterface;
@@ -18,9 +27,14 @@ use Symfony\Component\Clock\NativeClock;
 use function array_intersect;
 use function array_key_exists;
 use function array_keys;
+use function base64_decode;
+use function base64_encode;
+use function count;
 use function explode;
+use function hash;
 use function implode;
 use function in_array;
+use function intdiv;
 use function is_array;
 use function is_string;
 use function preg_match;
@@ -28,6 +42,7 @@ use function preg_replace;
 use function sprintf;
 use function str_contains;
 use function str_replace;
+use function strlen;
 use function strtolower;
 
 /**
@@ -39,6 +54,9 @@ use function strtolower;
  * - Import: all-or-nothing. The whole payload is validated first (schema, version, known sections / fields,
  *   portable fields only, value types and constraints, sealed secrets that decrypt with this instance key,
  *   credential-shaped keys refused in provider data, provider validation), then applied in one transaction.
+ * - Image fields (1.4, envelope version 2): `settings` carries the `isf:<sha256>` reference and, on request, `files`
+ *   carries the stored bytes in base64. On import every file is strictly decoded, size-capped, checked against its
+ *   declared hash and run through the whole upload pipeline (sniffing, limits, re-encoding) before anything is written.
  */
 final readonly class ConfigPortability
 {
@@ -54,10 +72,19 @@ final readonly class ConfigPortability
     /** Allowed provider names. */
     private const PROVIDER_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
 
+    /** Default `portability.max_file_bytes`: decoded bytes of every file of one envelope (8 MiB). */
+    public const DEFAULT_MAX_FILE_BYTES = 8_388_608;
+
+    /** Keys of one `files` entry. */
+    private const FILE_KEYS = ['type', 'sha256', 'data'];
+
     /**
      * @param iterable<PortabilityProviderInterface> $providers tagged `nowo_instance_settings.portability_provider`
      * @param string $schema envelope `schema` value
      * @param bool $allowSealedSecrets whether sealed secrets may be exported / imported
+     * @param SettingFileStoreInterface|null $fileStore image field files (1.4)
+     * @param int $maxFileBytes `portability.max_file_bytes`: decoded bytes of all the files of one envelope
+     * @param ImageProcessor $images upload pipeline re-run on imported files
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -70,7 +97,18 @@ final readonly class ConfigPortability
         private ValueNormalizer $normalizer = new ValueNormalizer(),
         private ?ClockInterface $clock = null,
         private ?LoggerInterface $logger = null,
+        private ?SettingFileStoreInterface $fileStore = null,
+        private int $maxFileBytes = self::DEFAULT_MAX_FILE_BYTES,
+        private ImageProcessor $images = new ImageProcessor(),
     ) {
+    }
+
+    /**
+     * Whether any section declares an image field (the export form then offers `include_files`).
+     */
+    public function hasImageFields(): bool
+    {
+        return $this->registry->hasImageFields();
     }
 
     /**
@@ -104,12 +142,13 @@ final readonly class ConfigPortability
      *
      * @param list<string>|null $only section / provider names to include (null = everything)
      * @param bool $includeSecrets add the stored secrets, sealed (requires {@see supportsSealedSecrets()})
+     * @param bool $includeFiles add the stored images of the exported image fields (`files`, base64)
      *
-     * @throws PortabilityException `unknown_section:<name>`, `sealed_secrets_disabled`
+     * @throws PortabilityException `unknown_section:<name>`, `sealed_secrets_disabled`, `files_too_large`
      *
      * @return array<string, mixed>
      */
-    public function export(?array $only = null, bool $includeSecrets = false): array
+    public function export(?array $only = null, bool $includeSecrets = false, bool $includeFiles = false): array
     {
         if ($includeSecrets && !$this->supportsSealedSecrets()) {
             throw new PortabilityException('sealed_secrets_disabled');
@@ -122,14 +161,33 @@ final readonly class ConfigPortability
             }
         }
 
-        $settings = [];
-        $secrets  = [];
+        $settings  = [];
+        $secrets   = [];
+        $files     = [];
+        $hasImages = false;
+        $fileBytes = 0;
         foreach ($this->registry->names() as $section) {
             if ($only !== null && !in_array($section, $only, true)) {
                 continue;
             }
             foreach ($this->registry->fields($section) as $name => $field) {
                 if (!$field->portable) {
+                    continue;
+                }
+                if ($field->type === SettingType::Image) {
+                    $hasImages                 = true;
+                    $file                      = $this->settings->getFile($section . '.' . $name);
+                    $settings[$section][$name] = $file instanceof StoredSettingFile ? SettingField::IMAGE_REFERENCE_PREFIX . $file->sha256 : null;
+                    $original                  = !$file instanceof StoredSettingFile || !$includeFiles ? null : ($this->fileStore?->findImage($section, $name, $file->sha256)[0] ?? null);
+                    if ($original !== null && $this->fileStore instanceof SettingFileStoreInterface) {
+                        $bytes = $this->fileStore->read($original);
+                        $fileBytes += strlen($bytes);
+                        if ($fileBytes > $this->maxFileBytes) {
+                            throw new PortabilityException('files_too_large');
+                        }
+                        $files[$section . '.' . $name] = ['type' => $original->mimeType, 'sha256' => hash('sha256', $bytes), 'data' => base64_encode($bytes)];
+                    }
+
                     continue;
                 }
                 if (!$field->secret) {
@@ -147,8 +205,11 @@ final readonly class ConfigPortability
             }
         }
 
-        $payload             = PortabilityEnvelope::header($this->schema, $this->clock?->now() ?? (new NativeClock())->now());
+        $payload             = PortabilityEnvelope::header($this->schema, $this->clock?->now() ?? (new NativeClock())->now(), $hasImages ? PortabilityEnvelope::VERSION : PortabilityEnvelope::VERSION_WITHOUT_FILES);
         $payload['settings'] = $settings;
+        if ($hasImages && $includeFiles) {
+            $payload['files'] = $files;
+        }
         if ($includeSecrets && $this->sealer instanceof SecretSealerInterface) {
             $payload['secrets'] = ['sealed' => true, 'algorithm' => $this->sealer->algorithm(), 'values' => $secrets];
         }
@@ -170,6 +231,7 @@ final readonly class ConfigPortability
             'bundle'   => 'NowoInstanceSettingsBundle',
             'sections' => implode(',', [...array_keys($settings), ...array_keys($exported)]),
             'secrets'  => $includeSecrets,
+            'files'    => count($files),
         ]);
 
         return $payload;
@@ -192,7 +254,11 @@ final readonly class ConfigPortability
             $this->assertAllowedSections($payload, [...$allowedSections, ...$this->providerNames()]);
         }
 
-        $settings  = $this->validateSettings($payload['settings'] ?? []);
+        $images   = [];
+        $settings = $this->validateSettings($payload['settings'] ?? [], $images);
+        foreach ($this->validateFiles($payload['files'] ?? [], $images) as $section => $values) {
+            $settings[$section] = ($settings[$section] ?? []) + $values;
+        }
         $secrets   = $this->validateSecrets($payload['secrets'] ?? null);
         $providers = $this->validateProviders($payload['providers'] ?? []);
 
@@ -260,12 +326,22 @@ final readonly class ConfigPortability
                 }
             }
         }
+        $files = $payload['files'] ?? null;
+        foreach (is_array($files) ? array_keys($files) : [] as $key) {
+            $name = explode('.', (string) $key, 2)[0];
+            if (!in_array($name, $allowed, true)) {
+                throw new PortabilityException('forbidden_section:' . $name);
+            }
+        }
     }
 
     /**
+     * @param array<string, array<string, mixed>> $images collects the image fields: section => field => `isf:`
+     *                                                    reference (or null = remove)
+     *
      * @return array<string, array<string, mixed>> section => field => normalized value
      */
-    private function validateSettings(mixed $settings): array
+    private function validateSettings(mixed $settings, array &$images): array
     {
         if (!is_array($settings)) {
             throw new PortabilityException('invalid_settings');
@@ -294,6 +370,14 @@ final readonly class ConfigPortability
                 if (!$field->portable) {
                     throw new PortabilityException('not_portable:' . $key);
                 }
+                if ($field->type === SettingType::Image) {
+                    if ($value !== null && InstanceSettings::imageHash($value) === null) {
+                        throw new PortabilityException('invalid_value:' . $key);
+                    }
+                    $images[$section][$field->name] = $value;
+
+                    continue;
+                }
                 [$clean, $messages] = $this->normalizer->normalize($field, $value);
                 if ($messages !== []) {
                     throw new PortabilityException('invalid_value:' . $key);
@@ -303,6 +387,91 @@ final readonly class ConfigPortability
         }
 
         return $valid;
+    }
+
+    /**
+     * Resolves the image fields of `settings` against `files` (envelope version 2): a reference with its file becomes an
+     * upload (after the whole pipeline ran on it here), the current reference is kept, null removes the image. Anything
+     * else refuses the import: a reference without its file (`missing_image_file`), a file without its reference or with
+     * another hash (`unexpected_file`), a malformed entry or content that is not an accepted image (`invalid_file`),
+     * declared hash ≠ decoded bytes (`file_hash_mismatch`), a file above its field's `maxBytes` (`file_too_large`) or
+     * all files above `portability.max_file_bytes` (`files_too_large`). Errors name `files.<section>.<field>`.
+     *
+     * @param array<string, array<string, mixed>> $images section => field => reference or null
+     *
+     * @return array<string, array<string, mixed>> section => field => save() input (ImageUpload, reference or null)
+     */
+    private function validateFiles(mixed $files, array $images): array
+    {
+        if (!is_array($files)) {
+            throw new PortabilityException('invalid_files');
+        }
+
+        $uploads = [];
+        $total   = 0;
+        foreach ($files as $key => $entry) {
+            $key  = (string) $key;
+            $name = 'files.' . $key;
+            $ref  = explode('.', $key, 2);
+            if (count($ref) !== 2 || !array_key_exists($ref[0], $images) || !array_key_exists($ref[1], $images[$ref[0]])) {
+                throw new PortabilityException('unexpected_file:' . $name);
+            }
+            [$section, $field] = $ref;
+            $spec              = $this->registry->field($section, $field)->image;
+            $sha               = InstanceSettings::imageHash($images[$section][$field]);
+            if (!$spec instanceof ImageSpec || !is_array($entry) || count($entry) !== count(self::FILE_KEYS)) {
+                throw new PortabilityException('invalid_file:' . $name);
+            }
+            foreach (self::FILE_KEYS as $part) {
+                if (!is_string($entry[$part] ?? null)) {
+                    throw new PortabilityException('invalid_file:' . $name);
+                }
+            }
+            /** @var array{type: string, sha256: string, data: string} $entry */
+            if ($sha === null || $entry['sha256'] !== $sha) {
+                throw new PortabilityException('unexpected_file:' . $name);
+            }
+            // Bound the base64 text before decoding it (4 characters per 3 bytes).
+            if (strlen($entry['data']) > (intdiv($spec->maxBytes, 3) + 1) * 4) {
+                throw new PortabilityException('file_too_large:' . $name);
+            }
+            $bytes = base64_decode($entry['data'], true);
+            if ($bytes === false || !in_array($entry['type'], $spec->types, true) || ImageProcessor::sniff($bytes) !== $entry['type']) {
+                throw new PortabilityException('invalid_file:' . $name);
+            }
+            if (strlen($bytes) > $spec->maxBytes) {
+                throw new PortabilityException('file_too_large:' . $name);
+            }
+            $total += strlen($bytes);
+            if ($total > $this->maxFileBytes) {
+                throw new PortabilityException('files_too_large');
+            }
+            if (hash('sha256', $bytes) !== $entry['sha256']) {
+                throw new PortabilityException('file_hash_mismatch:' . $name);
+            }
+            try {
+                $this->images->process($spec, $bytes);
+            } catch (ImageRefusedException $e) {
+                throw new PortabilityException('invalid_file:' . $name, $e);
+            }
+            $uploads[$section][$field] = ImageUpload::fromBytes($bytes);
+        }
+
+        foreach ($images as $section => $fields) {
+            foreach ($fields as $field => $reference) {
+                if (isset($uploads[$section][$field])) {
+                    continue;
+                }
+                $sha = InstanceSettings::imageHash($reference);
+                if ($sha !== null && $this->settings->getFile($section . '.' . $field)?->sha256 !== $sha) {
+                    throw new PortabilityException('missing_image_file:files.' . $section . '.' . $field);
+                }
+                // Null removes the image; the current reference keeps it.
+                $uploads[$section][$field] = $reference;
+            }
+        }
+
+        return $uploads;
     }
 
     /**

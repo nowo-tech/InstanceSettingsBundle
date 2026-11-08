@@ -9,7 +9,7 @@ use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 /**
  * Dispatched after a section was saved with at least one changed field (admin form, API or import).
  *
- * Carries field names only, never values: listeners that need the new value read it from
+ * Carries field names only, never values (image fields add their old / new hashes in {@see self::$fileChanges}): listeners that need the new value read it from
  * {@see InstanceSettingsInterface} (for example to reset a cached mailer
  * transport or to write an audit log entry).
  */
@@ -20,12 +20,15 @@ final readonly class SettingsChangedEvent
      * @param list<string> $changedFields changed field names (plain and secret)
      * @param list<string> $secretFields the changed field names that are secrets
      * @param string $origin `form`, `import`, `api` or `seed`
+     * @param array<string, array{old: string|null, new: string|null}> $fileChanges image fields (1.4): field => old /
+     *                                                                              new SHA-256 (null = none); never content
      */
     public function __construct(
         public string $section,
         public array $changedFields,
         public array $secretFields = [],
         public string $origin = self::ORIGIN_API,
+        public array $fileChanges = [],
     ) {
     }
 

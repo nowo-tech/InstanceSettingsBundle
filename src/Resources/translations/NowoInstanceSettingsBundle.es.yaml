@@ -18,6 +18,8 @@ portability:
     intro_secrets: 'Descarga todos los ajustes portables. Los secretos se omiten salvo que los incluyas sellados: solo una instancia con la misma clave de cifrado puede importarlos.'
     include_secrets: Incluir los secretos, sellados con la clave de esta instancia
     include_secrets_help: 'Mantén el archivo en privado: quien lo tenga junto con la clave de esta instancia puede leer los secretos.'
+    include_files: 'Incluir las imágenes de los campos de imagen'
+    include_files_help: 'Añade las imágenes guardadas (base64), así que el archivo puede ser grande.'
     submit: Descargar JSON
   import:
     title: Importar
@@ -55,3 +57,14 @@ portability:
     forbidden_section: 'No puedes modificar esta sección: %key%.'
     secret_context_mismatch: 'El secreto sellado pertenece a otro campo o aplicación: %key%.'
     unsupported_encryptor: Los secretos sellados necesitan un perfil de cifrado autenticado (Halite o Defuse), no MysqlAes.
+    invalid_files: 'El bloque "files" no es válido.'
+    invalid_file: 'No es una imagen aceptada: %key%.'
+    file_too_large: 'La imagen es demasiado grande: %key%.'
+    files_too_large: 'Las imágenes superan lo que esta instancia acepta en un archivo.'
+    file_hash_mismatch: 'La imagen no coincide con su hash declarado: %key%.'
+    missing_image_file: 'Falta la imagen en el archivo: %key%.'
+    unexpected_file: 'Esta imagen no corresponde a ningún ajuste del archivo: %key%.'
+image:
+  upload: 'Subir una imagen (PNG, JPEG o WebP)'
+  replace: 'Sustituir la imagen guardada'
+  remove: 'Quitar la imagen guardada'

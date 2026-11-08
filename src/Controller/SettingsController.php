@@ -8,8 +8,10 @@ use JsonException;
 use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Form\PortabilityExportType;
 use Nowo\InstanceSettingsBundle\Form\PortabilityImportType;
+use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
@@ -107,9 +109,13 @@ final class SettingsController extends AbstractController
         $definition = $this->registry->get($section);
         $fields     = $this->registry->fields($section);
         $stored     = [];
+        $images     = [];
         foreach ($fields as $name => $field) {
             if ($field->secret) {
                 $stored[$name] = $this->settings->hasSecret($section . '.' . $name);
+            }
+            if ($field->image !== null) {
+                $images[$name] = $this->settings->getFile($section . '.' . $name) instanceof StoredSettingFile;
             }
         }
 
@@ -117,6 +123,7 @@ final class SettingsController extends AbstractController
             'section'        => $definition,
             'fields'         => $fields,
             'stored_secrets' => $stored,
+            'stored_images'  => $images,
             'csrf_token_id'  => 'nowo_instance_settings_section_' . $section,
         ]);
         $form->handleRequest($request);
@@ -173,11 +180,12 @@ final class SettingsController extends AbstractController
         }
 
         $withSecrets = $form->has('include_secrets') && $form->get('include_secrets')->getData() === true;
+        $withFiles   = $form->has('include_files') && $form->get('include_files')->getData() === true;
 
         try {
             // Area-aware: only the sections this user may open (plus the providers, part of the `_portability` area).
             $only = [...array_keys($this->accessibleSections()), ...$this->portability->providerNames()];
-            $json = json_encode($this->portability->export($only, $withSecrets), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            $json = json_encode($this->portability->export($only, $withSecrets, $withFiles), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         } catch (PortabilityException|JsonException) {
             $this->addFlash('error', $this->trans('portability.error.export_failed'));
 
@@ -260,6 +268,18 @@ final class SettingsController extends AbstractController
 
                 continue;
             }
+            if ($field->image !== null) {
+                // Image (1.4): a new upload replaces, "remove" deletes the row, nothing keeps the stored image.
+                $child  = $form->get($name);
+                $upload = $child->get(SettingImageType::FILE)->getData();
+                if ($upload instanceof UploadedFile) {
+                    $values[$name] = $upload;
+                } elseif ($child->has(SettingImageType::REMOVE) && $child->get(SettingImageType::REMOVE)->getData() === true) {
+                    $values[$name] = null;
+                }
+
+                continue;
+            }
             if (!$field->secret) {
                 $values[$name] = $data[$name] ?? null;
 
@@ -321,6 +341,7 @@ final class SettingsController extends AbstractController
         return $this->createForm(PortabilityExportType::class, null, [
             'action'        => $this->generateUrl(InstanceSettingsRoutes::EXPORT),
             'allow_secrets' => $this->portability->supportsSealedSecrets(),
+            'allow_files'   => $this->portability->hasImageFields(),
         ]);
     }
 

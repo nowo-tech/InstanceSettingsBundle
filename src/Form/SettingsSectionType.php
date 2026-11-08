@@ -46,6 +46,8 @@ use function is_string;
  * {@see SecretType} (unmapped, always rendered empty, "leave blank to keep" + a clear checkbox): the stored secret is
  * never handed to the form, only whether one is stored.
  *
+ * Image fields (1.4) use {@see SettingImageType} (unmapped upload + "remove" when an image is stored).
+ *
  * Provider-dependent fields (1.3, {@see SettingField::withVisibleWhen()}) carry the UiKit `visible-when` row
  * attributes (`row_attr`), so the peer hides them without disabling or clearing them. On submit, a field hidden for the
  * submitted controlling value is reset to its current value before validation (no error on a row the user cannot
@@ -64,7 +66,7 @@ final class SettingsSectionType extends AbstractType
     /**
      * Adds one form field per setting field.
      *
-     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>} $options
+     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -101,6 +103,17 @@ final class SettingsSectionType extends AbstractType
                     // SecretType is compound: by default its errors bubble to the root form, which the settings
                     // scaffold does not render. Keep them on the field so they show next to it.
                     'error_bubbling' => false,
+                ], $field->formOptions));
+
+                continue;
+            }
+
+            if ($field->image !== null) {
+                $this->addWithDefaults($builder, $name, SettingImageType::class, array_replace_recursive($base, [
+                    'required'  => false,
+                    'stored'    => $options['stored_images'][$name] ?? false,
+                    'max_bytes' => $field->image->maxBytes,
+                    'types'     => $field->image->types,
                 ], $field->formOptions));
 
                 continue;
@@ -197,7 +210,7 @@ final class SettingsSectionType extends AbstractType
     }
 
     /**
-     * Options: `section` and `fields` (required), `stored_secrets` (field => bool).
+     * Options: `section` and `fields` (required), `stored_secrets` and `stored_images` (field => bool).
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -207,17 +220,19 @@ final class SettingsSectionType extends AbstractType
         $resolver->setDefaults([
             'data_class'         => null,
             'stored_secrets'     => [],
+            'stored_images'      => [],
             'csrf_protection'    => true,
             'csrf_field_name'    => '_token',
             'csrf_token_id'      => 'nowo_instance_settings_section',
             'translation_domain' => NowoInstanceSettingsBundle::TRANSLATION_DOMAIN,
         ]);
         $resolver->setAllowedTypes('stored_secrets', 'array');
+        $resolver->setAllowedTypes('stored_images', 'array');
         $resolver->setAllowedTypes('csrf_token_id', 'string');
     }
 
     /**
-     * Symfony form type and type-specific options of a plain field.
+     * Symfony form type and type-specific options of a plain field (image fields use {@see SettingImageType}).
      *
      * @return array{0: class-string<FormTypeInterface<mixed>>, 1: array<string, mixed>}
      */
@@ -232,6 +247,7 @@ final class SettingsSectionType extends AbstractType
             SettingType::Int    => [IntegerType::class, []],
             SettingType::Float  => [NumberType::class, ['html5' => true, 'scale' => null]],
             SettingType::Choice => [ChoiceType::class, ['choices' => $field->choices, 'placeholder' => $field->required ? null : '']],
+            SettingType::Image  => [SettingImageType::class, []],
         };
     }
 }

@@ -7,6 +7,7 @@ Bundle-specific security analysis. The short GitHub reporting policy lives in [`
 - [Scope](#scope)
 - [Attack surface](#attack-surface)
 - [Threat model and mitigations](#threat-model-and-mitigations)
+- [Image fields threat model (1.4)](#image-fields-threat-model-14)
 - [Admin UI exposure and allow_unauthenticated](#admin-ui-exposure-and-allow_unauthenticated)
 - [Secrets and cryptography](#secrets-and-cryptography)
 - [Logging](#logging)
@@ -22,7 +23,8 @@ Bundle-specific security analysis. The short GitHub reporting policy lives in [`
 
 Covers the settings store (`InstanceSettings`, repository, entity), the encrypted secret fields, the admin UI
 (controller, forms, access listener / checker, route loader), config portability (export / import service, upload
-reader, sealing, CLI commands), the Twig function and the configuration tree. It does **not** cover the host
+reader, sealing, CLI commands), the image fields (upload pipeline, file store, file route, envelope v2 `files`, purge
+command, 1.4), the Twig functions and the configuration tree. It does **not** cover the host
 firewall, the sections and portability providers contributed by the host or other bundles, DoctrineEncryptBundle's
 own cryptography and key storage, or what consumers do with a setting value.
 
@@ -33,6 +35,9 @@ own cryptography and key storage, or what consumers do with a setting value.
 | Admin HTTP `GET` / `POST` (session) | `web_ui.path_prefix` (only when the host imports the `nowo_instance_settings` route loader) | Role / custom checker per area, Symfony Forms with CSRF. |
 | Uploaded JSON file | `POST …/portability/import` | Multipart Form (`FileType`, `File` constraint), size-capped reader, schema / version / key validation, all-or-nothing transaction. |
 | CLI file path | `nowo:instance-settings:import <file>` | Operator input; same reader and validation. |
+| Image upload (multipart) | section form under `web_ui.path_prefix` | 1.4. Section area role + CSRF; content sniffed, limited and re-encoded with GD. See [Image fields threat model](#image-fields-threat-model-14). |
+| Anonymous HTTP `GET` / `HEAD` | `files.path_prefix` (default `/_settings-file`), only when a section declares an image field | 1.4. Public image fields served to anyone; private ones need the section area; same 404 for every miss. |
+| Imported image files (base64) | envelope v2 `files` (admin import, CLI) | 1.4. Strict decode, caps, hash check, whole upload pipeline, all-or-nothing. |
 | Section definitions / providers | host and bundles (services) | Trusted code; definitions validated at first use. |
 | Configuration | `nowo_instance_settings.*` | Validated at compile time; security switches must be literal booleans. |
 | Stored values | database | Plain values are JSON; secrets are encrypted at rest. |
@@ -55,6 +60,64 @@ own cryptography and key storage, or what consumers do with a setting value.
 | **Cross-request state leaks (FrankenPHP worker)** | The settings memo is bound to the main request (`WeakReference`) and cleared by `kernel.reset` and after saves; other services are stateless. See [FRANKENPHP-WORKER-AUDIT.md](FRANKENPHP-WORKER-AUDIT.md). |
 | **XSS** | Twig auto-escaping; labels come from translation catalogues; no `|raw`. |
 
+## Image fields threat model (1.4)
+
+Image fields (spec 220 slice S2) are opt-in (`files.enabled: true`; off by default, so hosts without image fields get
+neither the file table nor the file route, store or purge command). They add three new surfaces: **binary uploads** through the section form, a new
+**anonymous endpoint** (the file route) and **binary data in imports**. Everything below is enforced in code and
+covered by tests (`tests/Unit/File/*`, `tests/Unit/Settings/ImageSettingsTest.php`,
+`tests/Unit/Portability/ImagePortabilityTest.php`, `tests/Integration/Functional/ImageFieldsTest.php`,
+`tests/Integration/File/DoctrineSettingFileStoreTest.php`).
+
+### Assets and trust boundaries
+
+| Asset | Who may change it | Who may read it |
+| --- | --- | --- |
+| Image of a `public: true` field (brand assets) | users of the section's area (form, CSRF), operators (CLI import), application code | anyone, through the file route |
+| Image of a private field | same | users of the section's area only (checked by the file controller) |
+| Replaced / removed images (orphans) | nobody (kept read-only until purged) | same as the field, until `files.orphan_retention` expires |
+
+### Threats and mitigations
+
+| # | Threat | Mitigation | Tests |
+| --- | --- | --- | --- |
+| IF1 | **Polyglot / content-type confusion** (PNG + ZIP, JPEG + HTML trailer, SVG or HTML renamed `.png`, GIF renamed) | The type comes only from the content: magic bytes **and** `getimagesizefromstring()` must agree; the client name and MIME type are never read. Every image is decoded and re-encoded with GD, so appended payloads and metadata never reach storage. Served with the stored type, `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`. A URL extension that does not match the stored type answers 404. | `ImageProcessorTest::testRefusesAnythingThatIsNotAnAcceptedRaster`, `testPolyglotTrailersAreDroppedByTheReEncode`, `testWrongDeclaredExtensionOrMimeTypeIsIrrelevant`; `ImageFieldsTest::testUploadServeReplaceAndRemove` |
+| IF2 | **Stored XSS through SVG** (script, `foreignObject`, `use href`, CSS `url()`) | SVG is not an accepted type in v1 (no sanitiser, decision Q-O4); vectors only as committed config default assets (1.5). Uploads are raster only and re-encoded. Consumers must never inline upload bytes into HTML / SVG / PDF markup. | `ImageProcessorTest` (SVG, SVG behind a BOM); `ImageFieldsTest::testRefusedUploadsCsrfAndRoles` |
+| IF3 | **Decompression bomb / memory exhaustion** | Bytes capped before reading whole (`maxBytes`, ≤ 5 MiB; form `File` constraint; `ImageUpload::read()` stops at `max + 1`). Dimensions from the header **before decoding**: 4096 × 4096 px hard cap (the default maximum dimensions), field limits, and a memory budget against the remaining `memory_limit` (4 B/px × 2 decoded copies, + 6 B/px for any JPEG). Variants are made largest first from the previous one (at most two decoded images alive) and never upscaled. | `testDecompressionBombIsRefusedFromTheHeaderBeforeDecoding` (30 000 × 30 000), `testMemoryBudgetRefusesBeforeDecoding`, `testFieldLimits` |
+| IF4 | **Animated images / frame bombs** | Animated WebP refused (VP8X animation flag or an `ANIM` / `ANMF` chunk, found by walking the RIFF chunk list); APNG keeps its default frame only (GD decodes one). GIF is not accepted. | `testAnimatedWebpIsRefusedAndApngKeepsOneFrame` |
+| IF5 | **Privacy leak through metadata** (EXIF GPS, camera serials, XMP, ICC text) | Re-encode drops every metadata chunk; the EXIF orientation is applied first (read without ext-exif, bounds-checked parser), so the result is upright. | `testExifIsStrippedAndTheJpegTurnedUpright`, `testEveryExifOrientation`, `testOrientationParserIsRobust` |
+| IF6 | **Path traversal / file system writes** | No path is ever built from input: files live in the database; the route's section and field are looked up in the registry and the file by `(section, field, hash prefix, variant)` with bound parameters; route requirements allow only `[a-z0-9_]` names, 12 lower-case hex characters, a numeric variant and `png|jpg|webp`. The upload's client name is never stored nor used (the `Content-Disposition` name is `<section>-<field>.<ext>`). | `SettingFileControllerTest::testSame404ForEveryMiss` (traversal, uppercase), `FileValueObjectsTest::testImageUploadReadsWithAHardCap` (`../../etc/passwd.png` name) |
+| IF7 | **Unauthorised replacement** (CSRF, missing role, API misuse) | Uploads only through the section form: multipart, CSRF token `nowo_instance_settings_section_<name>`, the section's area role (listener + controller). No separate upload endpoint, no AJAX upload. `save()` accepts only an upload (re-processed), `null` or the field's current reference: a field can never be pointed at another field's image. | `ImageFieldsTest::testRefusedUploadsCsrfAndRoles` (missing CSRF → 422, `ROLE_USER` → 403, nothing stored), `ImageSettingsTest::testRefusedInputsChangeNothing` (foreign reference, path, number) |
+| IF8 | **Enumeration / disclosure of private images** | Non-public fields require the section's area in the file controller; unknown section / field / hash / variant / extension and a forbidden private image all answer the **same** empty 404 (`no-store`, `nosniff`). Images are bound to their field (unique `(section, name, sha256, variant)`): one field's URL never serves another field's image, so a public field cannot leak a private one even when the hash is known. URLs carry 48 bits of the hash (not guessable). Private responses are `private, max-age=3600`, `Cross-Origin-Resource-Policy: same-origin`. | `SettingFileControllerTest::testSame404ForEveryMiss`, `testPrivateFieldNeedsTheSectionArea`; `ImageFieldsTest::testRefusedUploadsCsrfAndRoles` |
+| IF9 | **Old / unreferenced hashes** | Decision: a hash that is no longer the field's value **keeps answering while its row exists** (orphan retention, default 30 days), so e-mails already sent keep their images and an admin can undo by re-uploading; after `purge-files` it is a 404. The command's "deleted" count is computed before the guarded DELETE, so an image re-referenced in that instant is kept but still counted (output only, audit IO-I9). A row only exists for an image that was saved into that field (rows are written in the same transaction as the setting); a hash that was never this field's answers 404. Private orphans still need the area. | `SettingFileControllerTest::testAnOrphanedImageIsServedUntilPurged`, `ImageFieldsTest::testUploadServeReplaceAndRemove`, `PurgeFilesCommandTest` |
+| IF10 | **Cache poisoning / stale caches** | Content-addressed immutable URLs (a new image is a new URL); strong `ETag` = full SHA-256 (+ variant); `If-None-Match` answers 304 before the bytes are read; public responses `immutable`; no `Vary` on user input. | `SettingFileControllerTest::testIfNoneMatchAnswers304WithoutReadingTheBytes`, `testHeadDoesNotReadTheBytes`, `ImageFieldsTest` (304) |
+| IF11 | **Import tampering** (malformed base64, wrong hash, wrong type, oversize, smuggled files, files for a forbidden section, v1 file with `files`) | Envelope v2 only; `files` keys must be `<section>.<field>` of a portable image field present in `settings` with the same hash (`unexpected_file` otherwise); forbidden sections refused from the raw keys before any decoding; base64 length bounded **before** decoding, strict decode; per-file `maxBytes` and total `portability.max_file_bytes`; declared hash compared with the decoded bytes; declared type must equal the sniffed type; then the whole upload pipeline; all-or-nothing transaction; reason codes name `files.<section>.<field>`, never content. A reference without its file is refused (`missing_image_file`) unless it is already the current one. | `ImagePortabilityTest::testTamperedFilesAreRefused`, `testFilesForAForbiddenSectionAreRefusedBeforeAnyDecoding`, `testVersionOneFilesImportUnchanged` |
+| IF12 | **Disclosure through logs / events** | Log line: field, 12-character hash prefix, type, dimensions, byte size (`logo=3f1c9a0b7e21 image/png 512x512 20480B`); `SettingsChangedEvent::$fileChanges` carries hashes only. Never content, never the client file name. | `ImageSettingsTest::testAuditRecordsHashesNeverContent` |
+| IF13 | **Worker-mode leaks (FrankenPHP)** | Processor, store, controller and URL builder are stateless; the store detaches the rows it wrote (no blob in the identity map) and reads metadata with scalar DQL (the blob is read only to answer a 200); the metadata memo of `getFile()` is cleared with the settings memo (`kernel.reset`, new main request, after saves). | `DoctrineSettingFileStoreTest::testStoreLifecycle` (identity map empty), `ImageSettingsTest::testNoBlobIsKeptAcrossResets`; Igor audit |
+| IF14 | **Missing GD / weaker decoder** | With `files.enabled: true` the container refuses to compile unless GD has PNG, JPEG and WebP support (`FileSupportPass`); a section declaring an image field also fails when the definitions load without it (a container compiled elsewhere), and without `files.enabled` (fail closed; never stored without re-encode). | `CompilerPassesTest::testFileSupportPassChecksGdOnlyWithTheFlag`, `ImageFieldDefinitionTest::testRegistryKnowsImageFieldsAndFailsClosedWithoutGd`, `FileTableOptInTest::testAnImageFieldWithoutTheFlagFailsClosed` |
+| IF15 | **Unexpected new endpoint or schema for hosts without images** | `files.enabled` is off by default: no file entity is mapped (the schema is the one of 1.3), and no file store, file controller or purge command is registered. The file route is added only when a section declares an image field; otherwise the routes are exactly those of 1.3 and exports stay envelope version 1. The route sits outside `web_ui.path_prefix` (overlap refused at compile time) and is not guarded by the admin listener. | `ImageFieldsTest::testHostsWithoutImageFieldsGetNoFileRoute`, `InstanceSettingsRouteLoaderTest`, `NowoInstanceSettingsExtensionTest::testFilePrefixMustBeOutsideTheAdminPrefix`, `testFilesOffRegistersNoStoreRouteControllerOrPurge`, `FileTableOptInTest` |
+| IF16 | **Purge deletes a live image** (a purge run racing an admin save, a section not registered during a run, rows restored outside the bundle) | Every `purge-files` run clears the orphan mark of every referenced image before marking the unreferenced ones, so a wrong mark heals on the next run. The delete re-reads the setting rows inside its transaction and skips referenced images; each delete also re-checks the mark, so an image referenced again concurrently is kept. Rows of a section the registry does not know keep their images unless `--include-unknown-sections`. | `ImageFieldsTest::testPurgeNeverDeletesTheLiveLogo`, `DoctrineSettingFileStoreTest::testStoreLifecycle`, `PurgeFilesCommandTest::testStaleMarksHealAndUnknownSectionsKeepTheirImages` |
+
+### Residual risks (image fields)
+
+- **GD / libpng / libjpeg / libwebp vulnerabilities.** Decoding attacker-supplied images runs native code. Only users of
+  the section's area (admins) can upload, the header checks bound the work, and the re-encode output is what is
+  served; keep the PHP image libraries patched.
+- **Rate limiting.** The bundle does not rate-limit the anonymous file route; a 304 costs one indexed metadata query,
+  a 200 one blob read (≤ 5 MiB, read whole and sent, not streamed). Public-facing hosts rate-limit `files.path_prefix`
+  (or put a CDN in front: URLs are immutable).
+- **CDN cache keys.** The route ignores the query string: `?bust=<random>` answers a full 200. A CDN that keys on the
+  query string can be bypassed that way, so configure it to ignore the query string for `files.path_prefix`.
+- **Orphan retention and withdrawal.** A removed image stays publicly reachable by its exact URL until purged (default
+  30 days). Set `files.orphan_retention: 0` and run `purge-files` to withdraw an image at once. Public responses are
+  `immutable` for a year, so browsers and CDNs that cached the URL keep it: purge the URL from the CDN as well.
+- **Private images need the firewall.** The file controller trusts the user only when a firewall matched the request.
+  A firewall that does not cover `files.path_prefix` makes every private image a 404 (fail closed, also for admins).
+- **Double pipeline on import.** An imported file is processed once to validate the envelope and once when saved
+  (admin or CLI only, bounded by `portability.max_file_bytes`).
+- **Lossy JPEG re-encode.** Every JPEG upload or import is re-encoded at quality 90 (generation loss, new hash on each
+  import of a JPEG).
+
 ## Admin UI exposure and allow_unauthenticated
 
 The admin UI edits instance-wide behaviour and secrets: keep it behind the firewall (`access_control` on
@@ -76,16 +139,24 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
 
 ## Logging
 
-- `info` "Instance settings saved." with section, changed **field names** and origin.
+- `info` "Instance settings saved." with section, changed **field names** and origin; for image fields also `files`
+  (field, 12-character hash prefix, type, dimensions, byte size — or `removed`).
+- `info` "Instance settings files purged." with the counts of marked and deleted images.
 - `info` "Instance configuration exported." / "… imported." with section names / changed keys and whether secrets
   were included.
 - Never logged: values, secrets, uploaded file content. Exceptions carry reason codes and keys only.
-- `SettingsChangedEvent` carries field names only; hosts that write an audit trail record names, not values.
+- `SettingsChangedEvent` carries field names only (plus old / new image hashes in `fileChanges`); hosts that write an
+  audit trail record names and hashes, not values.
 
 ## Resource limits
 
 - Reads: one query per request for all rows (no N+1); writes: one query per section + one flush.
-- Imports: `portability.max_upload_bytes` (default 1 MiB, max 16 MiB), JSON depth 64.
+- Imports: `portability.max_upload_bytes` (default 1 MiB, max 16 MiB), JSON depth 64; image files: per field
+  `maxBytes` (≤ 5 MiB) and `portability.max_file_bytes` (default 8 MiB) decoded bytes per envelope, base64 length
+  bounded before decoding.
+- Image uploads: `maxBytes` before reading whole, 4096 × 4096 px and memory budget from the header before decoding, at most
+  two decoded images alive, ≤ 8 variants.
+- File route: one indexed metadata query per request; the blob is read only for a 200 (never for a 304 or `HEAD`).
 - No outbound HTTP, processes or long-running work (REQ-RUNTIME-001 not applicable).
 
 ## CSRF
@@ -113,7 +184,7 @@ fail-closed container check, no `csrf_protection: false` on bundle forms. The CL
 | Cryptography | DoctrineEncrypt (Halite / Defuse); sealing fails closed. |
 | Permissions / exposure | Opt-in routes, roles + area roles, firewall-only token trust, fail-closed compile checks. |
 | Limits / DoS | One query per request, upload cap. |
-| AI security audit (REQ-SEC-004) | Passed — Appendix BY, final grade **Pass (good) / Low**; every finding fixed before 1.0.0 — see below. |
+| AI security audit (REQ-SEC-004) | Passed — Appendix BY, final grade **Pass (good) / Low**; every finding fixed before 1.0.0 — see below. Image fields (1.4): **immediate audit pending** before the 1.4.0 tag (spec 220, decision Q-O5). |
 
 ## AI security audit (REQ-SEC-004)
 

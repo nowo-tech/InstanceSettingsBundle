@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Section;
 
 use LogicException;
 use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
+use Nowo\InstanceSettingsBundle\File\GdSupport;
 
 use function array_key_exists;
 use function array_keys;
@@ -34,10 +35,31 @@ final class SettingsSectionRegistry
 
     /**
      * @param iterable<SettingsSectionInterface> $sections tagged `nowo_instance_settings.section`
+     * @param array<string, mixed>|null $gdInfo gd_info() to check image fields against (null = the running PHP; tests)
+     * @param bool $filesEnabled `files.enabled`: without it the file table is not mapped and an image field fails closed
+     *                           (true when the registry is built by hand, outside the container)
      */
     public function __construct(
         private readonly iterable $sections = [],
+        private readonly ?array $gdInfo = null,
+        private readonly bool $filesEnabled = true,
     ) {
+    }
+
+    /**
+     * Whether any section declares an image field (1.4).
+     */
+    public function hasImageFields(): bool
+    {
+        foreach ($this->map() as $entry) {
+            foreach ($entry['fields'] as $field) {
+                if ($field->type === SettingType::Image) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -162,6 +184,9 @@ final class SettingsSectionRegistry
         if ($target->visibleWhen !== null) {
             throw new LogicException(sprintf('%s: visible_when.field "%s" is provider-dependent itself (no chains).', $where, $target->name));
         }
+        if ($target->type === SettingType::Image) {
+            throw new LogicException(sprintf('%s: visible_when.field "%s" is an image field.', $where, $target->name));
+        }
         $allowed = match ($target->type) {
             SettingType::Choice => array_map(SettingField::visibilityValue(...), $target->choices),
             SettingType::Bool   => ['1', ''],
@@ -200,6 +225,13 @@ final class SettingsSectionRegistry
             foreach ($section->getFields() as $field) {
                 if (array_key_exists($field->name, $fields)) {
                     throw new LogicException(sprintf('Duplicate field "%s" in instance settings section "%s".', $field->name, $name));
+                }
+                if ($field->type === SettingType::Image) {
+                    if (!$this->filesEnabled) {
+                        throw new LogicException(sprintf('Instance settings section "%s" declares the image field "%s": set nowo_instance_settings.files.enabled: true (it maps the instance_setting_file table; add the migration).', $name, $field->name));
+                    }
+                    // Fail closed: an image is never stored without GD's sniffing and re-encoding.
+                    GdSupport::assertAvailable($this->gdInfo);
                 }
                 $fields[$field->name] = $field;
             }

@@ -47,7 +47,11 @@ ConfigPortability ──► export: settings + sealed secrets (SecretSealer) + P
 | `Command\Export/ImportSettingsCommand` | CLI |
 | `Controller\SettingsController`, `Form\*`, `Ui\*`, `Routing\InstanceSettingsRouteLoader` | Admin UI |
 | `Security\*`, `EventListener\InstanceSettingsAccessListener` | Access (roles, area roles, custom checker, demo switch) |
-| `Twig\InstanceSettingsTwigExtension` | `instance_setting()` |
+| `File\ImageProcessor`, `File\ImageUpload`, `File\GdSupport` | Image fields (1.4): sniffing, header limits, memory budget, GD re-encode, variants; fail closed without GD |
+| `FileEntity\SettingFile` (mapped only with `files.enabled`), `File\SettingFileStoreInterface`, `File\DoctrineSettingFileStore` | Image storage (content-addressed per field, orphan marking, purge) |
+| `File\SettingFileController`, `File\SettingFileUrls`, `File\StoredSettingFile` | Anonymous-capable file route (outside the admin prefix, not guarded by the admin listener) and immutable URLs |
+| `Command\PurgeFilesCommand` | Deletes orphaned images after `files.orphan_retention` |
+| `Twig\InstanceSettingsTwigExtension` | `instance_setting()`, `instance_setting_file()` |
 | `DependencyInjection\*` | Config tree, extension, fail-closed passes, Twig paths, section tag normalization |
 
 ## Container wiring
@@ -56,7 +60,7 @@ Services are registered explicitly in `NowoInstanceSettingsExtension` (no resour
 providers are collected with tagged iterators (`nowo_instance_settings.section`, `…portability_provider`) and
 autoconfigured from their interfaces. The controller is **not** autoconfigured (REQ-SF-004 rule 7); its routes come from
 the `nowo_instance_settings` loader. Compiler passes: `TwigPathsPass`, `CsrfProtectionPass`, `UnauthenticatedAccessPass`,
-`SecretEncryptionPass`, `SettingsSectionPass`.
+`SecretEncryptionPass`, `FileSupportPass` (GD with `files.enabled`), `SettingsSectionPass`.
 
 ## Worker safety
 

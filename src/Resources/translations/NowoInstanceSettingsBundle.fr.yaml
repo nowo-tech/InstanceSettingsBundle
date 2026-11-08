@@ -18,6 +18,8 @@ portability:
     intro_secrets: 'Télécharge tous les paramètres portables. Les secrets sont omis sauf si vous les incluez scellés : seule une instance avec la même clé de chiffrement peut les importer.'
     include_secrets: Inclure les secrets, scellés avec la clé de cette instance
     include_secrets_help: 'Gardez le fichier privé : toute personne qui le détient avec la clé de cette instance peut lire les secrets.'
+    include_files: 'Inclure les images des champs image'
+    include_files_help: 'Ajoute les images enregistrées (base64) : le fichier peut être volumineux.'
     submit: Télécharger le JSON
   import:
     title: Importer
@@ -55,3 +57,14 @@ portability:
     forbidden_section: 'Vous ne pouvez pas modifier cette section : %key%.'
     secret_context_mismatch: 'Le secret scellé appartient à un autre champ ou à une autre application : %key%.'
     unsupported_encryptor: Les secrets scellés exigent un profil de chiffrement authentifié (Halite ou Defuse), pas MysqlAes.
+    invalid_files: 'Le bloc « files » est invalide.'
+    invalid_file: 'Image non acceptée : %key%.'
+    file_too_large: 'L''image est trop lourde : %key%.'
+    files_too_large: 'Les images dépassent ce que cette instance accepte dans un fichier.'
+    file_hash_mismatch: 'L''image ne correspond pas à son empreinte déclarée : %key%.'
+    missing_image_file: 'L''image manque dans le fichier : %key%.'
+    unexpected_file: 'Cette image ne correspond à aucun réglage du fichier : %key%.'
+image:
+  upload: 'Téléverser une image (PNG, JPEG ou WebP)'
+  replace: 'Remplacer l''image enregistrée'
+  remove: 'Supprimer l''image enregistrée'

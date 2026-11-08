@@ -55,13 +55,14 @@ final class ExportSettingsCommand extends Command
     }
 
     /**
-     * Options: `--section` (repeatable), `--include-secrets` (sealed), `--output`, `--force`.
+     * Options: `--section` (repeatable), `--include-secrets` (sealed), `--include-files` (images), `--output`, `--force`.
      */
     protected function configure(): void
     {
         $this
             ->addOption('section', 's', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Only these sections / providers (repeatable).')
             ->addOption('include-secrets', null, InputOption::VALUE_NONE, 'Add the stored secrets, sealed with this instance key (only an instance with the same key can import them).')
+            ->addOption('include-files', null, InputOption::VALUE_NONE, 'Add the stored images of image fields (base64, envelope version 2).')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Write to this new file (created with mode 0600) instead of stdout.')
             ->addOption('force', 'f', InputOption::VALUE_NONE, 'Replace an existing regular file (never a symbolic link).');
     }
@@ -77,7 +78,7 @@ final class ExportSettingsCommand extends Command
         $sections = array_values((array) $input->getOption('section'));
 
         try {
-            $payload = $this->portability->export($sections === [] ? null : $sections, (bool) $input->getOption('include-secrets'));
+            $payload = $this->portability->export($sections === [] ? null : $sections, (bool) $input->getOption('include-secrets'), (bool) $input->getOption('include-files'));
             $json    = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         } catch (PortabilityException|JsonException $e) {
             $io->getErrorStyle()->error('Export refused: ' . $e->getMessage());

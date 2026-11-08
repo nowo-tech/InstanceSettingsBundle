@@ -24,4 +24,7 @@ final class InstanceSettingsRoutes
 
     /** Import (POST + CSRF). */
     public const IMPORT = 'nowo_instance_settings_import';
+
+    /** Image file of an image setting field (1.4, outside the admin prefix); parameters `section`, `field`, `file`, `ext`. */
+    public const FILE = 'nowo_instance_settings_file';
 }
