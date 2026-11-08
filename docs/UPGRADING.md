@@ -27,11 +27,7 @@ From **1.3.1**:
 composer update nowo-tech/instance-settings-bundle
 ```
 
-Towards **1.4.0** (image setting fields). From **1.3.x**:
-
-```bash
-composer update nowo-tech/instance-settings-bundle
-```
+Image setting fields (spec 220 S2):
 
 1. **No schema change unless you enable image fields.** Image fields are opt-in (`files.enabled`, default `false`):
    by default the bundle maps no new entity, `doctrine:migrations:diff` and `doctrine:schema:validate` see the 1.3
