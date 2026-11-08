@@ -93,9 +93,10 @@ final class ImagePortabilityTest extends TestCase
 
         // Importing the same file again changes nothing (the re-encode of the same bytes is deterministic).
         self::assertFalse($portability->import($payload)->hasChanges());
-        // A reference equal to the current one needs no file. A JPEG is re-encoded on import (new hash), so its source
-        // reference without the file is not the target's: refused rather than silently ignored.
+        // A reference equal to the current one needs no file; any other reference without its file is refused (a JPEG
+        // is re-encoded on import, so its source reference may differ from the target's, depending on libjpeg).
         unset($payload['files']);
+        $payload['settings']['brand']['scan'] = 'isf:' . str_repeat('9', 64);
         try {
             $portability->import($payload);
             self::fail('Expected missing_image_file');

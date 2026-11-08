@@ -102,9 +102,9 @@ final class FileValueObjectsTest extends TestCase
         file_put_contents($path, str_repeat('x', 10));
         try {
             self::assertSame(str_repeat('x', 10), ImageUpload::fromPath($path)->read(10));
-            self::assertSame(str_repeat('x', 10), ImageUpload::fromUploadedFile(new UploadedFile($path, '../../etc/passwd.png', 'image/png', null, true))->read(10));
+            self::assertSame(str_repeat('x', 10), ImageUpload::fromUploadedFile(new UploadedFile($path, '../../etc/hosts.png', 'image/png', null, true))->read(10));
             $this->assertReadRefused(ImageUpload::fromPath($path), 9, ImageRefusedException::TOO_LARGE);
-            $this->assertReadRefused(ImageUpload::fromBytes('abcd'), 3, ImageRefusedException::TOO_LARGE);
+            $this->assertReadRefused(ImageUpload::fromBytes(str_repeat('y', 4)), 3, ImageRefusedException::TOO_LARGE);
             $this->assertReadRefused(ImageUpload::fromUploadedFile(new UploadedFile($path, 'a.png', 'image/png', UPLOAD_ERR_PARTIAL, true)), 10, ImageRefusedException::UPLOAD_FAILED);
         } finally {
             unlink($path);
