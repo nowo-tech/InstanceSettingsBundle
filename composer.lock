@@ -1341,16 +1341,16 @@
         },
         {
             "name": "paragonie/halite",
-            "version": "v5.1.4",
+            "version": "v5.1.5",
             "source": {
                 "type": "git",
                 "url": "https://github.com/paragonie/halite.git",
-                "reference": "12e7d1ab50ef3cacc27b59140e75d2cf59e85f71"
+                "reference": "aa28beef75a09ed8b7ca87d758ba4916753646a6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/paragonie/halite/zipball/12e7d1ab50ef3cacc27b59140e75d2cf59e85f71",
-                "reference": "12e7d1ab50ef3cacc27b59140e75d2cf59e85f71",
+                "url": "https://api.github.com/repos/paragonie/halite/zipball/aa28beef75a09ed8b7ca87d758ba4916753646a6",
+                "reference": "aa28beef75a09ed8b7ca87d758ba4916753646a6",
                 "shasum": ""
             },
             "require": {
@@ -1407,10 +1407,10 @@
             "support": {
                 "docs": "https://github.com/paragonie/halite/tree/master/doc",
                 "issues": "https://github.com/paragonie/halite/issues",
-                "source": "https://github.com/paragonie/halite/tree/v5.1.4"
+                "source": "https://github.com/paragonie/halite/tree/v5.1.5"
             },
-            "time": "2025-09-19T03:39:32+00:00",
-            "published-time": "2025-09-19T03:40:44+00:00"
+            "time": "2026-11-06T19:23:08+00:00",
+            "published-time": "2026-11-06T19:24:14+00:00"
         },
         {
             "name": "paragonie/hidden-string",
