@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.5.0] - 2026-11-09](#150---2026-11-09)
 - [[1.4.0] - 2026-11-08](#140---2026-11-08)
 - [[1.3.1] - 2026-11-02](#131---2026-11-02)
 - [[1.3.0] - 2026-11-02](#130---2026-11-02)
@@ -15,6 +16,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.5.0] - 2026-11-09
 
 Brand bridge (spec 220 slice S3, target 1.5.0). Opt-in with `brand.enabled: true`: hosts that do not enable it keep
 the 1.4 services, routes, forms, pages (byte for byte) and schema.

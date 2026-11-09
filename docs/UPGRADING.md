@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.5.0](#to-150)
 - [To 1.4.0](#to-140)
 - [To 1.3.1](#to-131)
 - [To 1.3.0](#to-130)
@@ -18,6 +19,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.5.0
+
+From **1.4.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 Target **1.5.0**, from **1.4.0**:
 

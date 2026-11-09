@@ -125,7 +125,7 @@ covered by tests (`tests/Unit/File/*`, `tests/Unit/Settings/ImageSettingsTest.ph
 The brand bridge (spec 220 slice S3) is opt-in (`brand.enabled: true`); without it nothing is registered and the admin
 pages are byte for byte those of 1.4. It adds no endpoint and no new storage: the brand images are image fields
 (threats IF1–IF16 above apply unchanged, the file route is not modified), the texts and colours are plain settings.
-Batch audit before the tag (owner decision Q-O5): **re-verification pending**.
+Batch audit before the tag (owner decision Q-O5): Appendix IU **Pass-Low**; IU-L1 (bridge honours UiKit `brand: off`), IU-I2 (single brand source guard), IU-I3 (`?v=` on default assets) fixed before 1.5.0; IU-I1 documented; IU-I4, IU-I5 Info.
 
 | # | Threat | Mitigation | Tests |
 | --- | --- | --- | --- |
