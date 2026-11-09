@@ -66,6 +66,20 @@ final class SettingFileControllerTest extends TestCase
         self::assertSame((string) strlen((string) $response->getContent()), $response->headers->get('Content-Length'));
     }
 
+    public function testAFileThatVanishedSinceTheLookupIsA404NeverAnEmptyImmutable200(): void
+    {
+        foreach ($this->store->rows as $id => $row) {
+            if ($row['record']->field === 'logo' && $row['record']->variant === 0) {
+                $this->store->rows[$id]['bytes'] = '';
+            }
+        }
+        $response = $this->get(true, 'brand', 'logo', substr($this->logo, 0, 12), 'png');
+
+        self::assertSame(404, $response->getStatusCode());
+        self::assertSame('', $response->getContent());
+        self::assertTrue($response->headers->hasCacheControlDirective('no-store'));
+    }
+
     public function testVariantsAndEtags(): void
     {
         $response = $this->get(true, 'brand', 'logo', substr($this->logo, 0, 12) . '-192', 'png');

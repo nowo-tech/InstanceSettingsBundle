@@ -10,6 +10,7 @@ use JsonException;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
+use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
@@ -85,7 +86,8 @@ use const PATHINFO_EXTENSION;
  *   resolved with `realpath()` (symlinks followed) and refused outside the base directory (`seed.base_dir`); the bytes
  *   go through the same {@see ImageProcessor} checks as an upload (type sniffing, size, dimensions, square, animated
  *   WebP); SVG is refused with a clear message. Images are stored by the configured {@see SettingFileStoreInterface};
- *   with the filesystem store, an image that already sits at the field's stable path is adopted in place.
+ *   with the filesystem store, a valid image that already sits at the field's stable path is adopted (re-encoded like an
+ *   upload) instead of being overwritten; file changes are applied only after the commit.
  * - Insert-only in one transaction, re-checking each field there (a concurrent admin save wins); audited like a save
  *   (`Instance settings saved.` log line and {@see SettingsChangedEvent} with origin
  *   {@see SettingsChangedEvent::ORIGIN_SEED} and the file hashes) **after the commit**.
@@ -267,7 +269,7 @@ final readonly class SeedFileSeeder
         $attempt = 0;
         while (true) {
             try {
-                [$seeded, $lost, $events] = $dryRun ? [$this->plannedKeys($plans), [], []] : $this->repository->transactional(fn (): array => $this->insertMissing($plans));
+                [$seeded, $lost, $events] = $dryRun ? [$this->plannedKeys($plans), [], []] : FileStoreTransaction::run($this->repository, $this->fileStore, fn (): array => $this->insertMissing($plans));
                 break;
             } catch (UniqueConstraintViolationException $e) {
                 if (++$attempt >= self::ATTEMPTS) {
@@ -363,8 +365,11 @@ final readonly class SeedFileSeeder
                 continue;
             }
             try {
-                $real  = $this->resolve(is_string($path) ? $path : '', $directory, $absolutePaths);
-                $image = $this->image($field->image ?? new ImageSpec(), $real);
+                $real = $this->resolve(is_string($path) ? $path : '', $directory, $absolutePaths);
+                // Filesystem store: a valid committed file already at the field's stable path is adopted (re-encoded
+                // like an upload) instead of being overwritten by another file (audit JG-L5).
+                $source = $this->fileStore instanceof FilesystemSettingFileStore && !isset($stored[$name]) ? $this->fileStore->storedPath($section, $name) ?? $real : $real;
+                $image  = $this->image($field->image ?? new ImageSpec(), $source);
             } catch (SeedFileException $e) {
                 $errors[] = SeedFileException::line($key, $e->reason ?? SeedFileException::INVALID_VALUE);
 
@@ -480,11 +485,11 @@ final readonly class SeedFileSeeder
                 }
                 $row = new SettingValue($section, $name, $now);
                 if (is_array($value)) {
-                    [$image, $bytes, $path] = $value;
-                    $sha                    = $this->storeImage($section, $name, $image, $bytes, $path, $now);
-                    $rows[]                 = $row->storeValue(SettingField::IMAGE_REFERENCE_PREFIX . $sha, $now);
-                    $files[$name]           = ['old' => null, 'new' => $sha];
-                    $logged[]               = sprintf('%s=%s %s %dx%d %dB', $name, substr($sha, 0, 12), $image->original->mimeType, $image->original->width, $image->original->height, $image->original->byteSize());
+                    $image        = $value[0];
+                    $sha          = $this->storeImage($section, $name, $image, $now);
+                    $rows[]       = $row->storeValue(SettingField::IMAGE_REFERENCE_PREFIX . $sha, $now);
+                    $files[$name] = ['old' => null, 'new' => $sha];
+                    $logged[]     = sprintf('%s=%s %s %dx%d %dB', $name, substr($sha, 0, 12), $image->original->mimeType, $image->original->width, $image->original->height, $image->original->byteSize());
                 } else {
                     $rows[] = $row->storeValue($value, $now);
                 }
@@ -501,15 +506,11 @@ final readonly class SeedFileSeeder
     }
 
     /**
-     * Stores an image with the file store; with the filesystem store, a file already at the field's stable path is
-     * adopted in place. Returns the hash of the stored reference.
+     * Stores the processed image with the file store and returns the hash of the stored reference.
      */
-    private function storeImage(string $section, string $field, ProcessedImage $image, string $bytes, string $path, DateTimeImmutable $now): string
+    private function storeImage(string $section, string $field, ProcessedImage $image, DateTimeImmutable $now): string
     {
         $store = $this->fileStore ?? throw new LogicException('Instance settings image fields need a file store (SettingFileStoreInterface).');
-        if ($store instanceof FilesystemSettingFileStore && $store->originalPath($section, $field, (string) ImageProcessor::sniff($bytes)) === $path) {
-            return $store->adopt($section, $field, $bytes, $image);
-        }
         $store->save($section, $field, $image, $now);
 
         return $image->sha256();

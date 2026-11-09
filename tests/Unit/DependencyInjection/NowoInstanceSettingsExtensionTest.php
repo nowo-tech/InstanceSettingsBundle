@@ -10,6 +10,7 @@ use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
+use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
@@ -172,6 +173,8 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
 
         self::assertSame(FilesystemSettingFileStore::class, (string) $container->getAlias(SettingFileStoreInterface::class));
         self::assertSame('/srv/files', $container->getDefinition(FilesystemSettingFileStore::class)->getArgument(0));
+        self::assertTrue($container->getDefinition(FilesystemSettingFileStore::class)->hasTag('kernel.reset'));
+        self::assertTrue($container->getDefinition(FileStoreTransactionMiddleware::class)->hasTag('doctrine.middleware'));
         $seeder = $container->getDefinition(SeedFileSeeder::class);
         self::assertTrue($seeder->isPublic());
         self::assertSame(['/srv/app', '/srv/app/seed.yaml'], [$seeder->getArgument(3), $seeder->getArgument(4)]);

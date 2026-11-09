@@ -9,8 +9,10 @@ use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
+use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
+use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileException;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
@@ -42,7 +44,6 @@ use function is_dir;
 use function json_encode;
 use function mkdir;
 use function random_bytes;
-use function realpath;
 use function str_repeat;
 use function symlink;
 use function sys_get_temp_dir;
@@ -323,24 +324,40 @@ final class SeedFileSeederTest extends TestCase
         }
     }
 
-    public function testTheFilesystemStoreAdoptsACommittedFileInPlace(): void
+    public function testTheFilesystemStoreAdoptsACommittedFileReEncoded(): void
     {
         $files = $this->base . '/config/instance-files';
         $store = new FilesystemSettingFileStore($files);
-        $bytes = ImageFactory::png(512, 512, 33);
-        $this->write('config/instance-files/brand/app_icon.png', $bytes);
+        // A committed JPEG with EXIF / GPS and appended bytes: adopted re-encoded, never served raw (JG-L3).
+        $bytes = ImageFactory::jpegWithExif(1, 512, 512) . '<html><script>alert(1)</script>';
+        $this->write('config/instance-files/brand/app_icon.jpg', $bytes);
+        // A committed logo with no row yet: the seed points elsewhere, the committed file wins (JG-L5).
+        $committed = ImageFactory::png(240, 80, 5);
+        $this->write('config/instance-files/brand/logo_dark.png', $committed);
         $brand  = new BrandFixture(store: $store);
         $seeder = new SeedFileSeeder(new SettingsSectionRegistry($brand->sections()), $brand->repository, $brand->settings, $this->base, fileStore: $store, normalizer: new ValueNormalizer(Validation::createValidator()));
 
-        $report = $seeder->seed(['files' => ['brand' => ['app_icon' => 'instance-files/brand/app_icon.png', 'logo_light' => 'brand/logo-light.png']]], $this->base . '/config');
-        self::assertSame(['brand.app_icon', 'brand.logo_light'], $report->seeded);
-        self::assertSame($bytes, (string) file_get_contents($files . '/brand/app_icon.png'), 'adopted as committed');
+        $report = $seeder->seed(['files' => ['brand' => [
+            'app_icon'   => 'instance-files/brand/app_icon.jpg',
+            'logo_light' => 'brand/logo-light.png',
+            'logo_dark'  => 'brand/logo-light.png',
+        ]]], $this->base . '/config');
+        self::assertSame(['brand.app_icon', 'brand.logo_light', 'brand.logo_dark'], $report->seeded);
+
+        $adopted = (string) file_get_contents($files . '/brand/app_icon.jpg');
+        self::assertNotSame($bytes, $adopted);
+        self::assertStringNotContainsString('<script>', $adopted);
+        self::assertStringNotContainsString('GPSLatitude', $adopted);
         $icon = $brand->settings->getFile('brand.app_icon');
         self::assertNotNull($icon);
-        self::assertSame(hash('sha256', $bytes), $icon->sha256);
+        self::assertSame(hash('sha256', $adopted), $icon->sha256);
         self::assertSame([512, 192, 180], $icon->variants());
         self::assertFileExists($files . '/brand/logo_light.png', 'a seed image elsewhere is processed into the stable file');
-        self::assertSame((string) realpath($files . '/brand/logo_light.png'), $store->originalPath('brand', 'logo_light', 'image/png'));
+
+        $dark = $brand->settings->getFile('brand.logo_dark');
+        self::assertNotNull($dark);
+        self::assertSame(hash('sha256', (string) file_get_contents($files . '/brand/logo_dark.png')), $dark->sha256);
+        self::assertSame(hash('sha256', (new ImageProcessor())->process(new ImageSpec(), $committed)->original->bytes), $dark->sha256, 'the committed file, not the seed path');
     }
 
     /**

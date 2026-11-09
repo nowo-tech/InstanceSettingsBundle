@@ -715,6 +715,8 @@ GET and POST.
 - **Call it from the host route's controller**, or `forward()` to that controller. Do not embed it with Twig
   `{{ render(controller(...)) }}`: fragments are GET sub-requests, so the form's POST would be dropped silently (and a
   denial would render an empty fragment). `handle()` refuses a GET sub-request of a POST with a `LogicException`.
+  In production (`kernel.debug` false) that refusal is not shown: the fragment renders empty and the `LogicException`
+  is logged, so check the logs when an embedded form "does nothing" on submit.
 
 ### Overriding templates (REQ-TWIG-001)
 

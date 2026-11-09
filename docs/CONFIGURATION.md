@@ -233,22 +233,38 @@ config/instance-files/
 
 Behaviour:
 
-- **Uploads** (admin form, API, import) are checked and re-encoded by the usual pipeline, then written atomically
-  (temporary file in the same directory, `chmod` 0644 minus the umask, `rename()`): a reader or a concurrent save
-  never sees a half-written file. Replacing an image overwrites the stable file and removes the file of another
-  extension and the old variants; clearing a field deletes its file at once (there is no orphan retention with this
-  store, so `files.orphan_retention` does not apply).
-- **The file on disk is authoritative.** The setting row only says the field is set; the URL carries the first 12 hex
+- **Uploads** (admin form, API, import, seed) are checked and re-encoded by the usual pipeline, then written
+  atomically (temporary file in the same directory, `chmod` 0644 minus the umask, `rename()`): a reader or a
+  concurrent save never sees a half-written file. Replacing an image overwrites the stable file and removes the file of
+  another extension and the old variants; clearing a field deletes its file, whatever its hash (there is no orphan
+  retention with this store, so `files.orphan_retention` does not apply and e-mails already sent lose the old image).
+- **Transactional (audit JG-M1).** Inside a save, an import or a seed the new files are only staged (temporary files)
+  and clears are queued; renames and deletes happen after the **outermost** commit, and a rollback removes the staged
+  files. A DBAL middleware follows a transaction the host opens around a bundle call (`$em->wrapInTransaction(...)`):
+  the file changes wait for its real commit and are discarded when it rolls back. With several connections, a
+  rollback on any of them discards the pending file changes (the files then keep the previous image). A rename that
+  fails after the commit keeps the previous file (still served).
+- **The file on disk is authoritative.** The setting row says the field is set; the URL carries the first 12 hex
   characters of the current file's SHA-256 (cache busting: a logo replaced under the same name gets a new URL, the old
   URL answers 404, and the strong `ETag` is the hash). A `git pull` that changed a committed logo is served at once.
+  A file of a field **without a setting row** (committed, not seeded yet) is not served (404) until the field is set.
+  A file that changed between lookup and read answers 404, never an empty cached body.
+- **Metadata:** `<section>/.variants/<field>.meta` keeps the hash, type and dimensions of the original, trusted while
+  the file's size, mtime, ctime and inode match it; lookups and wrong-hash requests do not read and hash the file. The
+  bytes are still checked against the hash before they are served.
 - **Confinement:** the base is resolved with `realpath()`; section and `.variants` directories must be real
   directories (a symlink is refused), a target that is a symlink is refused, and a symlinked file is never served.
   A file that is not PNG / JPEG / WebP by its content, whose extension disagrees with its content, or larger than
   5 MiB is not served. A directory that cannot be created or written is a clear `RuntimeException`.
-- **`purge-files`** removes stale variants (of another hash, or of a field without a file) and leftover `.tmp-*`
-  files; it never deletes an original (a committed file of a field that is not seeded yet must survive).
-- Commit the originals and, if you like, `.variants/` (or add `*/.variants/` to `.gitignore`: variants are regenerated
-  when the image is saved or seeded).
+- **Not under the public web root:** the container refuses a `files.directory` under `%kernel.project_dir%/public` or
+  `brand.public_dir` (the web server would serve the images without the file route's access check and headers).
+- **Permissions:** files 0644 and directories 0755 minus the process umask, so non-public images are readable by
+  other local users of the host; use a umask of `027` (process supervisor / container entrypoint) on a shared host.
+- **`purge-files`** removes stale variants and metadata (of another hash, or of a field without a file) and `.tmp-*`
+  files older than one hour; it never deletes an original (a committed file of a field that is not seeded yet must
+  survive). Database blobs left in `instance_setting_file` from before a store switch are not purged by it.
+- Commit the originals and, if you like, `.variants/` (or add `*/.variants/` to `.gitignore`: variants and metadata
+  are regenerated when the image is saved or seeded).
 
 ## seed
 
@@ -285,9 +301,10 @@ Rules:
   symlink). The bytes go through the same checks as an upload (type from the content: PNG / JPEG / WebP only; the
   field's `maxBytes`, dimension limits, square rule, e.g. `app_icon` ≥ 512 px; animated WebP refused). **SVG is
   refused** (`svg_not_supported`: use PNG or WebP; owner decision spec 220). Images are stored by the configured
-  store: rows of `instance_setting_file` with the database store; with the [filesystem store](#filesystem-store) an
-  image that already sits at the field's stable path is **adopted in place** (validated, its variants generated, its
-  bytes kept as committed), any other path is re-encoded into the stable file.
+  store: rows of `instance_setting_file` with the database store. With the [filesystem store](#filesystem-store), a
+  valid image that already sits at the field's stable path (and has no row yet) is **adopted** whatever path the seed
+  gives: it is re-encoded like an upload (metadata and appended bytes dropped; the committed file may change once in
+  git), never overwritten by another file; otherwise the seed image is re-encoded into the stable file.
 - **Insert-only** in one transaction, each field re-checked there (an admin save that wins the race is kept). Audited
   like a save: one `Instance settings saved.` log line and one `SettingsChangedEvent` per section with origin `seed`
   and `fileChanges` (`old: null`, `new: <sha256>`), dispatched after the commit, then one summary line. Output, report

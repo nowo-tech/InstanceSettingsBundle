@@ -27,6 +27,7 @@ use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
+use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
@@ -72,6 +73,7 @@ use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Definition;
+use Symfony\Component\DependencyInjection\Exception\ParameterNotFoundException;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
 use Symfony\Component\DependencyInjection\Reference;
@@ -84,8 +86,10 @@ use function interface_exists;
 use function is_array;
 use function is_bool;
 use function is_string;
+use function realpath;
 use function rtrim;
 use function sprintf;
+use function str_replace;
 use function str_starts_with;
 
 /**
@@ -194,6 +198,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setParameter(BrandBridgePass::PARAMETER, $brandEnabled);
         $this->assertFilesMapped($container, $filesEnabled);
         $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed']);
+        if ($filesEnabled && $config['files']['store'] === 'filesystem') {
+            $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
+        }
         $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files']);
         $this->registerPortability($container, $portability, $filesEnabled);
         // The access checker / guard also serve kits (their own actions, CLI) when the admin UI is off.
@@ -463,7 +470,11 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         ]));
         if ($files['store'] === 'filesystem') {
             // 1.7 (owner decision D-20261109-03): stable files per field in files.directory, no database blob.
-            $container->setDefinition(FilesystemSettingFileStore::class, new Definition(FilesystemSettingFileStore::class, [$files['directory']]));
+            $container->setDefinition(FilesystemSettingFileStore::class, (new Definition(FilesystemSettingFileStore::class, [$files['directory']]))
+                ->addTag('kernel.reset', ['method' => 'reset']));
+            // Follows the real transactions (a host transaction around a bundle call) for the file changes (JG-M1).
+            $container->setDefinition(FileStoreTransactionMiddleware::class, (new Definition(FileStoreTransactionMiddleware::class, [new Reference(FilesystemSettingFileStore::class)]))
+                ->addTag('doctrine.middleware'));
             $container->setAlias(SettingFileStoreInterface::class, FilesystemSettingFileStore::class);
         } else {
             $container->setAlias(SettingFileStoreInterface::class, DoctrineSettingFileStore::class);
@@ -475,6 +486,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(SettingsSectionRegistry::class),
             new Reference(SettingFileStoreInterface::class),
             new Reference(AccessGuard::class),
+            new Reference(InstanceSettingsInterface::class),
         ]))->setPublic(true)->addTag('controller.service_arguments'));
 
         $container->setDefinition(PurgeFilesCommand::class, (new Definition(PurgeFilesCommand::class, [
@@ -671,6 +683,33 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $areas = array_keys($security['area_roles']);
         if ($areas !== [] && !in_array(InstanceSettingsAccessCheckerInterface::AREA_PORTABILITY, $areas, true)) {
             throw new InvalidConfigurationException('nowo_instance_settings.security.area_roles restricts sections but has no "_portability" entry: set security.area_roles._portability explicitly (the roles allowed to open the import / export page, including sealed secrets of the sections they may open), or set portability.web_ui: false.');
+        }
+    }
+
+    /**
+     * 1.7 (audit JG-L4): the filesystem store's directory must not be under the public web root
+     * (`%kernel.project_dir%/public`, or `brand.public_dir`): the web server would serve the files directly, without
+     * the file route's access check and headers.
+     */
+    private function assertFilesDirectoryNotPublic(ContainerBuilder $container, string $directory, string $publicDir): void
+    {
+        $bag  = $container->getParameterBag();
+        $path = static function (string $value) use ($bag): string {
+            $value = (string) $bag->resolveValue($value);
+
+            return rtrim(str_replace('\\', '/', realpath($value) ?: $value), '/') . '/';
+        };
+        try {
+            $dir   = $path($directory);
+            $roots = [$path('%kernel.project_dir%/public'), $path($publicDir)];
+        } catch (ParameterNotFoundException) {
+            // Built outside a kernel (no kernel.project_dir): nothing to compare with.
+            return;
+        }
+        foreach ($roots as $root) {
+            if (str_starts_with($dir, $root)) {
+                throw new LogicException(sprintf('NowoInstanceSettingsBundle: files.directory "%s" is under the public web root "%s": the web server would serve the images without the file route\'s access check and headers. Use a directory outside it, e.g. "%%kernel.project_dir%%/config/instance-files".', $dir, $root));
+            }
         }
     }
 

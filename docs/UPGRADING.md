@@ -46,11 +46,17 @@ services, schema and behaviour are unchanged (the database file store is byte fo
            directory: '%kernel.project_dir%/config/instance-files'
    ```
 
-   Images already stored in `instance_setting_file` are **not** moved: re-upload them (or export with files and
-   import), or clear the fields and run the seed. In production mount `files.directory` as a persistent, writable
-   volume (not under the public web root). Note the differences: no orphan retention (a replaced or cleared image is
-   deleted at once) and the file on disk is authoritative.
-3. **`ImageUpload::fromPath()`** now refuses `scheme://` and `data:` paths (`upload_failed`). Only code that passed a
+   Images already stored in `instance_setting_file` are **not** moved. Before switching, export with files
+   (`nowo:instance-settings:export --include-files` or the admin page); after switching, import that file, re-upload the
+   images, or clear the fields and run the seed. An image of the same hash as the stored reference is written again
+   when the new store does not hold it (audit JG-M2). The old blobs stay in `instance_setting_file` (`purge-files` of the
+   filesystem store does not remove them). In production mount `files.directory` as a persistent, writable volume
+   outside the public web root (the container refuses a directory under `public/` or `brand.public_dir`). Note the
+   differences: no orphan retention (a replaced or cleared image is deleted at once), the file on disk is
+   authoritative, and a file without a setting row is not served.
+3. **Committed images are re-encoded when seeded** with the filesystem store (as uploads are): the committed file at
+   the field's stable path may change once in git (EXIF / appended bytes dropped).
+4. **`ImageUpload::fromPath()`** now refuses `scheme://` and `data:` paths (`upload_failed`). Only code that passed a
    stream wrapper path on purpose is affected.
 
 ## To 1.6.0

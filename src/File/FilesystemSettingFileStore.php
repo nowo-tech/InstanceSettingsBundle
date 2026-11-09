@@ -5,25 +5,35 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\File;
 
 use DateTimeImmutable;
+use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use RuntimeException;
+use Symfony\Contracts\Service\ResetInterface;
+use Throwable;
 
 use function array_diff;
+use function array_pop;
 use function array_values;
 use function chmod;
 use function count;
 use function dirname;
 use function file_get_contents;
 use function file_put_contents;
+use function filemtime;
 use function filesize;
 use function getimagesize;
 use function getimagesizefromstring;
 use function hash;
 use function hash_file;
+use function is_array;
 use function is_dir;
 use function is_file;
+use function is_int;
 use function is_link;
 use function is_string;
+use function json_decode;
+use function json_encode;
+use function max;
 use function mkdir;
 use function preg_match;
 use function realpath;
@@ -31,10 +41,12 @@ use function rename;
 use function rsort;
 use function scandir;
 use function sprintf;
+use function stat;
 use function str_starts_with;
 use function strlen;
 use function substr;
 use function tempnam;
+use function time;
 use function umask;
 use function unlink;
 
@@ -50,28 +62,35 @@ use const DIRECTORY_SEPARATOR;
  *
  * - `<directory>/<section>/<field>.<png|jpg|webp>`: the original (extension from the sniffed type);
  * - `<directory>/<section>/.variants/<field>-<hash12>-<size>.png`: the generated PNG variants, bound to the hash of the
- *   original they were made from (a stale variant is never served for a newer original).
+ *   original they were made from (a stale variant is never served for a newer original);
+ * - `<directory>/<section>/.variants/<field>.meta`: hash, type and dimensions of the original, trusted while its size,
+ *   mtime, ctime and inode match, so a lookup (or a wrong-hash request) does not read and hash the file (audit JG-L1).
+ *
+ * **Transactional** ({@see StagedSettingFileStoreInterface}, audit JG-M1): inside a unit, a save writes its files as
+ * temporary files next to their targets and a clear is only queued; the renames and deletes happen once the outermost
+ * unit committed, and a rolled-back unit removes its temporary files. A rename that fails after the commit leaves the
+ * previous file in place (still served) and nothing is removed for it.
  *
  * Semantics that differ from {@see DoctrineSettingFileStore}:
  *
  * - **The file on disk is authoritative.** The setting row only says that the field is set; {@see self::findImage()}
  *   answers the field's current file whatever hash the row holds (a `git pull` that changed a committed logo is served
- *   at once, under a new hash-bearing URL, so the immutable HTTP cache never serves a stale logo).
- *   {@see self::find()} (the file route) still requires the URL hash prefix to match the current file.
- * - **No orphan retention:** replacing an image overwrites the stable file (and removes the file of another extension
- *   and the old variants); clearing a field deletes its file at once ({@see self::orphan()}). {@see self::purge()} only
- *   removes stale variants and leftover temporary files, never an original (a committed file of a field that is not
- *   seeded yet must survive).
+ *   at once, under a new hash-bearing URL). {@see self::find()} still requires the URL hash prefix to match.
+ * - **No orphan retention:** a replaced image is overwritten (the file of another extension and the old variants are
+ *   removed); a cleared field's file is deleted, whatever its hash. {@see self::purge()} only removes stale variants,
+ *   stale metadata and temporary files older than {@see self::TEMP_MAX_AGE}; never an original.
  *
  * Writes are confined to the directory: the base is resolved with `realpath()`, the section and variants directories
  * must be real directories (never symlinks), a target that is a symlink is refused, and each file is written to a
- * temporary file in the same directory, `chmod`ed to 0644 (minus the umask) and `rename()`d into place, so a reader or
- * a concurrent save never sees a half-written file. Directories are created 0755 (minus the umask). The directory does
- * not need to be under the public web root: the files are served by the file route only.
+ * temporary file in the same directory (0644 minus the umask) and `rename()`d into place. Directories are created 0755
+ * minus the umask. The directory must not be under the public web root (the container refuses it).
  *
- * Stateless (worker-safe): nothing is kept between calls; the hash of the current file is computed per lookup.
+ * A transaction the host opens around a bundle call is followed through {@see FileStoreTransactionMiddleware}:
+ * the changes the bundle committed inside it wait for its real commit, and its rollback discards them.
+ *
+ * Holds the staged changes of the open units and transactions only; {@see self::reset()} discards them (worker-safe).
  */
-final readonly class FilesystemSettingFileStore implements SettingFileStoreInterface
+final class FilesystemSettingFileStore implements StagedSettingFileStoreInterface, ResetInterface
 {
     /** Sub-directory of the variants inside a section directory. */
     public const VARIANTS_DIR = '.variants';
@@ -79,32 +98,52 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
     /** Prefix of the temporary files (same directory as the target, renamed into place). */
     public const TEMP_PREFIX = '.tmp-';
 
+    /** Age (seconds) after which {@see self::purge()} removes a leftover temporary file. */
+    public const TEMP_MAX_AGE = 3600;
+
     /** Section and field names accepted in a path (the registry pattern, checked again here). */
-    private const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
+    private const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
 
     /** Variant file name: `<field>-<hash12>-<size>.png`. */
-    private const VARIANT_PATTERN = '/^([a-z][a-z0-9_]{0,63})-([0-9a-f]{12})-([1-9][0-9]{0,3})\.png$/';
+    private const VARIANT_PATTERN = '/^([a-z][a-z0-9_]{0,63})-([0-9a-f]{12})-([1-9][0-9]{0,3})\.png$/D';
+
+    /** Metadata file name: `<field>.meta`. */
+    private const META_PATTERN = '/^([a-z][a-z0-9_]{0,63})\.meta$/D';
+
+    /**
+     * Staged operations of each open unit: `[write, temp, target]`, `[meta, section, field, target, sha, image]`,
+     * `[clean, section, field, kept target|null, kept sha|null]`.
+     *
+     * @var list<list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>>
+     */
+    private array $units = [];
+
+    /** Real database transactions in progress (reported by the DBAL middleware). */
+    private int $transactions = 0;
+
+    /**
+     * Operations committed by the bundle while a database transaction (the host's) is still open: applied when it
+     * commits, discarded when it rolls back.
+     *
+     * @var list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>
+     */
+    private array $deferred = [];
 
     /**
      * @param string $directory base directory of the files (`files.directory`); created on the first write
      */
     public function __construct(
-        private string $directory,
+        private readonly string $directory,
     ) {
     }
 
     /**
-     * Path the original of a field is stored at for a type, whether or not it exists; null for a name outside the
-     * allowlist or an unknown type. The seeder compares it with a seed image path to adopt a committed file in place.
+     * Path of the field's current original when it is a valid image, else null. The seeder adopts it instead of
+     * overwriting a committed file that no row references yet (audit JG-L5).
      */
-    public function originalPath(string $section, string $field, string $mimeType): ?string
+    public function storedPath(string $section, string $field): ?string
     {
-        $extension = SettingFileUrls::EXTENSIONS[$mimeType] ?? null;
-        if ($extension === null || !$this->validNames($section, $field)) {
-            return null;
-        }
-
-        return $this->root() . DIRECTORY_SEPARATOR . $section . DIRECTORY_SEPARATOR . $field . '.' . $extension;
+        return $this->current($section, $field) instanceof SettingFileRecord ? ($this->existingOriginal($section, $field)[0] ?? null) : null;
     }
 
     /**
@@ -112,7 +151,7 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
      */
     public function find(string $section, string $field, string $hashPrefix, int $variant): ?SettingFileRecord
     {
-        $original = preg_match('/^[0-9a-f]{12,64}$/', $hashPrefix) === 1 ? $this->current($section, $field) : null;
+        $original = preg_match('/^[0-9a-f]{12,64}$/D', $hashPrefix) === 1 ? $this->current($section, $field) : null;
         if (!$original instanceof SettingFileRecord || !str_starts_with($original->sha256, $hashPrefix)) {
             return null;
         }
@@ -142,7 +181,7 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
     }
 
     /**
-     * Bytes of a record ('' when the file changed or disappeared meanwhile).
+     * Bytes of a record ('' when the file changed or disappeared meanwhile: the file route then answers 404).
      */
     public function read(SettingFileRecord $record): string
     {
@@ -153,41 +192,94 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
     }
 
     /**
-     * Writes the original to the field's stable file and its variants, then removes the field's file of another
-     * extension and the variants of another hash.
+     * Stages (inside a unit) or writes the field's stable file, its variants and its metadata; the field's file of
+     * another extension and the variants of another hash are removed once the new file is in place.
      *
      * @throws RuntimeException when a directory cannot be created or written, or a target is a symlink
      */
     public function save(string $section, string $field, ProcessedImage $image, DateTimeImmutable $at): void
     {
-        $this->store($section, $field, $image->original->bytes, $image->original->mimeType, $image);
+        $this->queue($this->stage($section, $field, $image));
     }
 
     /**
-     * Adopts a file that already sits at the field's stable path (a committed file the seed points at): keeps its
-     * bytes as they are, writes the variants made from `$image` (its processed form) and returns the SHA-256 of the
-     * file. `$bytes` must be the content of that file, already checked by {@see ImageProcessor::process()}.
-     *
-     * @throws RuntimeException when a directory cannot be written, or a target is a symlink
-     */
-    public function adopt(string $section, string $field, string $bytes, ProcessedImage $image): string
-    {
-        $this->store($section, $field, $bytes, ImageProcessor::sniff($bytes) ?? $image->original->mimeType, $image);
-
-        return hash('sha256', $bytes);
-    }
-
-    /**
-     * Deletes the field's file (and its variants) when it still holds the image `$sha256`: clearing a field removes
-     * its file at once, a newer image saved meanwhile is kept.
+     * Clears the field's file (and variants): queued inside a unit (whatever its hash, unless the same unit saves a
+     * new image for the field); outside a unit, deleted at once when it still holds the image `$sha256`.
      */
     public function orphan(string $section, string $field, string $sha256, DateTimeImmutable $at): void
     {
-        if ($this->current($section, $field)?->sha256 !== $sha256) {
+        $clear = [['clean', $section, $field, null, null]];
+        if ($this->units === []) {
+            $this->queue($this->current($section, $field)?->sha256 === $sha256 ? $clear : []);
+
             return;
         }
-        @unlink($this->existingOriginal($section, $field)[0] ?? '');
-        $this->removeVariants($section, $field, null);
+        foreach ([...$this->units, $this->deferred] as $unit) {
+            foreach ($unit as $operation) {
+                if ($operation[0] === 'clean' && $operation[1] === $section && $operation[2] === $field && $operation[3] !== null) {
+                    return;
+                }
+            }
+        }
+        $this->queue($clear);
+    }
+
+    /**
+     * Opens a (nested) unit.
+     */
+    public function begin(): void
+    {
+        $this->units[] = [];
+    }
+
+    /**
+     * Ends the innermost unit: applies its changes when it was the outermost one and committed, hands them to the
+     * outer unit when nested, removes its temporary files when rolled back.
+     */
+    public function end(bool $committed): void
+    {
+        $operations = array_pop($this->units) ?? [];
+        if (!$committed) {
+            $this->discard($operations);
+        } else {
+            $this->queue($operations);
+        }
+    }
+
+    /**
+     * Discards the staged changes of every open unit (kernel.reset: a worker request that died mid-transaction).
+     */
+    public function reset(): void
+    {
+        foreach ([...$this->units, $this->deferred] as $operations) {
+            $this->discard($operations);
+        }
+        $this->units        = [];
+        $this->deferred     = [];
+        $this->transactions = 0;
+    }
+
+    /**
+     * A real database transaction started (DBAL middleware).
+     */
+    public function transactionStarted(): void
+    {
+        ++$this->transactions;
+    }
+
+    /**
+     * A real database transaction ended: once none is left after a commit, the deferred changes are applied; a
+     * rollback discards them.
+     */
+    public function transactionEnded(bool $committed): void
+    {
+        $this->transactions = max(0, $this->transactions - 1);
+        if ($committed && $this->transactions > 0) {
+            return;
+        }
+        $operations     = $this->deferred;
+        $this->deferred = [];
+        $committed ? $this->apply($operations) : $this->discard($operations);
     }
 
     /**
@@ -199,8 +291,8 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
     }
 
     /**
-     * Deletes the stale variants (of another hash than the field's current file, or of a field without a file) and
-     * leftover temporary files; never an original. Returns the number of files concerned.
+     * Deletes the stale variants and metadata (of another hash than the field's current file, or of a field without a
+     * file) and temporary files older than {@see self::TEMP_MAX_AGE}; never an original. Returns the number of files.
      */
     public function purge(DateTimeImmutable $orphanedBefore, callable $referenced, bool $dryRun = false): int
     {
@@ -214,8 +306,9 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
             }
             foreach ([$directory, $variants] as $level) {
                 foreach ($this->isRealDirectory($level) ? $this->entries($level) : [] as $name) {
-                    if (str_starts_with($name, self::TEMP_PREFIX) || ($level === $variants && $this->isStaleVariant($section, $name))) {
-                        $stale[] = $level . DIRECTORY_SEPARATOR . $name;
+                    $path = $level . DIRECTORY_SEPARATOR . $name;
+                    if ((str_starts_with($name, self::TEMP_PREFIX) && (int) @filemtime($path) < time() - self::TEMP_MAX_AGE) || ($level === $variants && $this->isStale($section, $name))) {
+                        $stale[] = $path;
                     }
                 }
             }
@@ -228,50 +321,163 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
     }
 
     /**
-     * Writes the original bytes (unless the stable file already holds them) and the variants, then removes the
-     * other-extension original and the variants of another hash.
+     * Writes the temporary files of a save and returns its operations (renames, metadata, clean-up).
+     *
+     * @return list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>
      */
-    private function store(string $section, string $field, string $bytes, string $mimeType, ProcessedImage $image): void
+    private function stage(string $section, string $field, ProcessedImage $image): array
     {
-        $extension = SettingFileUrls::EXTENSIONS[$mimeType] ?? null;
+        $original  = $image->original;
+        $extension = SettingFileUrls::EXTENSIONS[$original->mimeType] ?? null;
         if ($extension === null || !$this->validNames($section, $field)) {
             throw new RuntimeException(sprintf('Instance settings file store: invalid section / field name or type for "%s.%s".', $section, $field));
         }
-        $directory = $this->directory($section);
-        $target    = $directory . DIRECTORY_SEPARATOR . $field . '.' . $extension;
-        $sha       = hash('sha256', $bytes);
-        $this->write($directory, $target, $bytes, is_file($target) && !is_link($target) && hash_file('sha256', $target) === $sha);
-        foreach (SettingFileUrls::EXTENSIONS as $other) {
-            $other = $directory . DIRECTORY_SEPARATOR . $field . '.' . $other;
-            if ($other !== $target && (is_file($other) || is_link($other))) {
-                @unlink($other);
+        $sha        = $original->sha256();
+        $operations = [];
+        try {
+            $directory = $this->directory($section);
+            $target    = $directory . DIRECTORY_SEPARATOR . $field . '.' . $extension;
+            if (!is_file($target) || is_link($target) || hash_file('sha256', $target) !== $sha) {
+                $operations[] = ['write', $this->temp($directory, $target, $original->bytes), $target, null, null];
             }
+            $variants = $this->directory($section, self::VARIANTS_DIR);
+            foreach ($image->variants as $size => $encoded) {
+                $path         = $variants . DIRECTORY_SEPARATOR . sprintf('%s-%s-%d.png', $field, substr($sha, 0, SettingFileUrls::HASH_LENGTH), $size);
+                $operations[] = ['write', $this->temp($variants, $path, $encoded->bytes), $path, null, null];
+            }
+        } catch (Throwable $e) {
+            $this->discard($operations);
+
+            throw $e;
         }
-        $variants = $image->variants === [] ? null : $this->directory($section, self::VARIANTS_DIR);
-        foreach ($image->variants as $size => $encoded) {
-            $this->write((string) $variants, $variants . DIRECTORY_SEPARATOR . sprintf('%s-%s-%d.png', $field, substr($sha, 0, SettingFileUrls::HASH_LENGTH), $size), $encoded->bytes);
-        }
-        $this->removeVariants($section, $field, $sha);
+        $operations[] = ['meta', $section, $field, $target, $sha, ['mime' => $original->mimeType, 'width' => $original->width, 'height' => $original->height]];
+        $operations[] = ['clean', $section, $field, $target, $sha];
+
+        return $operations;
     }
 
     /**
-     * Atomic write: a temporary file in the same directory, chmod 0644 minus the umask, then rename over the target.
+     * Applies the operations now (no unit open) or stages them in the innermost unit.
+     *
+     * @param list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}> $operations
      */
-    private function write(string $directory, string $target, string $bytes, bool $unchanged = false): void
+    private function queue(array $operations): void
+    {
+        if ($this->units === [] && $this->transactions > 0) {
+            $this->deferred = [...$this->deferred, ...$operations];
+
+            return;
+        }
+        if ($this->units === []) {
+            $this->apply($operations);
+
+            return;
+        }
+        $last               = count($this->units) - 1;
+        $this->units[$last] = [...$this->units[$last], ...$operations];
+    }
+
+    /**
+     * Renames the staged files into place, writes the metadata and removes what a new file replaces (only once that
+     * file is in place) or what a clear removes.
+     *
+     * @param list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}> $operations
+     */
+    private function apply(array $operations): void
+    {
+        foreach ($operations as $operation) {
+            [$kind, $a, $b, $target, $sha] = $operation;
+            if ($kind === 'write') {
+                // A target turned into a symlink meanwhile is never written through; a failed rename keeps the old file.
+                if (is_link($b) || !@rename($a, $b)) {
+                    @unlink($a);
+                }
+
+                continue;
+            }
+            $placed = $target !== null && is_file($target) && !is_link($target) && hash_file('sha256', $target) === $sha;
+            if ($kind === 'meta' && $placed) {
+                $this->writeMeta($b, (string) $target, (string) $sha, $operation[5] ?? []);
+            } elseif ($kind === 'clean' && ($target === null || $placed)) {
+                $this->removeField($a, $b, $target, $sha);
+            }
+        }
+    }
+
+    /**
+     * Removes the temporary files of discarded operations.
+     *
+     * @param list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}> $operations
+     */
+    private function discard(array $operations): void
+    {
+        foreach ($operations as $operation) {
+            if ($operation[0] === 'write') {
+                @unlink($operation[1]);
+            }
+        }
+    }
+
+    /**
+     * Removes the field's originals (except `$keep`), its variants (except those of `$keepSha`) and, on a clear, its
+     * metadata.
+     */
+    private function removeField(string $section, string $field, ?string $keep, ?string $keepSha): void
+    {
+        $directory = $this->root() . DIRECTORY_SEPARATOR . $section;
+        foreach (SettingFileUrls::EXTENSIONS as $extension) {
+            $path = $directory . DIRECTORY_SEPARATOR . $field . '.' . $extension;
+            if ($path !== $keep && (is_file($path) || is_link($path))) {
+                @unlink($path);
+            }
+        }
+        foreach ($this->variantNames($section) as $name) {
+            $own = preg_match(self::VARIANT_PATTERN, $name, $match) === 1 && $match[1] === $field && ($keepSha === null || !str_starts_with($keepSha, $match[2]));
+            if ($own || ($keepSha === null && $name === $field . '.meta')) {
+                @unlink($directory . DIRECTORY_SEPARATOR . self::VARIANTS_DIR . DIRECTORY_SEPARATOR . $name);
+            }
+        }
+    }
+
+    /**
+     * A temporary file holding `$bytes` in `$directory` (0644 minus the umask); refused for a symlinked or directory
+     * target, or when the directory is not writable.
+     */
+    private function temp(string $directory, string $target, string $bytes): string
     {
         if (is_link($target)) {
             throw new RuntimeException(sprintf('Instance settings file store: refusing to write through the symlink "%s".', $target));
         }
-        if ($unchanged) {
-            return;
-        }
         $temp = @tempnam($directory, self::TEMP_PREFIX);
         // tempnam() falls back to the system temp directory when $directory is not writable: refuse that too.
-        $ok = is_string($temp) && dirname((string) realpath($temp)) === $directory && @file_put_contents($temp, $bytes) === strlen($bytes) && @chmod($temp, 0o644 & ~umask()) && @rename($temp, $target);
+        $ok = is_string($temp) && dirname((string) realpath($temp)) === $directory && @file_put_contents($temp, $bytes) === strlen($bytes) && @chmod($temp, 0o644 & ~umask()) && !is_dir($target);
         if (!$ok) {
             @unlink((string) $temp);
 
             throw new RuntimeException(sprintf('Instance settings file store: could not write "%s" (is the directory writable?).', $target));
+        }
+
+        return $temp;
+    }
+
+    /**
+     * Writes the metadata of a stable file that is in place (its stat binds the metadata to that exact file). A
+     * failure is ignored: without metadata the file is read and hashed on lookup.
+     *
+     * @param array<string, int|string> $image
+     */
+    private function writeMeta(string $field, string $target, string $sha, array $image): void
+    {
+        $stat = (array) @stat($target);
+        $meta = (string) json_encode(['sha256' => $sha] + $image + ['size' => $stat['size'] ?? 0, 'mtime' => $stat['mtime'] ?? 0, 'ctime' => $stat['ctime'] ?? 0, 'ino' => $stat['ino'] ?? 0]);
+        $path = dirname($target) . DIRECTORY_SEPARATOR . self::VARIANTS_DIR . DIRECTORY_SEPARATOR . $field . '.meta';
+        try {
+            $temp = $this->temp(dirname($path), $path, $meta);
+            if (!@rename($temp, $path)) {
+                @unlink($temp);
+            }
+        } catch (RuntimeException) {
+            // Metadata is an optimisation only.
         }
     }
 
@@ -298,19 +504,46 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
 
     /**
      * Metadata of the field's current original, or null (no file, a symlink, too large, not a PNG / JPEG / WebP by its
-     * content, or a content type that disagrees with the extension).
+     * content, or a content type that disagrees with the extension). Uses the metadata file while it matches the file.
      */
     private function current(string $section, string $field): ?SettingFileRecord
     {
         [$path, $extension] = $this->existingOriginal($section, $field) ?? [null, null];
-        $bytes              = $path === null ? null : $this->readCapped($path);
-        $mime               = $bytes === null ? null : ImageProcessor::sniff($bytes);
-        $info               = $mime === null || SettingFileUrls::EXTENSIONS[$mime] !== $extension ? false : @getimagesizefromstring((string) $bytes);
+        $meta               = $path === null ? null : $this->meta($section, $field, $path, (string) $extension);
+        if ($meta !== null) {
+            return new SettingFileRecord(0, $section, $field, (string) $meta['sha256'], 0, (string) $meta['mime'], (int) $meta['width'], (int) $meta['height'], (int) $meta['size']);
+        }
+        $bytes = $path === null ? null : $this->readCapped($path);
+        $mime  = $bytes === null ? null : ImageProcessor::sniff($bytes);
+        $info  = $mime === null || SettingFileUrls::EXTENSIONS[$mime] !== $extension ? false : @getimagesizefromstring((string) $bytes);
         if ($info === false) {
             return null;
         }
 
         return new SettingFileRecord(0, $section, $field, hash('sha256', (string) $bytes), 0, (string) $mime, $info[0], $info[1], strlen((string) $bytes));
+    }
+
+    /**
+     * The field's metadata when it describes exactly the file at `$path` (same size, mtime, ctime and inode; a type of
+     * that extension), else null.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function meta(string $section, string $field, string $path, string $extension): ?array
+    {
+        $file = $this->root() . DIRECTORY_SEPARATOR . $section . DIRECTORY_SEPARATOR . self::VARIANTS_DIR . DIRECTORY_SEPARATOR . $field . '.meta';
+        $meta = is_file($file) && !is_link($file) ? json_decode((string) @file_get_contents($file, false, null, 0, 4096), true) : null;
+        $stat = @stat($path);
+        if (!is_array($meta) || !is_array($stat) || !is_string($meta['sha256'] ?? null) || preg_match('/^[0-9a-f]{64}$/D', $meta['sha256']) !== 1 || !is_string($meta['mime'] ?? null) || (SettingFileUrls::EXTENSIONS[$meta['mime']] ?? null) !== $extension) {
+            return null;
+        }
+        foreach (['width' => null, 'height' => null, 'size' => $stat['size'], 'mtime' => $stat['mtime'], 'ctime' => $stat['ctime'], 'ino' => $stat['ino']] as $key => $expected) {
+            if (!is_int($meta[$key] ?? null) || ($expected !== null && $expected !== $meta[$key])) {
+                return null;
+            }
+        }
+
+        return $meta;
     }
 
     /**
@@ -369,28 +602,16 @@ final readonly class FilesystemSettingFileStore implements SettingFileStoreInter
     }
 
     /**
-     * Removes the field's variants, except those of `$keepSha` (null = all).
-     */
-    private function removeVariants(string $section, string $field, ?string $keepSha): void
-    {
-        foreach ($this->variantNames($section) as $name) {
-            if (preg_match(self::VARIANT_PATTERN, $name, $match) === 1 && $match[1] === $field && ($keepSha === null || !str_starts_with($keepSha, $match[2]))) {
-                @unlink($this->root() . DIRECTORY_SEPARATOR . $section . DIRECTORY_SEPARATOR . self::VARIANTS_DIR . DIRECTORY_SEPARATOR . $name);
-            }
-        }
-    }
-
-    /**
      * Whether a file of a variants directory is a variant of another hash than its field's current file (or of a
-     * field without a file); names that are not variants are left alone.
+     * field without a file), or the metadata of a field without a file; other names are left alone.
      */
-    private function isStaleVariant(string $section, string $name): bool
+    private function isStale(string $section, string $name): bool
     {
-        if (preg_match(self::VARIANT_PATTERN, $name, $match) !== 1) {
-            return false;
+        if (preg_match(self::VARIANT_PATTERN, $name, $match) === 1) {
+            return !str_starts_with($this->current($section, $match[1])->sha256 ?? '', $match[2]);
         }
 
-        return !str_starts_with($this->current($section, $match[1])->sha256 ?? '', $match[2]);
+        return preg_match(self::META_PATTERN, $name, $match) === 1 && $this->existingOriginal($section, $match[1]) === null;
     }
 
     /**
