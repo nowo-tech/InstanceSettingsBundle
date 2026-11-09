@@ -21,6 +21,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- USAGE: new section "Using it from a DDD / hexagonal application" (where the bundle sits in a hexagonal host, the ports, events and DTOs to build an anti-corruption layer on, and the known limitations).
+
 ## [1.8.0] - 2026-11-09
 
 Target 1.8.0: an opt-in crop step on image setting fields (owner decision D-20261109-09, host Symfony Beacon), on
