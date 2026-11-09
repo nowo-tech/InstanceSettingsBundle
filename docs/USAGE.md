@@ -316,7 +316,7 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 ## Image fields
 
 Since 1.4 a field can hold a raster image (logo, icon, mascot): `SettingField::image()`. Image fields are **opt-in**:
-set `nowo_instance_settings.files.enabled: true` (it maps the file table, see [UPGRADING](UPGRADING.md#unreleased) for
+set `nowo_instance_settings.files.enabled: true` (it maps the file table, see [UPGRADING](UPGRADING.md#to-160) for
 the migration). Without it a section that declares an image field fails when the section definitions load (router
 warm-up, first request), with a message naming the field.
 
@@ -750,7 +750,7 @@ The bundle maps one entity, two with `files.enabled: true` (the mappings are pre
 automatically):
 
 - `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`).
-- `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#unreleased) for the DDL.
+- `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#to-160) for the DDL.
 
 Create and apply the schema with Doctrine Migrations in the application:
 

@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.6.0] - 2026-11-09](#160---2026-11-09)
 - [[1.5.0] - 2026-11-09](#150---2026-11-09)
 - [[1.4.0] - 2026-11-08](#140---2026-11-08)
 - [[1.3.1] - 2026-11-02](#131---2026-11-02)
@@ -16,6 +17,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.6.0] - 2026-11-09
 
 Target 1.6.0. Two asks from Symfony Beacon's brand adoption (IS-1, IS-2). Both are opt-in: hosts that do not use the
 new service or option keep the 1.5 pages byte for byte. Audit: Appendix JE.
