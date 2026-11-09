@@ -7,10 +7,12 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\DependencyInjection;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
+use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
+use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\SettingFileController;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
@@ -24,6 +26,7 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
+use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -161,6 +164,24 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertSame('/media/settings', $container->getParameter('nowo_instance_settings.files.path_prefix'));
         self::assertSame('/media/settings', $container->getDefinition(InstanceSettingsRouteLoader::class)->getArgument(5));
         self::assertTrue($container->hasDefinition(SettingImageType::class));
+    }
+
+    public function testFilesystemStoreAndSeedServices(): void
+    {
+        $container = $this->load(['brand' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '/srv/files'], 'seed' => ['file' => '/srv/app/seed.yaml', 'base_dir' => '/srv/app']], withSecurity: true);
+
+        self::assertSame(FilesystemSettingFileStore::class, (string) $container->getAlias(SettingFileStoreInterface::class));
+        self::assertSame('/srv/files', $container->getDefinition(FilesystemSettingFileStore::class)->getArgument(0));
+        $seeder = $container->getDefinition(SeedFileSeeder::class);
+        self::assertTrue($seeder->isPublic());
+        self::assertSame(['/srv/app', '/srv/app/seed.yaml'], [$seeder->getArgument(3), $seeder->getArgument(4)]);
+        self::assertSame(SettingFileStoreInterface::class, (string) $seeder->getArgument(5));
+        self::assertTrue($container->getDefinition(SeedCommand::class)->hasTag('console.command'));
+
+        $off = $this->load([], withSecurity: true);
+        self::assertNull($off->getDefinition(SeedFileSeeder::class)->getArgument(5));
+        self::assertNull($off->getDefinition(SeedFileSeeder::class)->getArgument(4));
+        self::assertFalse($off->hasDefinition(FilesystemSettingFileStore::class));
     }
 
     public function testFilePrefixMustBeOutsideTheAdminPrefix(): void

@@ -11,7 +11,9 @@ use function fclose;
 use function fopen;
 use function is_file;
 use function is_readable;
+use function str_contains;
 use function stream_get_contents;
+use function stripos;
 use function strlen;
 
 /**
@@ -36,7 +38,8 @@ final readonly class ImageUpload
     }
 
     /**
-     * A file on disk (the client name and type are ignored).
+     * A local file on disk (the client name and type are ignored). A URL or stream wrapper path (`phar://`, `http://`,
+     * `data:` …) is refused when read (1.7): only plain local files are accepted.
      */
     public static function fromPath(string $path): self
     {
@@ -61,7 +64,7 @@ final readonly class ImageUpload
         if ($this->bytes !== null) {
             $bytes = $this->bytes;
         } else {
-            $handle = $this->path !== '' && is_file((string) $this->path) && is_readable((string) $this->path) ? fopen((string) $this->path, 'r') : false;
+            $handle = $this->path !== '' && !$this->isWrapper((string) $this->path) && is_file((string) $this->path) && is_readable((string) $this->path) ? fopen((string) $this->path, 'r') : false;
             if ($handle === false) {
                 throw new ImageRefusedException(ImageRefusedException::UPLOAD_FAILED);
             }
@@ -76,5 +79,13 @@ final readonly class ImageUpload
         }
 
         return $bytes;
+    }
+
+    /**
+     * Whether a path names a URL or stream wrapper instead of a local file.
+     */
+    private function isWrapper(string $path): bool
+    {
+        return str_contains($path, '://') || stripos($path, 'data:') === 0;
     }
 }

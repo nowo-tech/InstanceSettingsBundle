@@ -118,6 +118,9 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         $original = $records[0] ?? null;
         $file     = null;
         if ($original !== null) {
+            // The store's hash: the reference for the database store; the current file for the filesystem store (1.7),
+            // whose file on disk is authoritative.
+            $sha  = $original->sha256;
             $urls = [0 => $this->fileUrls->path($section, $name, $sha, $original->mimeType)];
             foreach ($field->image->variants as $size) {
                 if (isset($records[$size])) {

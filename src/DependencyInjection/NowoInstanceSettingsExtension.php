@@ -23,12 +23,14 @@ use Nowo\InstanceSettingsBundle\Brand\InstanceBrandProvider;
 use Nowo\InstanceSettingsBundle\Command\ExportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\ImportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
+use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
+use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\SettingFileController;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
@@ -53,6 +55,7 @@ use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
+use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Seed\TransactionStateGuard;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
@@ -155,7 +158,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -188,8 +191,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setParameter('nowo_instance_settings.files.enabled', $filesEnabled);
         $container->setParameter(BrandBridgePass::PARAMETER, $brandEnabled);
         $this->assertFilesMapped($container, $filesEnabled);
-        $this->registerStore($container, $config['doctrine'], $filesEnabled);
-        $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files']['orphan_retention']);
+        $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed']);
+        $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files']);
         $this->registerPortability($container, $portability, $filesEnabled);
         // The access checker / guard also serve kits (their own actions, CLI) when the admin UI is off.
         $this->registerAccess($container, $config['security']);
@@ -348,8 +351,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 
     /**
      * @param array{table_prefix: string, entity_manager: string|null} $doctrine
+     * @param array{file: string|null, base_dir: string} $seed
      */
-    private function registerStore(ContainerBuilder $container, array $doctrine, bool $filesEnabled): void
+    private function registerStore(ContainerBuilder $container, array $doctrine, bool $filesEnabled, array $seed): void
     {
         $container->setDefinition(SettingsSectionRegistry::class, new Definition(SettingsSectionRegistry::class, [
             new TaggedIteratorArgument(NowoInstanceSettingsBundle::SECTION_TAG),
@@ -405,6 +409,26 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(FallbackSeeder::class),
         ]))->addTag('console.command', ['command' => SeedFromFallbacksCommand::NAME]));
 
+        // 1.7 (IS-3): the host seed file. Public: host-side importers call seed() / seedImage().
+        $container->setDefinition(SeedFileSeeder::class, (new Definition(SeedFileSeeder::class, [
+            new Reference(SettingsSectionRegistry::class),
+            new Reference(SettingValueRepositoryInterface::class),
+            new Reference(InstanceSettingsInterface::class),
+            $seed['base_dir'],
+            $seed['file'],
+            $filesEnabled ? new Reference(SettingFileStoreInterface::class) : null,
+            new Reference(ImageProcessor::class),
+            new Reference(ValueNormalizer::class),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(TransactionStateGuard::class),
+            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->setPublic(true));
+
+        $container->setDefinition(SeedCommand::class, (new Definition(SeedCommand::class, [
+            new Reference(SeedFileSeeder::class),
+        ]))->addTag('console.command', ['command' => SeedCommand::NAME]));
+
         $container->setDefinition(InstanceSettingsTwigExtension::class, (new Definition(InstanceSettingsTwigExtension::class, [
             new Reference(InstanceSettingsInterface::class),
         ]))->addTag('twig.extension'));
@@ -417,9 +441,11 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      * image field, which needs the flag.
      *
      * @param array{table_prefix: string, entity_manager: string|null} $doctrine
+     * @param array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string} $files
      */
-    private function registerFiles(ContainerBuilder $container, array $doctrine, bool $enabled, int $retention): void
+    private function registerFiles(ContainerBuilder $container, array $doctrine, bool $enabled, array $files): void
     {
+        $retention = $files['orphan_retention'];
         $container->setDefinition(ImageProcessor::class, new Definition(ImageProcessor::class));
         $container->setDefinition(SettingFileUrls::class, new Definition(SettingFileUrls::class, [
             new Reference('router', ContainerInterface::NULL_ON_INVALID_REFERENCE),
@@ -432,7 +458,13 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('doctrine'),
             $doctrine['entity_manager'],
         ]));
-        $container->setAlias(SettingFileStoreInterface::class, DoctrineSettingFileStore::class);
+        if ($files['store'] === 'filesystem') {
+            // 1.7 (owner decision D-20261109-03): stable files per field in files.directory, no database blob.
+            $container->setDefinition(FilesystemSettingFileStore::class, new Definition(FilesystemSettingFileStore::class, [$files['directory']]));
+            $container->setAlias(SettingFileStoreInterface::class, FilesystemSettingFileStore::class);
+        } else {
+            $container->setAlias(SettingFileStoreInterface::class, DoctrineSettingFileStore::class);
+        }
 
         // Not autoconfigured and outside the Controller namespace: the admin access listener never guards it; the
         // controller itself checks the section area of non-public fields.
@@ -526,7 +558,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int}} $config
+     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string}} $config
      */
     private function registerWebUi(ContainerBuilder $container, array $config): void
     {

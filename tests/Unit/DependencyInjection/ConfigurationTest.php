@@ -20,12 +20,29 @@ final class ConfigurationTest extends TestCase
         self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'templates' => []], $config['web_ui']);
         self::assertSame(['access_roles' => ['ROLE_ADMIN'], 'area_roles' => [], 'access_checker' => null, 'allow_unauthenticated' => false], $config['security']);
         self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true, 'max_file_bytes' => 8_388_608], $config['portability']);
-        self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30], $config['files']);
+        self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files'], $config['files']);
+        self::assertSame(['file' => null, 'base_dir' => '%kernel.project_dir%'], $config['seed']);
+    }
+
+    public function testSeedAndFilesystemStoreConfiguration(): void
+    {
+        $config = $this->process(['files' => ['store' => 'filesystem', 'directory' => '/srv/brand'], 'seed' => ['file' => '/srv/app/config/seed.yaml', 'base_dir' => '/srv/app']]);
+        self::assertSame(['filesystem', '/srv/brand'], [$config['files']['store'], $config['files']['directory']]);
+        self::assertSame(['file' => '/srv/app/config/seed.yaml', 'base_dir' => '/srv/app'], $config['seed']);
+
+        foreach ([['files' => ['store' => 's3']], ['files' => ['directory' => ' ']], ['files' => ['directory' => 's3://bucket']], ['seed' => ['base_dir' => 'phar://x']], ['seed' => ['base_dir' => '']]] as $invalid) {
+            try {
+                $this->process($invalid);
+                self::fail('Expected InvalidConfigurationException');
+            } catch (InvalidConfigurationException) {
+                $this->addToAssertionCount(1);
+            }
+        }
     }
 
     public function testFilesConfiguration(): void
     {
-        self::assertSame(['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0], $this->process(['files' => ['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0]])['files']);
+        self::assertSame(['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files'], $this->process(['files' => ['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0]])['files']);
 
         foreach ([['path_prefix' => 'media'], ['path_prefix' => '/'], ['path_prefix' => '/a b'], ['path_prefix' => '/x?y'], ['orphan_retention' => -1], ['enabled' => 'yes']] as $files) {
             try {
