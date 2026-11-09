@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.7.1] - 2026-11-09](#171---2026-11-09)
 - [[1.7.0] - 2026-11-09](#170---2026-11-09)
 - [[1.6.0] - 2026-11-09](#160---2026-11-09)
 - [[1.5.0] - 2026-11-09](#150---2026-11-09)
@@ -18,6 +19,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.7.1] - 2026-11-09
 
 Target 1.7.1: a patch for hosts adopting 1.7.0 with `files.store: filesystem` (reported by Symfony Beacon). The
 database store and the admin upload pipeline are unchanged.
