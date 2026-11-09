@@ -9,16 +9,22 @@ use function array_unshift;
 use function explode;
 use function getcwd;
 use function implode;
+use function preg_match;
 use function realpath;
 use function rtrim;
+use function str_contains;
 use function str_replace;
 use function str_starts_with;
+use function trim;
 
 /**
  * Where a path really points, also before it exists (1.7, audit JG-L6): the path is normalised lexically (`//`, `.`,
  * `..`), its nearest existing ancestor is resolved with `realpath()` (symlinks followed) and the missing rest is
  * appended. Used to refuse a filesystem store directory under the public web root, at container build and again before
  * the store creates it. Stateless.
+ *
+ * 1.7.1: also the "local directory path" rule of `files.directory` and `seed.base_dir`, applied by the container to a
+ * literal value and at run time to an `%env(...)%` value (whose real value the container cannot see).
  */
 final class PathGuard
 {
@@ -52,5 +58,23 @@ final class PathGuard
     public static function isUnder(string $path, string $root): bool
     {
         return str_starts_with(self::resolve($path), self::resolve($root));
+    }
+
+    /**
+     * Whether `$path` can be a local directory path: not blank, no NUL byte, no URL or stream wrapper (`://`). A blank
+     * value matters most: `realpath('')` is the current directory.
+     */
+    public static function isLocalPath(string $path): bool
+    {
+        return trim($path) !== '' && !str_contains($path, "\0") && !str_contains($path, '://');
+    }
+
+    /**
+     * Whether `$path` is absolute (`/…`, `C:\…` / `C:/…`, `\\server\…`). A relative directory would resolve against
+     * the current directory, which differs between PHP-FPM, the CLI and workers (audit JK-I3).
+     */
+    public static function isAbsolute(string $path): bool
+    {
+        return str_starts_with($path, '/') || str_starts_with($path, '\\\\') || preg_match('#^[A-Za-z]:[\\\\/]#', $path) === 1;
     }
 }

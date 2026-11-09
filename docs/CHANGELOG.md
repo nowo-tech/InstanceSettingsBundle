@@ -19,6 +19,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.7.1: a patch for hosts adopting 1.7.0 with `files.store: filesystem` (reported by Symfony Beacon). The
+database store and the admin upload pipeline are unchanged.
+
+### Fixed
+
+- **`files.directory` and `seed.base_dir` accept `%env(...)%`.** 1.7.0 refused them at container build with
+  `must be a local directory path, got ""` (Symfony validates an env placeholder with an empty string). The tree now
+  lets that through; the extension still refuses a literal blank value, and the path rules move to run time for an env
+  value: `FilesystemSettingFileStore` refuses a blank / `scheme://` / NUL directory and a directory under the public
+  roots (`%kernel.project_dir%/public`, `brand.public_dir`) when it is built, with `File\PathGuard`, so audit
+  JG-L4 / JG-L6 hold for env values too, including directories that do not exist yet; `SeedFileSeeder` refuses a
+  non-local `seed.base_dir` when it is built (a blank one would have confined to the current directory). Both keys
+  must be **absolute**, literal or from env (audit JK-I3: a relative path resolves against the current directory,
+  which differs between PHP-FPM and the CLI). New `PathGuard::isLocalPath()` and `PathGuard::isAbsolute()`.
+- **Lossless adoption of committed images (seed, filesystem store).** 1.7.0 re-encoded a committed file found at its
+  stable path (audit JG-L3), so a JPEG lost quality and was rewritten with new bytes on every fresh database. The seed
+  now uses `ImageProcessor::adopt()`: the same checks and decode as an upload, then `File\ImageMetadataStripper`
+  removes metadata and trailing data without touching the pixels (JPEG `APPn` / comments / after `EOI`; PNG text,
+  `eXIf`, `tIME`, `iCCP`, APNG and private chunks / after `IEND`, and the kept rendering chunks only at their spec
+  length (audit JK-L1); WebP `ICCP` / `EXIF` / `XMP ` / trailing bytes, RIFF
+  size fixed). A clean file is left byte for byte (no write, same mtime), so a second seed is a no-op on disk. It falls
+  back to the re-encode when the structure cannot be stripped safely or a JPEG has an EXIF orientation. JG-L3 still
+  holds: no EXIF / GPS / appended payload is stored or served. Admin uploads keep the re-encode.
+- The filesystem store normalises its base directory lexically for reads and writes: a `files.directory` such as
+  `…/missing/../files` failed on the first write in 1.7.0.
+
+### Added
+
+- The filesystem store writes `<section>/.variants/.gitignore` (`*`) so generated variants and metadata ignore
+  themselves in git; an existing file there is never overwritten.
+
 ## [1.7.0] - 2026-11-09
 
 Target 1.7.0: host brand seed file with images (IS-3) and an opt-in filesystem image store (owner decision

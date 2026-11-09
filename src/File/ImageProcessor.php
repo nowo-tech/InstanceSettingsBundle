@@ -57,6 +57,8 @@ use const IMG_FLIP_VERTICAL;
  * 4. The image is decoded and re-encoded (PNG → PNG with alpha, JPEG → JPEG q90 turned upright, WebP → WebP q90),
  *    which drops EXIF / GPS / XMP / ICC / text chunks and anything appended (polyglots). Variants are PNG, made from
  *    the re-encoded image, largest first, never upscaled; at most two decoded images are alive at once.
+ * 5. 1.7.1: {@see self::adopt()} runs the same checks and decode, but strips metadata losslessly instead of
+ *    re-encoding (committed files adopted by the seed; admin uploads keep the re-encode).
  *
  * Stateless (worker-safe): nothing is kept between calls.
  */
@@ -128,6 +130,54 @@ final readonly class ImageProcessor
      */
     public function process(ImageSpec $spec, string $bytes): ProcessedImage
     {
+        [$mime, $orientation] = $this->inspect($spec, $bytes);
+        $image                = @imagecreatefromstring($bytes);
+        if (!$image instanceof GdImage) {
+            throw new ImageRefusedException(ImageRefusedException::INVALID_IMAGE);
+        }
+        if ($orientation !== 1) {
+            $image = $this->upright($image, $orientation);
+        }
+        $original = $this->encode($image, $mime);
+        $variants = $this->variants($spec, $image, $original);
+
+        return new ProcessedImage($original, $variants, hash('sha256', $bytes));
+    }
+
+    /**
+     * Checks `$bytes` like {@see self::process()} but keeps the pixels as they are (1.7.1): metadata and trailing data
+     * are removed losslessly by {@see ImageMetadataStripper}, so a clean file comes back byte for byte (same hash) and
+     * adopting it again changes nothing. Used for a committed file adopted at its stable path. Falls back to
+     * {@see self::process()} (a re-encode) when the structure cannot be stripped safely, when the stripped bytes do
+     * not decode to the same image, or for a JPEG whose EXIF orientation is not 1 (dropping EXIF would turn it).
+     *
+     * @throws ImageRefusedException
+     */
+    public function adopt(ImageSpec $spec, string $bytes): ProcessedImage
+    {
+        [$mime, $orientation, $width, $height] = $this->inspect($spec, $bytes);
+        $clean                                 = $orientation === 1 ? ImageMetadataStripper::strip($mime, $bytes) : null;
+        $info                                  = $clean === null ? false : @getimagesizefromstring($clean);
+        $image                                 = $info !== false && self::sniff((string) $clean) === $mime && [$info[0], $info[1]] === [$width, $height] ? @imagecreatefromstring((string) $clean) : false;
+        if (!$image instanceof GdImage) {
+            return $this->process($spec, $bytes);
+        }
+        $original = new EncodedImage((string) $clean, $mime, $width, $height);
+        $variants = $this->variants($spec, $image, $original);
+
+        return new ProcessedImage($original, $variants, hash('sha256', $bytes));
+    }
+
+    /**
+     * The checks before decoding: type (magic bytes and header agree), allowed type, animation, size, pixel cap,
+     * dimensions after the EXIF orientation, square rule, memory budget.
+     *
+     * @throws ImageRefusedException
+     *
+     * @return array{0: string, 1: int, 2: int, 3: int} type, EXIF orientation, width and height (as stored)
+     */
+    private function inspect(ImageSpec $spec, string $bytes): array
+    {
         if ($bytes === '') {
             throw new ImageRefusedException(ImageRefusedException::EMPTY);
         }
@@ -136,7 +186,7 @@ final readonly class ImageProcessor
         }
         $mime = self::sniff($bytes);
         $info = $mime === null ? false : @getimagesizefromstring($bytes);
-        if ($info === false || (self::IMAGE_TYPES[$info[2]] ?? null) !== $mime) {
+        if ($mime === null || $info === false || (self::IMAGE_TYPES[$info[2]] ?? null) !== $mime) {
             throw new ImageRefusedException(ImageRefusedException::INVALID_IMAGE);
         }
         if (!in_array($mime, $spec->types, true)) {
@@ -159,22 +209,24 @@ final readonly class ImageProcessor
             throw new ImageRefusedException(ImageRefusedException::TOO_MANY_PIXELS);
         }
 
-        $image = @imagecreatefromstring($bytes);
-        if (!$image instanceof GdImage) {
-            throw new ImageRefusedException(ImageRefusedException::INVALID_IMAGE);
-        }
-        if ($orientation !== 1) {
-            $image = $this->upright($image, $orientation);
-        }
-        $original = $this->encode($image, $mime);
+        return [$mime, $orientation, $width, $height];
+    }
+
+    /**
+     * PNG variants of the decoded original, largest first, never upscaled. `$image` is taken by reference and replaced
+     * by each variant, so the caller's decoded original is freed after the first one (at most two decoded images).
+     *
+     * @return array<int, EncodedImage>
+     */
+    private function variants(ImageSpec $spec, GdImage &$image, EncodedImage $original): array
+    {
         $variants = [];
         foreach ($spec->variants as $size) {
             $image           = $this->fit($image, min($size, max($original->width, $original->height)));
             $variants[$size] = $this->encode($image, 'image/png');
         }
-        unset($image);
 
-        return new ProcessedImage($original, $variants, hash('sha256', $bytes));
+        return $variants;
     }
 
     /**

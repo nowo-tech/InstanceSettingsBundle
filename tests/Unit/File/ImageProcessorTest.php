@@ -13,14 +13,21 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 
+use function array_keys;
+use function crc32;
 use function getimagesizefromstring;
 use function hash;
 use function imagecolorallocate;
 use function imagecolorat;
 use function imagecreate;
 use function imagecreatefromstring;
+use function imagepng;
 use function imagesx;
+use function ob_get_clean;
+use function ob_start;
+use function pack;
 use function str_contains;
+use function str_pad;
 use function str_repeat;
 use function substr;
 
@@ -272,5 +279,83 @@ final class ImageProcessorTest extends TestCase
         } catch (ImageRefusedException $e) {
             self::assertSame($reason, $e->reason());
         }
+    }
+
+    #[DataProvider('acceptedImages')]
+    public function testAdoptingACleanFileKeepsItByteForByte(string $bytes, string $mime): void
+    {
+        $adopted = (new ImageProcessor())->adopt(new ImageSpec(variants: [32]), $bytes);
+
+        self::assertSame($bytes, $adopted->original->bytes);
+        self::assertSame(hash('sha256', $bytes), $adopted->sha256());
+        self::assertSame([$mime, 64, 64], [$adopted->original->mimeType, $adopted->original->width, $adopted->original->height]);
+        self::assertSame([32], array_keys($adopted->variants));
+        self::assertSame('image/png', $adopted->variants[32]->mimeType);
+    }
+
+    public function testAdoptionStripsExifAndTrailersWithoutTouchingThePixels(): void
+    {
+        $clean = ImageFactory::jpeg(80, 40);
+        $dirty = ImageFactory::jpegWithExif(1, 80, 40) . '<html><script>alert(1)</script>';
+
+        $adopted = (new ImageProcessor())->adopt(new ImageSpec(), $dirty);
+        self::assertSame($clean, $adopted->original->bytes);
+        self::assertStringNotContainsString('GPSLatitude', $adopted->original->bytes);
+        self::assertStringNotContainsString('<script>', $adopted->original->bytes);
+        self::assertSame($this->pixels($dirty), $this->pixels($adopted->original->bytes), 'decoded pixels identical');
+        self::assertSame(hash('sha256', $dirty), $adopted->sourceSha256);
+        // A second adoption is a no-op (the generational loss of the re-encode is gone).
+        self::assertSame($adopted->original->bytes, (new ImageProcessor())->adopt(new ImageSpec(), $adopted->original->bytes)->original->bytes);
+    }
+
+    public function testAdoptionFallsBackToTheReEncode(): void
+    {
+        $processor = new ImageProcessor();
+        // An EXIF orientation: dropping it would turn the image, so it is turned upright by the re-encode.
+        $turned  = ImageFactory::jpegWithExif(6, 80, 40);
+        $adopted = $processor->adopt(new ImageSpec(), $turned);
+        self::assertSame($processor->process(new ImageSpec(), $turned)->original->bytes, $adopted->original->bytes);
+        self::assertSame([40, 80], [$adopted->original->width, $adopted->original->height]);
+
+        // A structure the stripper does not trust (a bad ancillary CRC that libpng tolerates): re-encoded.
+        $png  = ImageFactory::png(32, 32);
+        $text = "\0\0\0\x01tEXta\0\0\0\0";
+        $odd  = substr($png, 0, 33) . $text . substr($png, 33);
+        self::assertSame($processor->process(new ImageSpec(), $odd)->original->bytes, $processor->adopt(new ImageSpec(), $odd)->original->bytes);
+
+        // A rendering chunk of a size the spec does not allow (52 B of HTML in bKGD, audit JK-L1): re-encoded.
+        $html    = str_pad('<html><script>alert(1)</script>', 52, ' ');
+        $bkgd    = pack('N', 52) . 'bKGD' . $html . pack('N', crc32('bKGD' . $html));
+        $odd     = substr($png, 0, 33) . $bkgd . substr($png, 33);
+        $adopted = $processor->adopt(new ImageSpec(), $odd);
+        self::assertSame($processor->process(new ImageSpec(), $odd)->original->bytes, $adopted->original->bytes);
+        self::assertStringNotContainsString('<script>', $adopted->original->bytes);
+
+        // The checks of an upload still apply, and an undecodable file is refused.
+        try {
+            $processor->adopt(new ImageSpec(square: true), ImageFactory::png(240, 80));
+            self::fail('Expected the refusal.');
+        } catch (ImageRefusedException $e) {
+            self::assertSame(ImageRefusedException::NOT_SQUARE, $e->reason());
+        }
+        try {
+            $processor->adopt(new ImageSpec(), ImageFactory::pngHeader(8, 8));
+            self::fail('Expected the refusal.');
+        } catch (ImageRefusedException $e) {
+            self::assertSame(ImageRefusedException::INVALID_IMAGE, $e->reason());
+        }
+    }
+
+    /**
+     * The decoded pixels, as a lossless PNG of the GD image.
+     */
+    private function pixels(string $bytes): string
+    {
+        $image = imagecreatefromstring($bytes);
+        self::assertInstanceOf(GdImage::class, $image);
+        ob_start();
+        imagepng($image);
+
+        return (string) ob_get_clean();
     }
 }

@@ -290,9 +290,48 @@ final class FilesystemSettingFileStoreTest extends TestCase
     public function testTheBaseDirectoryIsRefusedUnderAForbiddenRoot(): void
     {
         mkdir($this->dir . '/public', 0o755, true);
-        $store = new FilesystemSettingFileStore($this->dir . '/x/../public/files', [$this->dir . '/public']);
+        mkdir($this->dir . '/real', 0o755, true);
+        symlink($this->dir . '/public', $this->dir . '/linked');
+        // 1.7.1: checked when the store is built (an %env(...)% directory is only known then), also before it exists.
+        foreach (['/x/../public/files', '//public/files', '/./public/files', '/public', '/linked/new/dir', '/real/../linked/files'] as $suffix) {
+            $this->assertRefused(fn (): FilesystemSettingFileStore => new FilesystemSettingFileStore($this->dir . $suffix, [$this->dir . '/public']), 'under the public web root');
+        }
+        self::assertDirectoryDoesNotExist($this->dir . '/public/files');
+        self::assertDirectoryDoesNotExist($this->dir . '/public/new');
+        // A root that is not a local path (an empty env value of brand.public_dir) is not a root at all.
+        new FilesystemSettingFileStore($this->dir . '/files', ['', $this->dir . '/public']);
+
+        // And again before the first mkdir(): a symlink into the public root created after the store was built.
+        $store = new FilesystemSettingFileStore($this->dir . '/later/files', [$this->dir . '/public']);
+        symlink($this->dir . '/public', $this->dir . '/later');
         $this->assertRefused(fn () => $store->save('brand', 'logo', $this->image(ImageFactory::png(8, 8)), $this->now), 'under the public web root');
         self::assertDirectoryDoesNotExist($this->dir . '/public/files');
+    }
+
+    public function testTheBaseDirectoryMustBeALocalPath(): void
+    {
+        foreach (['', '   ', 's3://bucket/files', "files\0x", 'phar://app.phar/files'] as $directory) {
+            $this->assertRefused(static fn (): FilesystemSettingFileStore => new FilesystemSettingFileStore($directory), 'must be a local directory path');
+        }
+        // Audit JK-I3: a relative directory depends on the current directory of each process (FPM, CLI, worker).
+        foreach (['config/instance-files', './files', '../files'] as $directory) {
+            $this->assertRefused(static fn (): FilesystemSettingFileStore => new FilesystemSettingFileStore($directory), 'must be an absolute path');
+        }
+    }
+
+    public function testVariantsDirectoriesIgnoreThemselvesInGit(): void
+    {
+        $this->store->save('brand', 'logo', $this->image(ImageFactory::png(16, 16), [8]), $this->now);
+        $ignore = $this->root() . '/brand/.variants/.gitignore';
+        self::assertSame(FilesystemSettingFileStore::GITIGNORE_CONTENT, file_get_contents($ignore));
+        self::assertStringEndsWith("\n*\n", FilesystemSettingFileStore::GITIGNORE_CONTENT);
+
+        // Never overwritten (the host may have its own), never removed by the purge.
+        file_put_contents($ignore, "*\n!keep\n");
+        $this->store->save('brand', 'logo', $this->image(ImageFactory::png(16, 16, 10), [8]), $this->now);
+        $this->store->purge($this->now, static fn (): array => []);
+        self::assertSame("*\n!keep\n", file_get_contents($ignore));
+        self::assertNotNull($this->store->find('brand', 'logo', $this->image(ImageFactory::png(16, 16, 10))->sha256(), 0));
     }
 
     public function testAFailedRenameAfterTheCommitKeepsThePreviousFile(): void
