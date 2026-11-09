@@ -30,7 +30,12 @@ final class ConfigurationTest extends TestCase
         self::assertSame(['filesystem', '/srv/brand'], [$config['files']['store'], $config['files']['directory']]);
         self::assertSame(['file' => '/srv/app/config/seed.yaml', 'base_dir' => '/srv/app'], $config['seed']);
 
-        foreach ([['files' => ['store' => 's3']], ['files' => ['directory' => ' ']], ['files' => ['directory' => 's3://bucket']], ['seed' => ['base_dir' => 'phar://x']], ['seed' => ['base_dir' => '']]] as $invalid) {
+        // 1.7.1: '' passes the tree (it is what Symfony hands the closure for an %env(...)% value); the extension
+        // refuses a literal one and the store / seeder an empty env value.
+        self::assertSame('', $this->process(['seed' => ['base_dir' => '']])['seed']['base_dir']);
+        self::assertSame('', $this->process(['files' => ['directory' => '']])['files']['directory']);
+
+        foreach ([['files' => ['store' => 's3']], ['files' => ['directory' => ' ']], ['files' => ['directory' => 's3://bucket']], ['files' => ['directory' => 12]], ['seed' => ['base_dir' => 'phar://x']], ['seed' => ['base_dir' => "a\0b"]]] as $invalid) {
             try {
                 $this->process($invalid);
                 self::fail('Expected InvalidConfigurationException');

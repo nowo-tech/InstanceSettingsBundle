@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\DependencyInjection;
 
 use Closure;
 use Nowo\InstanceSettingsBundle\Brand\BrandSection;
+use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityEnvelope;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
@@ -24,7 +25,6 @@ use function is_string;
 use function mb_strlen;
 use function preg_match;
 use function sprintf;
-use function str_contains;
 use function str_starts_with;
 use function trim;
 
@@ -220,10 +220,10 @@ final class Configuration implements ConfigurationInterface
                             ->defaultValue('doctrine')
                         ->end()
                         ->scalarNode('directory')
-                            ->info('Directory of the filesystem store (files.store: filesystem): <directory>/<section>/<field>.<png|jpg|webp>, variants in <section>/.variants/. Need not be under the public web root.')
+                            ->info('Directory of the filesystem store (files.store: filesystem): <directory>/<section>/<field>.<png|jpg|webp>, variants in <section>/.variants/. Must not be under the public web root. Accepts %env(...)%: the path rules are then applied at run time.')
                             ->defaultValue(self::DEFAULT_FILES_DIRECTORY)
                             ->validate()
-                                ->ifTrue(static fn (mixed $v): bool => !is_string($v) || trim($v) === '' || str_contains($v, '://'))
+                                ->ifTrue(static fn (mixed $v): bool => !self::isPathLike($v))
                                 ->thenInvalid('nowo_instance_settings.files.directory must be a local directory path, got %s.')
                             ->end()
                         ->end()
@@ -238,10 +238,10 @@ final class Configuration implements ConfigurationInterface
                             ->defaultNull()
                         ->end()
                         ->scalarNode('base_dir')
-                            ->info('Every seed file and seed image path must resolve (symlinks followed) inside this directory.')
+                            ->info('Every seed file and seed image path must resolve (symlinks followed) inside this directory. Accepts %env(...)%: the path rules are then applied at run time.')
                             ->defaultValue('%kernel.project_dir%')
                             ->validate()
-                                ->ifTrue(static fn (mixed $v): bool => !is_string($v) || trim($v) === '' || str_contains($v, '://'))
+                                ->ifTrue(static fn (mixed $v): bool => !self::isPathLike($v))
                                 ->thenInvalid('nowo_instance_settings.seed.base_dir must be a local directory path, got %s.')
                             ->end()
                         ->end()
@@ -362,6 +362,17 @@ final class Configuration implements ConfigurationInterface
             ->end();
 
         return $node;
+    }
+
+    /**
+     * Path check of `files.directory` / `seed.base_dir` in the tree (1.7.1): a string without `://` that is not only
+     * whitespace. The empty string passes here: while Symfony validates an `%env(...)%` value it hands the closure ''
+     * (the placeholder's default), indistinguishable from a literal ''. The extension refuses a literal blank value
+     * ({@see NowoInstanceSettingsExtension}), and the store / seeder apply the full rule to the resolved env value.
+     */
+    public static function isPathLike(mixed $value): bool
+    {
+        return is_string($value) && ($value === '' || PathGuard::isLocalPath($value));
     }
 
     /**

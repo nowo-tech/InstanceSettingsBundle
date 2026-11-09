@@ -215,6 +215,59 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         }
     }
 
+    public function testALiteralBlankPathIsRefusedButAnEnvPlaceholderWaitsForRunTime(): void
+    {
+        foreach ([['files' => ['directory' => '']], ['seed' => ['base_dir' => '']]] as $config) {
+            try {
+                $this->load($config, withSecurity: true);
+                self::fail('Expected InvalidConfigurationException');
+            } catch (InvalidConfigurationException $e) {
+                self::assertStringContainsString('must be a local directory path, got ""', $e->getMessage());
+            }
+        }
+
+        // 1.7.1: an %env(...)% value (here under the public root) is not judged at build time; the store checks it.
+        $project = sys_get_temp_dir() . '/nowo-is-ext-env-' . bin2hex(random_bytes(6));
+        mkdir($project . '/public', 0o755, true);
+        try {
+            $container = new ContainerBuilder();
+            $container->setParameter('kernel.project_dir', $project);
+            $files = $this->env($container, 'IS_FILES');
+            $base  = $this->env($container, 'IS_BASE');
+            (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => $files], 'seed' => ['base_dir' => $base]]], $container);
+            self::assertSame($files, $container->getDefinition(FilesystemSettingFileStore::class)->getArgument(0));
+            self::assertSame($base, $container->getDefinition(SeedFileSeeder::class)->getArgument(3));
+
+            // A literal directory is still checked against the literal roots when brand.public_dir is an env value.
+            $container = new ContainerBuilder();
+            $container->setParameter('kernel.project_dir', $project);
+            $public = $this->env($container, 'IS_PUBLIC');
+            try {
+                (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '%kernel.project_dir%/public/files'], 'brand' => ['public_dir' => $public]]], $container);
+                self::fail('Expected the refusal.');
+            } catch (LogicException $e) {
+                self::assertStringContainsString('under the public web root', $e->getMessage());
+            }
+            $container = new ContainerBuilder();
+            $container->setParameter('kernel.project_dir', $project);
+            (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '%kernel.project_dir%/config/files'], 'brand' => ['public_dir' => $this->env($container, 'IS_PUBLIC')]]], $container);
+            self::assertTrue($container->hasDefinition(FilesystemSettingFileStore::class));
+        } finally {
+            (new Filesystem())->remove($project);
+        }
+    }
+
+    /**
+     * The container's placeholder of `%env(<name>)%`.
+     */
+    private function env(ContainerBuilder $container, string $name): string
+    {
+        $placeholder = $container->getParameterBag()->get('env(' . $name . ')');
+        self::assertIsString($placeholder);
+
+        return $placeholder;
+    }
+
     public function testFilePrefixMustBeOutsideTheAdminPrefix(): void
     {
         foreach ([

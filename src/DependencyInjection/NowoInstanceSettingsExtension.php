@@ -198,6 +198,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setParameter('nowo_instance_settings.files.enabled', $filesEnabled);
         $container->setParameter(BrandBridgePass::PARAMETER, $brandEnabled);
         $this->assertFilesMapped($container, $filesEnabled);
+        $this->assertLocalPath($container, $config['files']['directory'], 'files.directory');
+        $this->assertLocalPath($container, $config['seed']['base_dir'], 'seed.base_dir');
         $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed']);
         if ($filesEnabled && $config['files']['store'] === 'filesystem') {
             $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
@@ -699,14 +701,44 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $dir   = (string) $bag->resolveValue($directory);
             $roots = [(string) $bag->resolveValue('%kernel.project_dir%/public'), (string) $bag->resolveValue($publicDir)];
         } catch (ParameterNotFoundException) {
-            // Built outside a kernel (no kernel.project_dir): the store checks again before creating the directory.
+            // Built outside a kernel (no kernel.project_dir): the store checks again when it is built.
+            return;
+        }
+        if ($this->usesEnv($container, $dir)) {
+            // 1.7.1: an %env(...)% directory is only known at run time; the store applies the same check when it is built.
             return;
         }
         foreach ($roots as $root) {
+            if ($this->usesEnv($container, $root)) {
+                continue;
+            }
             if (PathGuard::isUnder($dir, $root)) {
                 throw new LogicException(sprintf('NowoInstanceSettingsBundle: files.directory "%s" is under the public web root "%s": the web server would serve the images without the file route\'s access check and headers. Use a directory outside it, e.g. "%%kernel.project_dir%%/config/instance-files".', $dir, $root));
             }
         }
+    }
+
+    /**
+     * 1.7.1: a literal `files.directory` / `seed.base_dir` must be a local directory path (not blank, no NUL, no
+     * `://`). The tree lets '' through (see {@see Configuration::isPathLike()}); a value with an `%env(...)%` is
+     * checked at run time by the store / seeder instead, once the variable is resolved.
+     */
+    private function assertLocalPath(ContainerBuilder $container, string $value, string $option): void
+    {
+        if (!$this->usesEnv($container, $value) && !PathGuard::isLocalPath($value)) {
+            throw new InvalidConfigurationException(sprintf('nowo_instance_settings.%s must be a local directory path, got "%s".', $option, $value));
+        }
+    }
+
+    /**
+     * Whether `$value` holds an `%env(...)%` placeholder of the container.
+     */
+    private function usesEnv(ContainerBuilder $container, string $value): bool
+    {
+        $used = [];
+        $container->resolveEnvPlaceholders($value, null, $used);
+
+        return $used !== [];
     }
 
     /**

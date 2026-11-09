@@ -6,13 +6,14 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\Seed;
 
 use DateTimeImmutable;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use GdImage;
+use InvalidArgumentException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
-use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
+use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
-use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileException;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
@@ -81,6 +82,8 @@ final class SeedFileSeederTest extends TestCase
     private RecordingDispatcher $dispatcher;
 
     private ?AbstractLogger $logger = null;
+
+    private ?BrandFixture $fsBrand = null;
 
     protected function setUp(): void
     {
@@ -324,20 +327,21 @@ final class SeedFileSeederTest extends TestCase
         }
     }
 
-    public function testTheFilesystemStoreAdoptsACommittedFileReEncoded(): void
+    public function testTheFilesystemStoreAdoptsACommittedFileLosslessly(): void
     {
         $files = $this->base . '/config/instance-files';
         $store = new FilesystemSettingFileStore($files);
-        // A committed JPEG with EXIF / GPS and appended bytes: adopted re-encoded, never served raw (JG-L3).
+        // A committed JPEG with EXIF / GPS and appended bytes: adopted without them, never served raw (JG-L3), and
+        // without a re-encode (1.7.1): the pixels are untouched.
         $bytes = ImageFactory::jpegWithExif(1, 512, 512) . '<html><script>alert(1)</script>';
         $this->write('config/instance-files/brand/app_icon.jpg', $bytes);
         // A committed logo with no row yet: the seed points elsewhere, the committed file wins (JG-L5).
         $committed = ImageFactory::png(240, 80, 5);
         $this->write('config/instance-files/brand/logo_dark.png', $committed);
-        $brand  = new BrandFixture(store: $store);
-        $seeder = new SeedFileSeeder(new SettingsSectionRegistry($brand->sections()), $brand->repository, $brand->settings, $this->base, fileStore: $store, normalizer: new ValueNormalizer(Validation::createValidator()));
+        touch($files . '/brand/logo_dark.png', time() - 3600);
+        $darkStat = [filemtime($files . '/brand/logo_dark.png'), fileinode($files . '/brand/logo_dark.png')];
 
-        $report = $seeder->seed(['files' => ['brand' => [
+        $report = $this->filesystemSeeder($store)->seed(['files' => ['brand' => [
             'app_icon'   => 'instance-files/brand/app_icon.jpg',
             'logo_light' => 'brand/logo-light.png',
             'logo_dark'  => 'brand/logo-light.png',
@@ -345,19 +349,75 @@ final class SeedFileSeederTest extends TestCase
         self::assertSame(['brand.app_icon', 'brand.logo_light', 'brand.logo_dark'], $report->seeded);
 
         $adopted = (string) file_get_contents($files . '/brand/app_icon.jpg');
-        self::assertNotSame($bytes, $adopted);
+        self::assertSame(ImageFactory::jpeg(512, 512), $adopted, 'exactly the image without the EXIF segment and the trailer');
         self::assertStringNotContainsString('<script>', $adopted);
         self::assertStringNotContainsString('GPSLatitude', $adopted);
-        $icon = $brand->settings->getFile('brand.app_icon');
-        self::assertNotNull($icon);
-        self::assertSame(hash('sha256', $adopted), $icon->sha256);
-        self::assertSame([512, 192, 180], $icon->variants());
+        self::assertSame($this->pixels($bytes), $this->pixels($adopted), 'decoded pixels identical');
+        self::assertSame(hash('sha256', $adopted), $this->brandFile('brand.app_icon')->sha256);
         self::assertFileExists($files . '/brand/logo_light.png', 'a seed image elsewhere is processed into the stable file');
 
-        $dark = $brand->settings->getFile('brand.logo_dark');
-        self::assertNotNull($dark);
-        self::assertSame(hash('sha256', (string) file_get_contents($files . '/brand/logo_dark.png')), $dark->sha256);
-        self::assertSame(hash('sha256', (new ImageProcessor())->process(new ImageSpec(), $committed)->original->bytes), $dark->sha256, 'the committed file, not the seed path');
+        // The clean committed PNG is adopted as it is: no write (same bytes, mtime and inode).
+        clearstatcache();
+        self::assertSame($committed, (string) file_get_contents($files . '/brand/logo_dark.png'));
+        self::assertSame($darkStat, [filemtime($files . '/brand/logo_dark.png'), fileinode($files . '/brand/logo_dark.png')]);
+        self::assertSame(hash('sha256', $committed), $this->brandFile('brand.logo_dark')->sha256, 'the committed file, not the seed path');
+        self::assertSame(FilesystemSettingFileStore::GITIGNORE_CONTENT, (string) file_get_contents($files . '/brand/.variants/.gitignore'));
+
+        // A fresh database (an e2e reset) seeds again from the same files: nothing is rewritten on disk.
+        $paths  = [$files . '/brand/app_icon.jpg', $files . '/brand/logo_light.png', $files . '/brand/logo_dark.png'];
+        $before = [];
+        foreach ($paths as $path) {
+            touch($path, time() - 7200);
+            clearstatcache();
+            $before[$path] = [hash_file('sha256', $path), filemtime($path), fileinode($path)];
+        }
+        $again = $this->filesystemSeeder($store)->seed(['files' => ['brand' => [
+            'app_icon'   => 'instance-files/brand/app_icon.jpg',
+            'logo_light' => 'brand/logo-light.png',
+            'logo_dark'  => 'brand/logo-light.png',
+        ]]], $this->base . '/config');
+        self::assertSame(['brand.app_icon', 'brand.logo_light', 'brand.logo_dark'], $again->seeded);
+        clearstatcache();
+        foreach ($paths as $path) {
+            self::assertSame($before[$path], [hash_file('sha256', $path), filemtime($path), fileinode($path)], $path);
+        }
+    }
+
+    private function filesystemSeeder(FilesystemSettingFileStore $store): SeedFileSeeder
+    {
+        $this->fsBrand = new BrandFixture(store: $store);
+
+        return new SeedFileSeeder(new SettingsSectionRegistry($this->fsBrand->sections()), $this->fsBrand->repository, $this->fsBrand->settings, $this->base, fileStore: $store, normalizer: new ValueNormalizer(Validation::createValidator()));
+    }
+
+    private function brandFile(string $key): StoredSettingFile
+    {
+        $file = $this->fsBrand?->settings->getFile($key);
+        self::assertInstanceOf(StoredSettingFile::class, $file);
+
+        return $file;
+    }
+
+    private function pixels(string $bytes): string
+    {
+        $image = imagecreatefromstring($bytes);
+        self::assertInstanceOf(GdImage::class, $image);
+        ob_start();
+        imagepng($image);
+
+        return (string) ob_get_clean();
+    }
+
+    public function testAnInvalidBaseDirectoryIsRefusedWhenTheSeederIsBuilt(): void
+    {
+        foreach (['', ' ', 's3://bucket', "a\0b"] as $base) {
+            try {
+                new SeedFileSeeder($this->registry, $this->brand->repository, $this->brand->settings, $base);
+                self::fail('Expected the refusal.');
+            } catch (InvalidArgumentException $e) {
+                self::assertStringContainsString('seed.base_dir must be a local directory path', $e->getMessage());
+            }
+        }
     }
 
     /**

@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Seed;
 
 use DateTimeImmutable;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use InvalidArgumentException;
 use JsonException;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
@@ -15,6 +16,7 @@ use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
 use Nowo\InstanceSettingsBundle\File\ImageUpload;
+use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\File\ProcessedImage;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
@@ -86,8 +88,9 @@ use const PATHINFO_EXTENSION;
  *   resolved with `realpath()` (symlinks followed) and refused outside the base directory (`seed.base_dir`); the bytes
  *   go through the same {@see ImageProcessor} checks as an upload (type sniffing, size, dimensions, square, animated
  *   WebP); SVG is refused with a clear message. Images are stored by the configured {@see SettingFileStoreInterface};
- *   with the filesystem store, a valid image that already sits at the field's stable path is adopted (re-encoded like an
- *   upload) instead of being overwritten; file changes are applied only after the commit.
+ *   with the filesystem store, a valid image that already sits at the field's stable path is adopted instead of being
+ *   overwritten — losslessly since 1.7.1 (metadata and trailing data stripped, pixels untouched, a clean file left byte
+ *   for byte; {@see ImageProcessor::adopt()}); file changes are applied only after the commit.
  * - Insert-only in one transaction, re-checking each field there (a concurrent admin save wins); audited like a save
  *   (`Instance settings saved.` log line and {@see SettingsChangedEvent} with origin
  *   {@see SettingsChangedEvent::ORIGIN_SEED} and the file hashes) **after the commit**.
@@ -119,6 +122,10 @@ final readonly class SeedFileSeeder
      * @param string $baseDir directory every seed path must resolve into (`seed.base_dir`)
      * @param string|null $defaultFile seed file used when none is given (`seed.file`)
      * @param SettingFileStoreInterface|null $fileStore image storage (null: image fields cannot be seeded)
+     *
+     * @throws InvalidArgumentException when `$baseDir` is not a local directory path (1.7.1: an `%env(...)%` value is
+     *                                  only known here; a blank one would make `realpath()` confine to the current
+     *                                  directory)
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -134,6 +141,9 @@ final readonly class SeedFileSeeder
         private ?EventDispatcherInterface $dispatcher = null,
         private ?ClockInterface $clock = null,
     ) {
+        if (!PathGuard::isLocalPath($baseDir)) {
+            throw new InvalidArgumentException(sprintf('Instance settings seed: seed.base_dir must be a local directory path, got "%s".', $baseDir));
+        }
     }
 
     /**
@@ -366,10 +376,11 @@ final readonly class SeedFileSeeder
             }
             try {
                 $real = $this->resolve(is_string($path) ? $path : '', $directory, $absolutePaths);
-                // Filesystem store: a valid committed file already at the field's stable path is adopted (re-encoded
-                // like an upload) instead of being overwritten by another file (audit JG-L5).
-                $source = $this->fileStore instanceof FilesystemSettingFileStore && !isset($stored[$name]) ? $this->fileStore->storedPath($section, $name) ?? $real : $real;
-                $image  = $this->image($field->image ?? new ImageSpec(), $source);
+                // Filesystem store: a valid committed file already at the field's stable path is adopted instead of
+                // being overwritten by another file (audit JG-L5). 1.7.1: adopted losslessly (metadata and trailing
+                // data stripped, pixels untouched; a clean file is left byte for byte), not re-encoded (JG-L3).
+                $adopted = $this->fileStore instanceof FilesystemSettingFileStore && !isset($stored[$name]) ? $this->fileStore->storedPath($section, $name) : null;
+                $image   = $this->image($field->image ?? new ImageSpec(), $adopted ?? $real, $adopted !== null);
             } catch (SeedFileException $e) {
                 $errors[] = SeedFileException::line($key, $e->reason ?? SeedFileException::INVALID_VALUE);
 
@@ -407,20 +418,21 @@ final readonly class SeedFileSeeder
     }
 
     /**
-     * Reads (capped) and processes an image file; SVG gets its own refusal.
+     * Reads (capped) and processes an image file (re-encoded, or adopted losslessly when `$adopt`, see
+     * {@see ImageProcessor::adopt()}); SVG gets its own refusal.
      *
      * @throws ImageRefusedException|SeedFileException
      *
      * @return array{0: ProcessedImage, 1: string} processed image and the file bytes
      */
-    private function image(ImageSpec $spec, string $path): array
+    private function image(ImageSpec $spec, string $path, bool $adopt): array
     {
         $bytes = ImageUpload::fromPath($path)->read($spec->maxBytes);
         if (ImageProcessor::sniff($bytes) === null && (strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'svg' || stripos(substr($bytes, 0, 4096), '<svg') !== false)) {
             throw SeedFileException::single('file', SeedFileException::SVG_NOT_SUPPORTED);
         }
 
-        return [$this->images->process($spec, $bytes), $bytes];
+        return [$adopt ? $this->images->adopt($spec, $bytes) : $this->images->process($spec, $bytes), $bytes];
     }
 
     /**

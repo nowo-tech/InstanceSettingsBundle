@@ -205,7 +205,7 @@ The default (`doctrine`) is unchanged.
 | Key | Default | Description |
 | --- | --- | --- |
 | `store` | `doctrine` | `doctrine`: the `instance_setting_file` table (1.4 behaviour, byte for byte). `filesystem`: `Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore`. The file table stays mapped either way (no schema change between the two). |
-| `directory` | `%kernel.project_dir%/config/instance-files` | Base directory of the filesystem store, created (0755 minus the umask) on the first write. A local path only (no `scheme://`). It **must not** be under the public web root to work: files are served by the file route only. |
+| `directory` | `%kernel.project_dir%/config/instance-files` | Base directory of the filesystem store, created (0755 minus the umask) on the first write. A local path only (not blank, no `scheme://`, no NUL). It **must not** be under the public web root: files are served by the file route only. Accepts `%env(...)%` (1.7.1): the container cannot see that value, so the store applies the same rules when it is built (see below). |
 
 ```yaml
 # config/packages/nowo_instance_settings.yaml
@@ -227,6 +227,7 @@ config/instance-files/
         app_icon.png
         extra_email_mascot.webp           # brand.extra_images.email_mascot
         .variants/
+            .gitignore                    # 1.7.1: "*", written by the store, makes the directory self-ignoring
             app_icon-<hash12>-512.png     # generated PNG variants, bound to the hash of the original
             app_icon-<hash12>-192.png
 ```
@@ -265,13 +266,21 @@ Behaviour:
   `brand.public_dir` (the web server would serve the images without the file route's access check and headers),
   whatever its spelling (`..`, `//`, `.`, a symlink): the path is normalised and its nearest existing ancestor
   resolved, also when it does not exist yet. The store checks again before it creates the directory (audit JG-L6).
+  With an `%env(...)%` value (1.7.1) the container skips its checks (Symfony hands the configuration tree an empty
+  string for the placeholder) and the store applies them when it is built, with the resolved value: a blank value, a
+  `scheme://` wrapper or a directory under the public roots (any spelling, existing or not) is a `RuntimeException`
+  then, before any file is read or written. The store is built when the kernel warms up, so a wrong value fails early.
+  The base is normalised lexically for reads and writes alike (`a/missing/../files` is `a/files`).
 - **Permissions:** files 0644 and directories 0755 minus the process umask, so non-public images are readable by
   other local users of the host; use a umask of `027` (process supervisor / container entrypoint) on a shared host.
 - **`purge-files`** removes stale variants and metadata (of another hash, or of a field without a file) and `.tmp-*`
   files older than one hour; it never deletes an original (a committed file of a field that is not seeded yet must
   survive). Database blobs left in `instance_setting_file` from before a store switch are not purged by it.
-- Commit the originals and, if you like, `.variants/` (or add `*/.variants/` to `.gitignore`: variants and metadata
-  are regenerated when the image is saved or seeded).
+- **Commit the originals, not `.variants/`.** Since 1.7.1 the store writes `.variants/.gitignore` (content `*`, which
+  also ignores itself) when it creates or uses a variants directory, so variants and metadata never show up in
+  `git status`; it never overwrites a `.gitignore` you put there. Add `<directory>/**/.variants/` to the host
+  `.gitignore` as well (covers checkouts made before the first save, and directories created by 1.7.0). Variants and
+  metadata are regenerated when the image is saved or seeded.
 
 ## seed
 
@@ -310,8 +319,21 @@ Rules:
   refused** (`svg_not_supported`: use PNG or WebP; owner decision spec 220). Images are stored by the configured
   store: rows of `instance_setting_file` with the database store. With the [filesystem store](#filesystem-store), a
   valid image that already sits at the field's stable path (and has no row yet) is **adopted** whatever path the seed
-  gives: it is re-encoded like an upload (metadata and appended bytes dropped; the committed file may change once in
-  git), never overwritten by another file; otherwise the seed image is re-encoded into the stable file.
+  gives, never overwritten by another file; otherwise the seed image is re-encoded into the stable file.
+  **Adoption is lossless (1.7.1).** The committed file is checked like an upload (type, size, dimensions, square
+  rule, a full decode), then metadata and trailing data are removed **without re-encoding the pixels**
+  (`File\ImageMetadataStripper`, allow-lists): JPEG keeps only the decoding segments, a JFIF `APP0` without thumbnail,
+  `APP14` Adobe and GD's own `CREATOR: gd-jpeg` comment, and drops every other `APPn` (EXIF, GPS, XMP, ICC, MPF,
+  Photoshop), other comments and anything after `EOI`; PNG keeps the critical chunks and `tRNS`, `gAMA`, `cHRM`,
+  `sRGB`, `sBIT`, `bKGD`, `pHYs`, and drops text, `eXIf`, `tIME`, `iCCP`, APNG frame chunks, private chunks and anything
+  after `IEND`; WebP keeps `VP8X` (ICC / EXIF / XMP flags cleared), `ALPH` and the image chunk, drops `ICCP`, `EXIF`,
+  `XMP `, unknown chunks and trailing bytes, and rewrites the RIFF size. A file with nothing to remove is left **byte
+  for byte** (no write, same mtime and inode), so seeding a fresh database again (an e2e reset) changes nothing on disk;
+  a file with metadata is rewritten once without it. ICC profiles are dropped, as the re-encode drops them: commit
+  sRGB images. The re-encode is still used when the structure cannot be stripped safely (a truncated or unknown
+  segment, a PNG CRC mismatch, an unknown critical chunk…), and for a JPEG whose EXIF orientation is not 1 (dropping
+  EXIF would turn it; the re-encode turns it upright once, then the file is stable). Uploads through the admin, the
+  API and imports keep the re-encode.
 - **Insert-only** in one transaction, each field re-checked there (an admin save that wins the race is kept). Audited
   like a save: one `Instance settings saved.` log line and one `SettingsChangedEvent` per section with origin `seed`
   and `fileChanges` (`old: null`, `new: <sha256>`), dispatched after the commit, then one summary line. Output, report

@@ -7,9 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
-use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\ImageUpload;
-use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
@@ -144,13 +142,14 @@ final class SeedFileTest extends KernelTestCase
         $settings->save('brand', ['logo_light' => null]);
         self::assertSame([], glob($files . '/brand/logo_light.*'));
 
-        // The seed adopts the committed app icon (re-encoded) and processes the other image into its stable file.
+        // The seed adopts the committed app icon (1.7.1: losslessly, a clean file is left as it is) and processes the
+        // other image into its stable file.
         $icon = ImageFactory::png(512, 512, 90);
         file_put_contents($files . '/brand/app_icon.png', $icon);
         file_put_contents($base . '/config/seed.yaml', "schema: nowo-instance-settings-seed\nversion: 1\nfiles:\n  brand:\n    app_icon: instance-files/brand/app_icon.png\n    logo_dark: brand/logo-light.png\n");
         $tester = new CommandTester((new Application($kernel))->find(SeedCommand::NAME));
         self::assertSame(Command::SUCCESS, $tester->execute([]), $tester->getDisplay());
-        self::assertSame((new ImageProcessor())->process(new ImageSpec(), $icon)->original->bytes, (string) file_get_contents($files . '/brand/app_icon.png'), 'adopted re-encoded');
+        self::assertSame($icon, (string) file_get_contents($files . '/brand/app_icon.png'), 'adopted untouched');
         self::assertFileExists($files . '/brand/logo_dark.png');
         self::assertCount(3, (array) glob($files . '/brand/.variants/app_icon-*'));
         self::assertSame(0, (int) $this->connection($kernel)->fetchOne('SELECT COUNT(*) FROM instance_setting_file'));

@@ -22,6 +22,25 @@
 
 ## Unreleased
 
+Target **1.7.1**, from **1.7.0**: `composer update nowo-tech/instance-settings-bundle`. Nothing to change in the
+configuration; with `files.store: filesystem`:
+
+1. **Env paths.** `files.directory` and `seed.base_dir` may now be `%env(...)%`. The checks that the container applies
+   to a literal value (local path; not under the public web root, any spelling) run when the store / seeder is built
+   for an env value, so a wrong value fails at kernel warm-up or on the first use instead of `cache:clear`.
+2. **Git.** Add the variants to the host `.gitignore` and commit only the originals:
+
+   ```gitignore
+   /config/instance-files/**/.variants/
+   ```
+
+   (use your `files.directory`). The store also writes a self-ignoring `.variants/.gitignore` (`*`) from 1.7.1 on.
+   If you committed `.variants/` with 1.7.0, `git rm -r --cached config/instance-files/*/.variants`.
+3. **Committed images are adopted losslessly.** The next seed on a fresh database strips metadata from a committed
+   file once (one git diff for a file that carried EXIF / XMP / ICC / text chunks or appended bytes) and then leaves it
+   untouched. A JPEG that 1.7.0 already re-encoded is clean (GD's own `CREATOR` comment is kept) and stays as it is.
+   Commit sRGB images: ICC profiles are dropped, as before.
+
 ## To 1.7.0
 
 From **1.6.0**:
