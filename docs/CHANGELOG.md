@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.8.0] - 2026-11-09](#180---2026-11-09)
 - [[1.7.1] - 2026-11-09](#171---2026-11-09)
 - [[1.7.0] - 2026-11-09](#170---2026-11-09)
 - [[1.6.0] - 2026-11-09](#160---2026-11-09)
@@ -19,6 +20,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.8.0] - 2026-11-09
 
 Target 1.8.0: an opt-in crop step on image setting fields (owner decision D-20261109-09, host Symfony Beacon), on
 UiKit 2.43's image crop. With the crop off (the default) the admin output is byte-identical to 1.7.1.
