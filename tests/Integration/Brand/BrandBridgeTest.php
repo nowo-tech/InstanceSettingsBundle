@@ -114,7 +114,7 @@ final class BrandBridgeTest extends KernelTestCase
         self::assertSame([$file->url(), BrandAssetOrigin::Uploaded, 'Globex'], [$logo?->url, $logo?->origin, $brand->getBrand()->name]);
         $mark = $brand->getBrand()->asset('mark');
         self::assertSame(BrandAssetOrigin::ConfigDefault, $mark?->origin);
-        self::assertMatchesRegularExpression('#^/brand/mark\.png\?v=[0-9a-f]{12}$#', (string) $mark->url);
+        self::assertMatchesRegularExpression('#^/brand/mark\.png\?v=[0-9a-f]{12}$#', $mark->url);
 
         $reader = $this->container($kernel)->get(BrandAssetReaderInterface::class);
         self::assertInstanceOf(BrandAssetReaderInterface::class, $reader);
