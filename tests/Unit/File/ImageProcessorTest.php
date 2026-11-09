@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 
 use function array_keys;
+use function crc32;
 use function getimagesizefromstring;
 use function hash;
 use function imagecolorallocate;
@@ -24,7 +25,9 @@ use function imagepng;
 use function imagesx;
 use function ob_get_clean;
 use function ob_start;
+use function pack;
 use function str_contains;
+use function str_pad;
 use function str_repeat;
 use function substr;
 
@@ -319,6 +322,14 @@ final class ImageProcessorTest extends TestCase
         $text = "\0\0\0\x01tEXta\0\0\0\0";
         $odd  = substr($png, 0, 33) . $text . substr($png, 33);
         self::assertSame($processor->process(new ImageSpec(), $odd)->original->bytes, $processor->adopt(new ImageSpec(), $odd)->original->bytes);
+
+        // A rendering chunk of a size the spec does not allow (52 B of HTML in bKGD, audit JK-L1): re-encoded.
+        $html    = str_pad('<html><script>alert(1)</script>', 52, ' ');
+        $bkgd    = pack('N', 52) . 'bKGD' . $html . pack('N', crc32('bKGD' . $html));
+        $odd     = substr($png, 0, 33) . $bkgd . substr($png, 33);
+        $adopted = $processor->adopt(new ImageSpec(), $odd);
+        self::assertSame($processor->process(new ImageSpec(), $odd)->original->bytes, $adopted->original->bytes);
+        self::assertStringNotContainsString('<script>', $adopted->original->bytes);
 
         // The checks of an upload still apply, and an undecodable file is refused.
         try {

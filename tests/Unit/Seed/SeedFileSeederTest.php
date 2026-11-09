@@ -410,12 +410,12 @@ final class SeedFileSeederTest extends TestCase
 
     public function testAnInvalidBaseDirectoryIsRefusedWhenTheSeederIsBuilt(): void
     {
-        foreach (['', ' ', 's3://bucket', "a\0b"] as $base) {
+        foreach (['' => 'a local directory path', ' ' => 'a local directory path', 's3://bucket' => 'a local directory path', "a\0b" => 'a local directory path', 'config' => 'an absolute path', './seed' => 'an absolute path'] as $base => $reason) {
             try {
-                new SeedFileSeeder($this->registry, $this->brand->repository, $this->brand->settings, $base);
+                new SeedFileSeeder($this->registry, $this->brand->repository, $this->brand->settings, (string) $base);
                 self::fail('Expected the refusal.');
             } catch (InvalidArgumentException $e) {
-                self::assertStringContainsString('seed.base_dir must be a local directory path', $e->getMessage());
+                self::assertStringContainsString('seed.base_dir must be ' . $reason, $e->getMessage());
             }
         }
     }

@@ -156,6 +156,9 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
         if (!PathGuard::isLocalPath($directory)) {
             throw new RuntimeException(sprintf('Instance settings file store: files.directory must be a local directory path, got "%s".', $directory));
         }
+        if (!PathGuard::isAbsolute($directory)) {
+            throw new RuntimeException(sprintf('Instance settings file store: files.directory must be an absolute path (a relative one depends on the current directory of each process), got "%s".', $directory));
+        }
         $this->assertNotUnderForbiddenRoot();
     }
 

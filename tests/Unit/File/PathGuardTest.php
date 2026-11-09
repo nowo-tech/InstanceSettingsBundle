@@ -54,4 +54,18 @@ final class PathGuardTest extends TestCase
         self::assertSame('/', PathGuard::resolve('/../..'));
         self::assertSame(getcwd() . '/nowhere-x/', PathGuard::resolve('nowhere-x'));
     }
+
+    public function testAbsoluteAndLocalPaths(): void
+    {
+        foreach (['/srv/app', 'C:\\app', 'c:/app', '\\\\server\\share'] as $path) {
+            self::assertTrue(PathGuard::isAbsolute($path), $path);
+        }
+        foreach (['var/files', './files', '../files', 'files', 'C:files', '\\files', ''] as $path) {
+            self::assertFalse(PathGuard::isAbsolute($path), $path);
+        }
+        self::assertTrue(PathGuard::isLocalPath('var/files'));
+        foreach (['', ' ', 's3://x', "a\0b"] as $path) {
+            self::assertFalse(PathGuard::isLocalPath($path));
+        }
+    }
 }

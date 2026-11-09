@@ -313,6 +313,10 @@ final class FilesystemSettingFileStoreTest extends TestCase
         foreach (['', '   ', 's3://bucket/files', "files\0x", 'phar://app.phar/files'] as $directory) {
             $this->assertRefused(static fn (): FilesystemSettingFileStore => new FilesystemSettingFileStore($directory), 'must be a local directory path');
         }
+        // Audit JK-I3: a relative directory depends on the current directory of each process (FPM, CLI, worker).
+        foreach (['config/instance-files', './files', '../files'] as $directory) {
+            $this->assertRefused(static fn (): FilesystemSettingFileStore => new FilesystemSettingFileStore($directory), 'must be an absolute path');
+        }
     }
 
     public function testVariantsDirectoriesIgnoreThemselvesInGit(): void

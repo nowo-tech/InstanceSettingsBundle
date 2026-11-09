@@ -205,7 +205,7 @@ The default (`doctrine`) is unchanged.
 | Key | Default | Description |
 | --- | --- | --- |
 | `store` | `doctrine` | `doctrine`: the `instance_setting_file` table (1.4 behaviour, byte for byte). `filesystem`: `Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore`. The file table stays mapped either way (no schema change between the two). |
-| `directory` | `%kernel.project_dir%/config/instance-files` | Base directory of the filesystem store, created (0755 minus the umask) on the first write. A local path only (not blank, no `scheme://`, no NUL). It **must not** be under the public web root: files are served by the file route only. Accepts `%env(...)%` (1.7.1): the container cannot see that value, so the store applies the same rules when it is built (see below). |
+| `directory` | `%kernel.project_dir%/config/instance-files` | Base directory of the filesystem store, created (0755 minus the umask) on the first write. An absolute local path only (not blank, no `scheme://`, no NUL; 1.7.1: a relative path is refused, because it would resolve against the current directory, which differs between PHP-FPM, the CLI and workers). It **must not** be under the public web root: files are served by the file route only. Accepts `%env(...)%` (1.7.1): the container cannot see that value, so the store applies the same rules when it is built (see below). |
 
 ```yaml
 # config/packages/nowo_instance_settings.yaml
@@ -271,6 +271,11 @@ Behaviour:
   `scheme://` wrapper or a directory under the public roots (any spelling, existing or not) is a `RuntimeException`
   then, before any file is read or written. The store is built when the kernel warms up, so a wrong value fails early.
   The base is normalised lexically for reads and writes alike (`a/missing/../files` is `a/files`).
+  **The variable must exist wherever the kernel boots** — PHP-FPM, workers, the CLI, and the image build or deploy
+  step that runs `cache:warmup` — or be given a default (`env(FILES_DIR): '%kernel.project_dir%/config/instance-files'`
+  under `parameters`): with the filesystem store, the store is built during the warm-up, so a missing or invalid value
+  stops the boot (fail-closed; the database store does not use the directory). An env value must be absolute, like a
+  literal one.
 - **Permissions:** files 0644 and directories 0755 minus the process umask, so non-public images are readable by
   other local users of the host; use a umask of `027` (process supervisor / container entrypoint) on a shared host.
 - **`purge-files`** removes stale variants and metadata (of another hash, or of a field without a file) and `.tmp-*`
@@ -291,7 +296,7 @@ so fresh instances (dev, e2e, new installs) can run it on every boot; a second r
 | Key | Default | Description |
 | --- | --- | --- |
 | `file` | `null` | Default seed file of the command (`.yaml`, `.yml` — needs `symfony/yaml` — or `.json`). Null: give the file as argument. |
-| `base_dir` | `%kernel.project_dir%` | Every seed file and every image path must resolve (with `realpath()`, symlinks followed) inside this directory. A local path only. |
+| `base_dir` | `%kernel.project_dir%` | Every seed file and every image path must resolve (with `realpath()`, symlinks followed) inside this directory. An absolute local path only (1.7.1: a relative one is refused). Accepts `%env(...)%`: checked when the seeder is built; the variable must then exist wherever the seed runs. |
 
 ```bash
 php bin/console nowo:instance-settings:seed --dry-run          # validate; list what would be seeded (names only)
@@ -325,7 +330,8 @@ Rules:
   (`File\ImageMetadataStripper`, allow-lists): JPEG keeps only the decoding segments, a JFIF `APP0` without thumbnail,
   `APP14` Adobe and GD's own `CREATOR: gd-jpeg` comment, and drops every other `APPn` (EXIF, GPS, XMP, ICC, MPF,
   Photoshop), other comments and anything after `EOI`; PNG keeps the critical chunks and `tRNS`, `gAMA`, `cHRM`,
-  `sRGB`, `sBIT`, `bKGD`, `pHYs`, and drops text, `eXIf`, `tIME`, `iCCP`, APNG frame chunks, private chunks and anything
+  `sRGB`, `sBIT`, `bKGD`, `pHYs` (each only at its spec length for the colour type; another length re-encodes), and
+  drops text, `eXIf`, `tIME`, `iCCP`, APNG frame chunks, private chunks and anything
   after `IEND`; WebP keeps `VP8X` (ICC / EXIF / XMP flags cleared), `ALPH` and the image chunk, drops `ICCP`, `EXIF`,
   `XMP `, unknown chunks and trailing bytes, and rewrites the RIFF size. A file with nothing to remove is left **byte
   for byte** (no write, same mtime and inode), so seeding a fresh database again (an e2e reset) changes nothing on disk;
@@ -333,7 +339,9 @@ Rules:
   sRGB images. The re-encode is still used when the structure cannot be stripped safely (a truncated or unknown
   segment, a PNG CRC mismatch, an unknown critical chunk…), and for a JPEG whose EXIF orientation is not 1 (dropping
   EXIF would turn it; the re-encode turns it upright once, then the file is stable). Uploads through the admin, the
-  API and imports keep the re-encode.
+  API and imports keep the re-encode. Lossless adoption removes metadata, not data hidden in the image streams (palette
+  entries, IDAT or entropy-coded data, unused JPEG tables, a VP8 tail); uploads and imports are re-encoded, so only a
+  committed file can carry such bytes, and they are still served as `image/*` with `nosniff` and a `sandbox` CSP.
 - **Insert-only** in one transaction, each field re-checked there (an admin save that wins the race is kept). Audited
   like a save: one `Instance settings saved.` log line and one `SettingsChangedEvent` per section with origin `seed`
   and `fileChanges` (`old: null`, `new: <sha256>`), dispatched after the commit, then one summary line. Output, report

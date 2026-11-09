@@ -54,16 +54,16 @@ final class EnvPathsTest extends KernelTestCase
     public function testAnEmptyOrWrapperEnvValueIsRefusedForBothKeys(): void
     {
         $valid = InstanceSettingsTestKernel::baseDir() . '/env-valid';
-        foreach (['', '  ', 's3://bucket/files', 'phar://app.phar'] as $value) {
+        foreach (['' => 'a local directory path', '  ' => 'a local directory path', 's3://bucket/files' => 'a local directory path', 'phar://app.phar' => 'a local directory path', 'var/files' => 'an absolute path', '../files' => 'an absolute path'] as $value => $reason) {
             // The store is built when the kernel warms up (the DBAL middleware): the boot itself fails.
-            $this->env(self::FILES, $value);
+            $this->env(self::FILES, (string) $value);
             $this->env(self::BASE, $valid);
-            $this->storeRefusal('files.directory must be a local directory path');
+            $this->storeRefusal('files.directory must be ' . $reason);
 
             $this->env(self::FILES, $valid);
-            $this->env(self::BASE, $value);
+            $this->env(self::BASE, (string) $value);
             $kernel = $this->kernel();
-            $this->refusal(fn (): mixed => $this->seeder($kernel), 'seed.base_dir must be a local directory path');
+            $this->refusal(fn (): mixed => $this->seeder($kernel), 'seed.base_dir must be ' . $reason);
         }
     }
 

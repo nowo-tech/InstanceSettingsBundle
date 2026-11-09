@@ -725,8 +725,20 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      */
     private function assertLocalPath(ContainerBuilder $container, string $value, string $option): void
     {
-        if (!$this->usesEnv($container, $value) && !PathGuard::isLocalPath($value)) {
+        if ($this->usesEnv($container, $value)) {
+            return;
+        }
+        if (!PathGuard::isLocalPath($value)) {
             throw new InvalidConfigurationException(sprintf('nowo_instance_settings.%s must be a local directory path, got "%s".', $option, $value));
+        }
+        try {
+            $resolved = (string) $container->getParameterBag()->resolveValue($value);
+        } catch (ParameterNotFoundException) {
+            // Built outside a kernel: the store / seeder check again when they are built.
+            return;
+        }
+        if (!PathGuard::isAbsolute($resolved)) {
+            throw new InvalidConfigurationException(sprintf('nowo_instance_settings.%s must be an absolute path (e.g. "%%kernel.project_dir%%/…"; a relative one depends on the current directory of each process), got "%s".', $option, $value));
         }
     }
 

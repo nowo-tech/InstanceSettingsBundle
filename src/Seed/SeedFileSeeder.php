@@ -144,6 +144,9 @@ final readonly class SeedFileSeeder
         if (!PathGuard::isLocalPath($baseDir)) {
             throw new InvalidArgumentException(sprintf('Instance settings seed: seed.base_dir must be a local directory path, got "%s".', $baseDir));
         }
+        if (!PathGuard::isAbsolute($baseDir)) {
+            throw new InvalidArgumentException(sprintf('Instance settings seed: seed.base_dir must be an absolute path (a relative one depends on the current directory of each process), got "%s".', $baseDir));
+        }
     }
 
     /**

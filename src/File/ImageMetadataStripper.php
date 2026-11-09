@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\File;
 use function chr;
 use function crc32;
 use function in_array;
+use function intdiv;
 use function ord;
 use function pack;
 use function preg_match;
@@ -27,7 +28,8 @@ use function unpack;
  *   `APP0` "JFIF" without a thumbnail, `APP14` "Adobe" (its colour-transform flag changes the decoding), and the
  *   `COM` that GD itself writes (`CREATOR: gd-jpeg …`, so the bundle's own re-encodes are already clean). Dropped:
  *   every other `APPn` (EXIF, XMP, ICC, MPF, Photoshop…), every other `COM`, and anything after `EOI`.
- * - **PNG:** the critical chunks plus `tRNS`, `gAMA`, `cHRM`, `sRGB`, `sBIT`, `bKGD`, `pHYs` (rendering only).
+ * - **PNG:** the critical chunks plus `tRNS`, `gAMA`, `cHRM`, `sRGB`, `sBIT`, `bKGD`, `pHYs` (rendering only), each
+ *   only at the length the PNG specification gives it for the colour type (audit JK-L1; another length re-encodes).
  *   Dropped: `tEXt`, `zTXt`, `iTXt`, `eXIf`, `tIME`, `iCCP`, APNG frames (`acTL` / `fcTL` / `fdAT`: the default image is
  *   kept, as the re-encode keeps it), private chunks, and anything after `IEND`.
  * - **WebP:** `VP8X` (its ICC / EXIF / XMP flags cleared), `ALPH`, `VP8 ` / `VP8L`. Dropped: `ICCP`, `EXIF`, `XMP `,
@@ -180,9 +182,11 @@ final class ImageMetadataStripper
         if (substr($bytes, 0, 8) !== self::PNG_SIGNATURE) {
             return null;
         }
-        $length = strlen($bytes);
-        $out    = self::PNG_SIGNATURE;
-        $offset = 8;
+        $length  = strlen($bytes);
+        $out     = self::PNG_SIGNATURE;
+        $offset  = 8;
+        $colour  = -1;
+        $palette = 0;
         while ($offset + 12 <= $length) {
             $size = self::uint32be($bytes, $offset);
             $type = substr($bytes, $offset + 4, 4);
@@ -196,6 +200,14 @@ final class ImageMetadataStripper
             }
             $chunk = substr($bytes, $offset, 12 + $size);
             $offset += 12 + $size;
+            if ($type === 'IHDR') {
+                $colour = $size === 13 ? ord($data[9]) : -1;
+            } elseif ($type === 'PLTE') {
+                $palette = intdiv($size, 3);
+            } elseif (in_array($type, self::PNG_KEPT_ANCILLARY, true) && !self::pngAncillaryLengthOk($type, $size, $colour, $palette)) {
+                // A kept chunk of a size the spec does not allow can only carry other data (audit JK-L1).
+                return null;
+            }
             if (in_array($type, self::PNG_CRITICAL, true) || in_array($type, self::PNG_KEPT_ANCILLARY, true)) {
                 $out .= $chunk;
             } elseif ((ord($type[0]) & 0x20) === 0) {
@@ -208,6 +220,28 @@ final class ImageMetadataStripper
         }
 
         return null;
+    }
+
+    /**
+     * Whether a kept PNG ancillary chunk has the length the PNG specification gives it for the image's colour type
+     * (0 grey, 2 RGB, 3 palette, 4 grey + alpha, 6 RGBA; `$palette` = PLTE entries seen so far).
+     */
+    private static function pngAncillaryLengthOk(string $type, int $size, int $colour, int $palette): bool
+    {
+        return match ($type) {
+            'gAMA'  => $size === 4,
+            'cHRM'  => $size === 32,
+            'sRGB'  => $size === 1,
+            'pHYs'  => $size === 9,
+            'sBIT'  => $size === ([0 => 1, 2 => 3, 3 => 3, 4 => 2, 6 => 4][$colour] ?? 0),
+            'bKGD'  => $size === ([0 => 2, 4 => 2, 2 => 6, 6 => 6, 3 => 1][$colour] ?? 0),
+            default => match ($colour) { // tRNS
+                0       => $size === 2,
+                2       => $size === 6,
+                3       => $size >= 1 && $size <= $palette,
+                default => false,
+            },
+        };
     }
 
     private static function webp(string $bytes): ?string

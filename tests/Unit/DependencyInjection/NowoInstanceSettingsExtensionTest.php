@@ -226,6 +226,16 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
             }
         }
 
+        // Audit JK-I3: a literal relative path is refused (it would depend on the current directory of each process).
+        foreach ([['files' => ['directory' => 'config/instance-files']], ['seed' => ['base_dir' => './']]] as $config) {
+            try {
+                $this->load($config, withSecurity: true);
+                self::fail('Expected InvalidConfigurationException');
+            } catch (InvalidConfigurationException $e) {
+                self::assertStringContainsString('must be an absolute path', $e->getMessage());
+            }
+        }
+
         // 1.7.1: an %env(...)% value (here under the public root) is not judged at build time; the store checks it.
         $project = sys_get_temp_dir() . '/nowo-is-ext-env-' . bin2hex(random_bytes(6));
         mkdir($project . '/public', 0o755, true);

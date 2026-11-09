@@ -122,6 +122,59 @@ final class ImageMetadataStripperTest extends TestCase
         self::assertNull(ImageMetadataStripper::strip('image/png', $bytes));
     }
 
+    /**
+     * @return iterable<string, array{int, string, string, bool}>
+     */
+    public static function pngAncillaryLengths(): iterable
+    {
+        $html = '<html><body><script>alert(document.cookie)</script>';
+        self::assertSame(52, strlen($html . '<'));
+        $html .= '<';
+        // Spec lengths are kept (colour types: 0 grey, 2 RGB, 3 palette with 4 entries, 4 grey + alpha, 6 RGBA).
+        yield 'gAMA 4' => [6, 'gAMA', pack('N', 45455), true];
+        yield 'cHRM 32' => [6, 'cHRM', str_repeat("\0", 32), true];
+        yield 'sRGB 1' => [6, 'sRGB', "\0", true];
+        yield 'pHYs 9' => [6, 'pHYs', pack('NNC', 2835, 2835, 1), true];
+        foreach ([0 => 1, 2 => 3, 3 => 3, 4 => 2, 6 => 4] as $colour => $length) {
+            yield 'sBIT ' . $length . ' on type ' . $colour => [$colour, 'sBIT', str_repeat("\x08", $length), true];
+        }
+        foreach ([0 => 2, 4 => 2, 2 => 6, 6 => 6, 3 => 1] as $colour => $length) {
+            yield 'bKGD ' . $length . ' on type ' . $colour => [$colour, 'bKGD', str_repeat("\0", $length), true];
+        }
+        yield 'tRNS 2 on grey' => [0, 'tRNS', "\0\0", true];
+        yield 'tRNS 6 on RGB' => [2, 'tRNS', str_repeat("\0", 6), true];
+        yield 'tRNS 4 of 4 palette entries' => [3, 'tRNS', "\0\x40\x80\xFF", true];
+        // A 52-byte HTML payload in any kept chunk: re-encode (audit JK-L1).
+        foreach (['gAMA', 'cHRM', 'sRGB', 'pHYs', 'sBIT', 'bKGD', 'tRNS'] as $type) {
+            yield $type . ' of 52 B HTML' => [6, $type, $html, false];
+        }
+        yield 'tRNS of 52 B HTML on RGB' => [2, 'tRNS', $html, false];
+        yield 'tRNS of 52 B HTML on grey' => [0, 'tRNS', $html, false];
+        yield 'tRNS beyond the palette' => [3, 'tRNS', $html, false];
+        yield 'tRNS on grey + alpha' => [4, 'tRNS', "\0\0", false];
+        yield 'tRNS on RGBA' => [6, 'tRNS', str_repeat("\0", 6), false];
+        yield 'sBIT of the wrong count' => [6, 'sBIT', "\x08", false];
+        yield 'bKGD of the wrong count' => [3, 'bKGD', "\0\0", false];
+        yield 'sBIT on an unknown colour type' => [5, 'sBIT', "\x08", false];
+    }
+
+    #[DataProvider('pngAncillaryLengths')]
+    public function testPngKeptChunksMustHaveTheirSpecLength(int $colour, string $type, string $data, bool $kept): void
+    {
+        $png = "\x89PNG\r\n\x1a\n" . self::chunk('IHDR', pack('NNCCCCC', 2, 2, 8, $colour, 0, 0, 0))
+            . ($colour === 3 ? self::chunk('PLTE', str_repeat("\x10\x20\x30", 4)) : '')
+            . self::chunk($type, $data) . self::chunk('IDAT', "\x78\x9c\x03\x00\x00\x00\x00\x01") . self::chunk('IEND', '');
+
+        self::assertSame($kept ? $png : null, ImageMetadataStripper::strip('image/png', $png));
+    }
+
+    public function testAPngWithAMalformedHeaderKeepsNoAncillaryChunk(): void
+    {
+        $png = "\x89PNG\r\n\x1a\n" . self::chunk('IHDR', 'short') . self::chunk('gAMA', pack('N', 1)) . self::chunk('sBIT', "\x08") . self::chunk('IEND', '');
+
+        self::assertNull(ImageMetadataStripper::strip('image/png', $png));
+    }
+
     public function testWebpMetadataChunksFlagsAndTrailersAreDropped(): void
     {
         // GD writes VP8X (18 bytes) + ALPH + VP8 for a canvas with alpha.

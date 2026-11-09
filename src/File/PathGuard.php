@@ -9,6 +9,7 @@ use function array_unshift;
 use function explode;
 use function getcwd;
 use function implode;
+use function preg_match;
 use function realpath;
 use function rtrim;
 use function str_contains;
@@ -66,5 +67,14 @@ final class PathGuard
     public static function isLocalPath(string $path): bool
     {
         return trim($path) !== '' && !str_contains($path, "\0") && !str_contains($path, '://');
+    }
+
+    /**
+     * Whether `$path` is absolute (`/…`, `C:\…` / `C:/…`, `\\server\…`). A relative directory would resolve against
+     * the current directory, which differs between PHP-FPM, the CLI and workers (audit JK-I3).
+     */
+    public static function isAbsolute(string $path): bool
+    {
+        return str_starts_with($path, '/') || str_starts_with($path, '\\\\') || preg_match('#^[A-Za-z]:[\\\\/]#', $path) === 1;
     }
 }

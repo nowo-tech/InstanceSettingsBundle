@@ -27,7 +27,10 @@ configuration; with `files.store: filesystem`:
 
 1. **Env paths.** `files.directory` and `seed.base_dir` may now be `%env(...)%`. The checks that the container applies
    to a literal value (local path; not under the public web root, any spelling) run when the store / seeder is built
-   for an env value, so a wrong value fails at kernel warm-up or on the first use instead of `cache:clear`.
+   for an env value, so a wrong value fails at kernel warm-up or on the first use instead of `cache:clear`. The
+   variable must exist wherever the kernel boots or `cache:warmup` runs (including an image build), or have an
+   `env(NAME)` default under `parameters`. Both keys must be **absolute** paths (literal or env): a relative value is
+   now refused, as it would resolve against each process's current directory (use `%kernel.project_dir%/…`).
 2. **Git.** Add the variants to the host `.gitignore` and commit only the originals:
 
    ```gitignore
