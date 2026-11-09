@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Ui;
 
+use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\UiKitBundle\Form\VisibleWhen;
@@ -16,6 +17,8 @@ use Nowo\UiKitBundle\View\SettingsSection;
 use Symfony\Component\Form\FormView;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Translation\TranslatableMessage;
+
+use function in_array;
 
 /**
  * Builds the UiKit view models of the settings pages (REQ-UI-003): one settings scaffold page per section (tabs for
@@ -71,6 +74,7 @@ final readonly class SettingsPageFactory
                 form: $name === $current ? $form : null,
                 intro: $this->intro($intro, $domain),
                 submitLabel: SettingsPages::label('settings.save'),
+                formThemes: $name === $current ? self::formThemes($form) : [],
                 actions: $name === $current ? $actions : [],
                 icon: $section->getIcon(),
             );
@@ -84,6 +88,60 @@ final readonly class SettingsPageFactory
             layout: $this->pages->layout(),
             attributes: ['data-testid' => 'instance-settings-section', 'data-section' => $current] + (self::hasVisibleWhenRows($form) ? VisibleWhen::containerAttributes() : []),
         );
+    }
+
+    /**
+     * Section page embedded in a host route (1.6, IS-1): tabs only for `$tabs` (the allowlisted sections the user may
+     * open, linked to the host routes), the form of `$current`, the host header (else the bundle title and intro,
+     * without the import / export link) and the host layout (else `web_ui.layout_template`).
+     *
+     * @param array<string, array{section: SettingsSectionInterface, href: string}> $tabs section name => section and host URL
+     * @param iterable<Action> $actions extra actions of the current section
+     */
+    public function embeddedSection(array $tabs, string $current, FormView $form, iterable $actions = [], ?PageHeader $header = null, ?string $layout = null): SettingsPage
+    {
+        $sections = [];
+        foreach ($tabs as $name => $tab) {
+            $section    = $tab['section'];
+            $domain     = $section->getTranslationDomain();
+            $sections[] = new SettingsSection(
+                id: $name,
+                label: new Label($section->getLabel(), $domain),
+                href: $tab['href'],
+                form: $name === $current ? $form : null,
+                intro: $this->intro($section->getIntro(), $domain),
+                submitLabel: SettingsPages::label('settings.save'),
+                formThemes: $name === $current ? self::formThemes($form) : [],
+                actions: $name === $current ? $actions : [],
+                icon: $section->getIcon(),
+            );
+        }
+
+        return new SettingsPage(
+            header: $header ?? $this->header(false),
+            sections: $sections,
+            current: $current,
+            bundle: SettingsPages::BUNDLE,
+            layout: $layout ?? $this->pages->layout(),
+            attributes: ['data-testid' => 'instance-settings-section', 'data-section' => $current, 'data-embedded' => 'true'] + (self::hasVisibleWhenRows($form) ? VisibleWhen::containerAttributes() : []),
+        );
+    }
+
+    /**
+     * Form themes of a section form (1.6): the theme-card picker's theme when a row uses {@see ThemeCardsType},
+     * nothing otherwise (pages without such a row render unchanged).
+     *
+     * @return list<string>
+     */
+    public static function formThemes(FormView $form): array
+    {
+        foreach ($form->children as $child) {
+            if (in_array(ThemeCardsType::BLOCK_PREFIX, $child->vars['block_prefixes'] ?? [], true)) {
+                return [ThemeCardsType::FORM_THEME];
+            }
+        }
+
+        return [];
     }
 
     /**

@@ -14,8 +14,10 @@ use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionSaveFilterInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
+use Nowo\UiKitBundle\Appearance\Appearance;
 use Nowo\UiKitBundle\Appearance\AppearancePreset;
 use Nowo\UiKitBundle\Appearance\BorderStrength;
+use Nowo\UiKitBundle\Appearance\BuiltInAppearancePresets;
 use Nowo\UiKitBundle\Appearance\CornerStyle;
 use Nowo\UiKitBundle\View\Label;
 use Symfony\Component\Validator\Constraints\Regex;
@@ -24,8 +26,10 @@ use function array_combine;
 use function array_key_exists;
 use function in_array;
 use function is_string;
+use function str_replace;
 use function strtolower;
 use function trim;
+use function ucfirst;
 
 /**
  * The `appearance` settings section of the brand bridge (spec 220 §3.1, §6): the preset per mode, seven colours per
@@ -43,6 +47,9 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
     /** Accepted stored colour. */
     public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/';
 
+    /** Translation domain of UiKit's preset names (theme cards, 1.6). */
+    public const UI_KIT_DOMAIN = 'NowoUiKitBundle';
+
     /** Modes and their field prefixes. */
     private const MODES = [AppearancePreset::MODE_LIGHT => 'light_', AppearancePreset::MODE_DARK => 'dark_'];
 
@@ -50,11 +57,14 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
      * @param BrandPalettes $palettes UiKit presets and defaults
      * @param InstanceBrandProvider $brand effective colours of the contrast notices
      * @param BrandFallbackProviderInterface|null $fallbacks host values to seed from (spec 220 §7.1)
+     * @param bool $presetCards `brand.preset_picker: cards` (1.6, IS-2): the two preset fields as theme cards with
+     *                          swatches and UiKit's preset names, instead of a select of ids
      */
     public function __construct(
         private readonly BrandPalettes $palettes,
         private readonly InstanceBrandProvider $brand,
         private readonly ?BrandFallbackProviderInterface $fallbacks = null,
+        private readonly bool $presetCards = false,
     ) {
     }
 
@@ -101,8 +111,8 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
         $ids      = $this->palettes->presetIds();
         $choices  = array_combine($ids, $ids);
         $fields   = [
-            $this->choice('preset', $choices, $defaults->themeId, 'theme'),
-            $this->choice('preset_dark', $choices, $defaults->themeIdDark, 'theme'),
+            $this->preset('preset', AppearancePreset::MODE_LIGHT, $choices, $defaults->themeId),
+            $this->preset('preset_dark', AppearancePreset::MODE_DARK, $choices, $defaults->themeIdDark),
         ];
         foreach (self::MODES as $mode => $prefix) {
             foreach (BrandPalettes::KEYS as $key) {
@@ -192,6 +202,39 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
         }
 
         return $list;
+    }
+
+    /**
+     * A preset field: the plain choice of ids, or (`$presetCards`) theme cards labelled with UiKit's preset names
+     * (`appearance.preset.<id>` in the NowoUiKitBundle domain for built-ins and `custom`, a readable id for host
+     * presets, as UiKit's AppearanceType) with a swatch of the preset palette of `$mode`.
+     *
+     * @param array<string, string> $choices
+     */
+    private function preset(string $name, string $mode, array $choices, string $default): SettingField
+    {
+        $field = $this->choice($name, $choices, $default, 'theme');
+        if (!$this->presetCards) {
+            return $field;
+        }
+
+        $labelled = [];
+        $swatches = [];
+        foreach ($field->choices as $id) {
+            $id    = (string) $id;
+            $known = $id === Appearance::CUSTOM || in_array($id, BuiltInAppearancePresets::IDS, true);
+            $label = $known ? 'appearance.preset.' . $id : ucfirst(str_replace(['-', '_'], ' ', $id));
+            // Labels are the choice keys: two host ids with the same readable label ("my-theme", "my_theme") keep
+            // their raw ids, so no preset is ever dropped from the picker.
+            $label            = array_key_exists($label, $labelled) || $label === '' ? $id : $label;
+            $labelled[$label] = $id;
+            $swatches[$id]    = $this->palettes->swatch($mode, $id);
+        }
+
+        return (new SettingField($name, SettingType::Choice, $default, 'appearance.field.' . $name, 'appearance.help.' . $name, true, choices: $labelled))
+            ->withFormOptions(['choice_translation_domain' => self::UI_KIT_DOMAIN])
+            ->withThemeCards($swatches)
+            ->withGroup('theme');
     }
 
     /**

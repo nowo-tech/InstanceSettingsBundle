@@ -22,6 +22,7 @@
   - [Reading the brand](#reading-the-brand)
   - [UiKit appearance](#uikit-appearance)
   - [Migrating a host appearance entity](#migrating-a-host-appearance-entity)
+  - [Theme cards](#theme-cards)
 - [Seeding from fallbacks (DB-only mode)](#seeding-from-fallbacks-db-only-mode)
   - [Calling the seeder from a migration](#calling-the-seeder-from-a-migration)
 - [Export and import (config portability)](#export-and-import-config-portability)
@@ -31,6 +32,7 @@
 - [Admin UI](#admin-ui)
   - [Access](#access)
   - [Forms (FormKit)](#forms-formkit)
+  - [Embedding sections in a host page](#embedding-sections-in-a-host-page)
   - [Overriding templates (REQ-TWIG-001)](#overriding-templates-req-twig-001)
 - [Translations](#translations)
 - [Doctrine schema and migrations](#doctrine-schema-and-migrations)
@@ -314,7 +316,7 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 ## Image fields
 
 Since 1.4 a field can hold a raster image (logo, icon, mascot): `SettingField::image()`. Image fields are **opt-in**:
-set `nowo_instance_settings.files.enabled: true` (it maps the file table, see [UPGRADING](UPGRADING.md#unreleased) for
+set `nowo_instance_settings.files.enabled: true` (it maps the file table, see [UPGRADING](UPGRADING.md#to-160) for
 the migration). Without it a section that declares an image field fails when the section definitions load (router
 warm-up, first request), with a message naming the field.
 
@@ -490,6 +492,30 @@ value, only the values that differ from the code defaults), set `brand.fallback_
 `--dry-run`). It is insert-only and idempotent; colours equal to the selected preset are not seeded, image keys are
 skipped (keep the images as config default assets or upload them). Remove the old entity in a later release.
 
+### Theme cards
+
+`nowo_instance_settings.brand.preset_picker: cards` (1.6) renders `appearance.preset` and `appearance.preset_dark` as a
+radio group of theme cards instead of a select: one card per preset with UiKit's preset name (`appearance.preset.<id>`
+in the `NowoUiKitBundle` domain; host presets show a readable id) and a swatch of the preset's `paper`, `surface`,
+`ink`, `accent` and `accent_deep` for the field's mode (`custom` has no swatch). Stored values, validation and the
+export are those of the select.
+
+Any choice field of your own section can use the same widget:
+
+```php
+yield SettingField::choice('palette', ['palette.warm' => 'warm', 'palette.cold' => 'cold'], 'warm', 'palette.label')
+    ->withThemeCards(['warm' => ['#fff4e6', '#d9480f'], 'cold' => ['#e7f5ff', '#1971c2']]);
+```
+
+Markup: native radio inputs inside `<label>` cards (arrow keys move between them, the checked one is announced, no
+JavaScript), a `role="radiogroup"` container named by the row label and described by the help. Swatches are inline SVG
+`<rect fill="#rrggbb">`: colours that are not `#rrggbb` are dropped (at most 8 per option), there is no `style`
+attribute, so a strict CSP needs nothing. The form theme `@NowoInstanceSettingsBundle/Form/theme_cards.html.twig` is
+added to a section form only when it has such a row; a host template that sets its own `form_theme ... only` must add
+it. A radio group has no "none" option (the select's empty placeholder): use cards for required choices, or add an
+explicit "none" choice value of your own. Style hooks: UiKit slots `cards` / `card` / `check` and the classes `nowo-instance-settings-theme-cards`,
+`nowo-instance-settings-theme-card` and `nowo-instance-settings-theme-card__swatch`.
+
 ## Seeding from fallbacks (DB-only mode)
 
 To seed values **and images** from a file committed in the host repository, use `nowo:instance-settings:seed`
@@ -640,6 +666,56 @@ Two layers (REQ-UI-002): the host firewall on the prefix, and the bundle checker
 
 Every form is a FormKit type (`SettingsSectionType`, `PortabilityExportType`, `PortabilityImportType` — `#[FormKitConfig('instance_settings')]`) rendered by the UiKit scaffold with `form_start` / the REQ-TWIG-003 child loop / `form_end`; CSRF on every POST (`nowo_instance_settings_section_<name>`, `nowo_instance_settings_export`, `nowo_instance_settings_import`). Hosts and demos must not reintroduce raw `<form>` / `<input>` markup when overriding templates. The FormKit profile `nowo_form_kit.profiles.instance_settings` is prepended by the bundle; define it yourself to change it ([CONFIGURATION](CONFIGURATION.md#formkit-profile)).
 
+### Embedding sections in a host page
+
+`Embed\SettingsSectionEmbedder` (1.6, public service) shows and saves settings sections inside your own route and
+layout, e.g. only `brand` and `appearance` on a "Developer → Appearance" page:
+
+```php
+use Nowo\InstanceSettingsBundle\Embed\SectionEmbedOptions;
+use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
+
+#[Route('/developer/appearance/{section}', name: 'app_appearance', methods: ['GET', 'POST'])]
+public function __invoke(Request $request, SettingsSectionEmbedder $embedder, string $section = 'brand'): Response
+{
+    return $embedder->handle($request, $section, SectionEmbedOptions::route('app_appearance', ['brand', 'appearance'])
+        ->withLayout('developer/layout.html.twig')
+        ->withHeader(new PageHeader(new Label('developer.appearance.title', 'messages')))
+        ->withContext(['active_menu' => 'appearance']));
+}
+```
+
+- `SectionEmbedOptions::route($route, $sections, $sectionParameter = 'section', $routeParameters = [])`: one host route
+  with the section in a parameter; `SectionEmbedOptions::routes(['brand' => 'app_brand', ...], $routeParameters)`: one
+  host route per section. The routes are the tab links and the redirect target after a save.
+- `withTemplate()` (page template; same variables as `settings/section.html.twig`, plus `embedded: true`),
+  `withLayout()` (the layout the scaffold extends), `withHeader()` (a UiKit `PageHeader`; default: the bundle title
+  and intro without the import / export link), `withContext()` (extra variables; the bundle's win on a clash).
+- `accessibleSections($options)`: the allowlisted sections the current user may open (for a host menu; empty when the
+  UI gate denies the user).
+- `routeParameters` come from host code, never from the request (a request value in a host placeholder could point the
+  redirect at another host; such URLs are refused anyway, see below).
+
+Security is the bundle route's, by the same code: the UI gate (`security.access_roles` or your access checker) runs
+first, then the section must be registered and allowlisted (else 404), then `security.area_roles.<section>` (else
+the firewall entry point / 403). The allowlist only narrows what a user may open, never widens it. The form keeps the
+per-section CSRF token id, secrets are never rendered back, uploads go through the image pipeline and
+provider-dependent fields behave as on the bundle page. Route names are validated (`SectionEmbedOptions::ROUTE_PATTERN`):
+a path or a URL is refused, and the redirect is generated by the router from the host route name, never from the
+request, so an embed cannot be an open redirect. Every host route of the options is generated once at the start of
+`handle()`: an unknown route or a missing parameter is a `LogicException` naming the section and the route (for every
+user, not only those who see that tab), and so is a URL that is not a local path (`/`, not `//`): a route bound to
+another host or scheme cannot be embedded. Keep your own firewall / `access_control` on the host route; it must accept
+GET and POST.
+
+- **UI role required.** The embed asks for the UI gate (`security.access_roles` or your checker with area null) on top
+  of `security.area_roles.<section>`, as the bundle route does. A "brand editor" role that should only see the embed
+  must also be in `access_roles` (and the other sections then restricted with `area_roles`), or your custom checker
+  must grant it.
+- **Call it from the host route's controller**, or `forward()` to that controller. Do not embed it with Twig
+  `{{ render(controller(...)) }}`: fragments are GET sub-requests, so the form's POST would be dropped silently (and a
+  denial would render an empty fragment). `handle()` refuses a GET sub-request of a POST with a `LogicException`.
+
 ### Overriding templates (REQ-TWIG-001)
 
 Preferred, upgrade-safe customisation: `nowo_ui_kit.layouts.admin` / `web_ui.layout_template` (your layout), the UiKit theme (`nowo_ui_kit.theme` classes / tokens), or `web_ui.templates.<page>` pointing at a thin template that `{% extends '@!NowoInstanceSettingsBundle/settings/section.html.twig' %}` and overrides one block.
@@ -677,7 +753,7 @@ The bundle maps one entity, two with `files.enabled: true` (the mappings are pre
 automatically):
 
 - `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`).
-- `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#unreleased) for the DDL.
+- `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#to-160) for the DDL.
 
 Create and apply the schema with Doctrine Migrations in the application:
 

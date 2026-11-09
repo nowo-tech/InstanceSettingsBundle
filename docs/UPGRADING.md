@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.6.0](#to-160)
 - [To 1.5.0](#to-150)
 - [To 1.4.0](#to-140)
 - [To 1.3.1](#to-131)
@@ -20,7 +21,7 @@
 
 ## Unreleased
 
-Target **1.7.0**, from **1.5.0** / **1.6.0**: nothing to do unless you opt in. Without `seed` and `files.store` the
+Target **1.7.0**, from **1.6.0**: nothing to do unless you opt in. Without `seed` and `files.store` the
 services, schema and behaviour are unchanged (the database file store is byte for byte the same).
 
 1. **Seed file (IS-3).** Commit a seed file and its images, e.g. `config/instance-seed.yaml` (format and example in
@@ -51,6 +52,39 @@ services, schema and behaviour are unchanged (the database file store is byte fo
    deleted at once) and the file on disk is authoritative.
 3. **`ImageUpload::fromPath()`** now refuses `scheme://` and `data:` paths (`upload_failed`). Only code that passed a
    stream wrapper path on purpose is affected.
+
+## To 1.6.0
+
+From **1.5.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+Target 1.6.0, from **1.5.0**. Nothing to do: both additions are opt-in and the bundle pages render as in 1.5.
+
+- **Embedding sections in your own page (IS-1).** Replace a forward to `SettingsController::section` (which showed
+  every tab and redirected to the bundle route) with `SettingsSectionEmbedder::handle()` in your controller:
+
+  ```php
+  public function __invoke(Request $request, SettingsSectionEmbedder $embedder, string $section): Response
+  {
+      return $embedder->handle($request, $section, SectionEmbedOptions::route('app_appearance', ['brand', 'appearance'])
+          ->withLayout('admin/layout.html.twig'));
+  }
+  ```
+
+  Keep your own firewall / `access_control` on the host route; the embedder adds the bundle checks on top (UI gate +
+  section area + CSRF). Your route must accept GET and POST. Pass route names only (a path or URL is refused), call
+  the embedder from your route's controller (not a Twig `render(controller())` fragment), and keep `routeParameters`
+  to values from your code. A role that should open the embed needs the UI role (`access_roles`) too, not only
+  `area_roles.<section>`.
+- **Theme cards (IS-2).** Set `nowo_instance_settings.brand.preset_picker: cards` to show the preset fields as cards.
+  The stored values and the export do not change. A host that overrides the section template with its own
+  `form_theme ... only` must add `@NowoInstanceSettingsBundle/Form/theme_cards.html.twig` itself.
+- Code that builds `SettingsController` by hand keeps working: without the new last argument (`SettingsSectionEmbedder`)
+  `section()` builds the same embedder from the controller's arguments and its `AbstractController` service locator
+  (form factory, Twig, router, request stack). The container wiring passes the service.
 
 ## To 1.5.0
 

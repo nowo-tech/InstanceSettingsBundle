@@ -51,6 +51,12 @@ final class Configuration implements ConfigurationInterface
     /** Default days a replaced / removed image is kept before `purge-files` deletes it. */
     public const DEFAULT_ORPHAN_RETENTION = 30;
 
+    /** `brand.preset_picker` (1.6): a select of preset ids (default). */
+    public const PRESET_PICKER_SELECT = 'select';
+
+    /** `brand.preset_picker` (1.6): theme cards with swatches. */
+    public const PRESET_PICKER_CARDS = 'cards';
+
     /**
      * Builds the tree.
      */
@@ -272,6 +278,11 @@ final class Configuration implements ConfigurationInterface
                 ->scalarNode('fallback_provider')
                     ->info('Service id implementing Brand\\BrandFallbackProviderInterface: values the two sections seed from (nowo:instance-settings:seed-from-fallbacks). Null = none.')
                     ->defaultNull()
+                ->end()
+                ->enumNode('preset_picker')
+                    ->info('1.6 (IS-2): how the appearance section shows preset / preset_dark: "select" (a select of preset ids, the default) or "cards" (theme cards: a radio group with a colour swatch and UiKit\'s preset names).')
+                    ->values([self::PRESET_PICKER_SELECT, self::PRESET_PICKER_CARDS])
+                    ->defaultValue(self::PRESET_PICKER_SELECT)
                 ->end()
                 ->arrayNode('defaults')
                     ->info('Values while nothing is stored. Asset paths are relative to public_dir (committed, trusted files; SVG and ICO allowed).')

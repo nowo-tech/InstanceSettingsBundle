@@ -1,0 +1,35 @@
+{#
+  Theme-card picker (1.6, IS-2): the widget of Nowo\InstanceSettingsBundle\Form\ThemeCardsType. Added to a section
+  form's themes by SettingsPageFactory only when the form has such a row (other pages render unchanged); it defines only
+  the `nowo_instance_settings_theme_cards_*` blocks. Hosts with their own section template can add it with
+  {% form_theme form '@NowoInstanceSettingsBundle/Form/theme_cards.html.twig' %}.
+
+  A radio group of cards: each card is a <label> holding the native radio (arrow keys, announced state, works without
+  JavaScript), an optional swatch and the option label. Swatches are inline SVG rectangles filled with the `swatches`
+  colours, which ThemeCardsType validated as #rrggbb (no style attribute: strict CSP safe); the swatch is decorative
+  (aria-hidden). The group is named by the row label (label_attr.id) and described by the help.
+  Classes: UiKit slots `cards`, `card`, `check` (radios get `check_input` from the UiKit form theme), plus the markers
+  nowo-instance-settings-theme-cards / -theme-card / -theme-card__swatch for host stylesheets.
+#}
+{%- block nowo_instance_settings_theme_cards_widget -%}
+    {%- set _b = 'NowoInstanceSettingsBundle' -%}
+    {%- set _invalid = errors is defined and errors|length > 0 -%}
+    {%- set _swatches = swatches|default({}) -%}
+    <div id="{{ id }}" class="{{ (nowo_ui_class('cards', _b) ~ ' nowo-instance-settings-theme-cards ' ~ attr.class|default(''))|trim }}" role="radiogroup" aria-labelledby="{{ label_attr.id|default(id ~ '_label') }}"
+        {%- if help is defined and help is not empty %} aria-describedby="{{ id }}_help"{% endif %}
+        {%- if required %} aria-required="true"{% endif %}{% if _invalid %} aria-invalid="true"{% endif %} data-nowo-instance-settings-theme-cards>
+        {%- for child in form %}
+            {%- set _colors = _swatches[child.vars.value] ?? [] -%}
+            {%- set _size = 16 -%}
+            <label class="{{ nowo_ui_class('card', _b) }} {{ nowo_ui_class('check', _b) }} nowo-instance-settings-theme-card" data-value="{{ child.vars.value }}"{% if child.vars.checked %} data-checked="true"{% endif %}>
+                {{- form_widget(child) -}}
+                {%- if _colors is not empty -%}
+                <svg class="nowo-instance-settings-theme-card__swatch" width="{{ _size * _colors|length }}" height="{{ _size }}" viewBox="0 0 {{ _size * _colors|length }} {{ _size }}" aria-hidden="true" focusable="false">
+                    {%- for _color in _colors %}<rect x="{{ loop.index0 * _size }}" y="0" width="{{ _size }}" height="{{ _size }}" fill="{{ _color }}"/>{% endfor -%}
+                </svg>
+                {%- endif -%}
+                <span class="nowo-ui-check__label">{{ child.vars.label is same as(false) ? '' : (choice_translation_domain is same as(false) ? child.vars.label : child.vars.label|trans(child.vars.label_translation_parameters, choice_translation_domain)) }}</span>
+            </label>
+        {%- endfor -%}
+    </div>
+{%- endblock nowo_instance_settings_theme_cards_widget -%}

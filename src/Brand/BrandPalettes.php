@@ -36,6 +36,9 @@ final readonly class BrandPalettes
     /** UiKit palette keys, in order ({@see AppearancePalette::KEYS}); storage keys are `light_<key>` / `dark_<key>`. */
     public const KEYS = AppearancePalette::KEYS;
 
+    /** Palette keys of a theme-card swatch (1.6), in order. */
+    public const SWATCH_KEYS = ['paper', 'surface', 'ink', 'accent', 'accent_deep'];
+
     /** Contract colour name of each UiKit palette key (spec 220 §3.1). */
     public const CONTRACT_KEYS = [
         'accent'      => 'primary',
@@ -148,6 +151,29 @@ final readonly class BrandPalettes
             is_string($border) ? BorderStrength::fromLoose($border)->value : $defaults->borderStrength,
             is_bool($footer) ? $footer : $defaults->footerFixed,
         );
+    }
+
+    /**
+     * Swatch colours of a preset for the theme cards (1.6): its `paper`, `surface`, `ink`, `accent` and `accent_deep`
+     * of `$mode`, each `#rrggbb` (a preset value outside that grammar is replaced as in {@see self::colors()}).
+     * Empty for {@see Appearance::CUSTOM} and unknown ids (the card shows its label only).
+     *
+     * @return list<string>
+     */
+    public function swatch(string $mode, string $presetId): array
+    {
+        $preset = $this->registry->get($presetId);
+        if (!$preset instanceof AppearancePreset) {
+            return [];
+        }
+        $colors   = $preset->palette($mode)->toArray();
+        $fallback = ($mode === AppearancePreset::MODE_DARK ? BuiltInAppearancePresets::get('midnight')->dark : BuiltInAppearancePresets::get('slate')->light)->toArray();
+        $swatch   = [];
+        foreach (self::SWATCH_KEYS as $key) {
+            $swatch[] = strtolower(ColorMath::isHex($colors[$key]) ? $colors[$key] : $fallback[$key]);
+        }
+
+        return $swatch;
     }
 
     /**
