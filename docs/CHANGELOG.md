@@ -51,7 +51,10 @@ unchanged byte for byte).
   and the DBAL middleware `Doctrine\FileStoreTransactionMiddleware` (registered with `files.store: filesystem`). New
   files are staged as temporary files and clears queued; renames and deletes happen after the outermost commit (also
   of a transaction the host opened around the call) and a rollback discards them, so a failed save, clear, import or
-  seed never changes the files. Saves, imports and seeds run in a file unit.
+  seed never changes the files. Saves, imports and seeds run in a file unit. The middleware is attached to the bundle's
+  connection only (`DependencyInjection\Compiler\FileStoreMiddlewarePass`, audit JG-L7) and follows savepoints
+  (`SAVEPOINT` / `RELEASE SAVEPOINT` / `ROLLBACK TO SAVEPOINT`, SQL Server `SAVE` / `ROLLBACK TRANSACTION`): changes
+  inside a savepoint that is rolled back are dropped even when the outer transaction commits (audit JG-M3).
 - Filesystem store metadata `<section>/.variants/<field>.meta` (hash, type, dimensions bound to the file's stat):
   lookups and wrong-hash requests no longer read and hash the file (audit JG-L1).
 
@@ -62,8 +65,11 @@ unchanged byte for byte).
 - The file route answers 404 (no-store) when the store returns no bytes for a record it found, instead of an empty
   immutable 200 (audit JG-L2); with the filesystem store it serves a field's file only while the field has a setting
   row (audit JG-L3, new optional `SettingFileController` argument).
-- The container refuses a filesystem store directory under `%kernel.project_dir%/public` or `brand.public_dir`
-  (audit JG-L4).
+- The container refuses a filesystem store directory under `%kernel.project_dir%/public` or `brand.public_dir`,
+  whatever its spelling and also before it exists (`File\PathGuard`; audits JG-L4, JG-L6); the store checks again before
+  creating it.
+- `doctrine/dbal` is now required as `^4.0` (it was only allowed through `doctrine/orm`): the transaction middleware
+  wraps DBAL 4's driver connection (`exec(): int|string`), and DBAL 4 nests transactions with savepoints by default.
 
 - `InstanceSettings::getFile()` builds the `StoredSettingFile` hash and URLs from the store's record (identical for
   the database store; the current file for the filesystem store).

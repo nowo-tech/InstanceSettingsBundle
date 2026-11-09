@@ -53,7 +53,8 @@ final readonly class SettingFileController
      * @param SettingsSectionRegistry $registry sections and fields
      * @param SettingFileStoreInterface $store file store
      * @param AccessGuard $guard section areas of non-public fields
-     * @param InstanceSettingsInterface|null $settings setting rows (1.7): the filesystem store serves a field's file only while the field is set
+     * @param InstanceSettingsInterface|null $settings setting rows (1.7): the filesystem store serves a field's file only while the field is set;
+     *                                                 without it (a controller wired by hand) every filesystem-store file is a 404
      */
     public function __construct(
         private SettingsSectionRegistry $registry,

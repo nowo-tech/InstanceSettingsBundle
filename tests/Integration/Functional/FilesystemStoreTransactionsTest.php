@@ -64,6 +64,48 @@ final class FilesystemStoreTransactionsTest extends KernelTestCase
         self::assertSame([], glob($this->files . '/brand/logo_light.*'));
     }
 
+    public function testAHostSavepointRollbackKeepsTheImage(): void
+    {
+        $kernel     = $this->kernel();
+        $settings   = $this->settings($kernel);
+        $connection = $this->connection($kernel);
+        $settings->save('brand', ['logo_light' => ImageUpload::fromBytes(ImageFactory::png(240, 80))]);
+        $bytes = (string) file_get_contents($this->files . '/brand/logo_light.png');
+
+        // Clear inside a savepoint that is rolled back, outer transaction committed (JG-M3).
+        $connection->beginTransaction();
+        $connection->beginTransaction();
+        $settings->save('brand', ['logo_light' => null]);
+        $connection->rollBack();
+        $connection->commit();
+        $settings->reset();
+        self::assertSame($bytes, (string) file_get_contents($this->files . '/brand/logo_light.png'));
+        self::assertSame(hash('sha256', $bytes), $settings->getFile('brand.logo_light')?->sha256);
+
+        // Replace inside a savepoint that is rolled back.
+        $connection->beginTransaction();
+        $connection->beginTransaction();
+        $settings->save('brand', ['logo_light' => ImageUpload::fromBytes(ImageFactory::png(240, 80, 10))]);
+        $connection->rollBack();
+        $connection->commit();
+        $settings->reset();
+        self::assertSame($bytes, (string) file_get_contents($this->files . '/brand/logo_light.png'));
+        self::assertSame(hash('sha256', $bytes), $settings->getFile('brand.logo_light')?->sha256);
+        self::assertSame([], self::temps($this->files . '/brand'));
+
+        // Savepoint released, outer committed: applied (row and disk agree).
+        $connection->beginTransaction();
+        $connection->beginTransaction();
+        $settings->save('brand', ['logo_light' => ImageUpload::fromBytes(ImageFactory::png(240, 80, 10))]);
+        $connection->commit();
+        $connection->commit();
+        $settings->reset();
+        $now = (string) file_get_contents($this->files . '/brand/logo_light.png');
+        self::assertNotSame($bytes, $now);
+        self::assertSame(hash('sha256', $now), $settings->getFile('brand.logo_light')?->sha256);
+        self::assertSame('"isf:' . hash('sha256', $now) . '"', $this->connection($kernel)->fetchOne("SELECT value FROM instance_setting_value WHERE name = 'logo_light'"));
+    }
+
     public function testASaveWhoseSecondFieldFailsKeepsTheFirstFieldsImage(): void
     {
         $kernel   = $this->kernel();

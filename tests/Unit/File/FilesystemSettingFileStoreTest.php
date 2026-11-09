@@ -12,6 +12,7 @@ use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Tests\Support\ImageFactory;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use stdClass;
 use Symfony\Component\Filesystem\Filesystem;
 
 use function bin2hex;
@@ -206,36 +207,92 @@ final class FilesystemSettingFileStoreTest extends TestCase
         $this->store->save('brand', 'logo', $old, $this->now);
         $root = $this->root();
         $new  = $this->image(ImageFactory::png(64, 64, 10));
+        $a    = new stdClass();
+        $b    = new stdClass();
 
         // Committed by the bundle, but the host transaction rolls back: discarded.
-        $this->store->transactionStarted();
+        $this->store->transactionStarted($a);
         $this->store->begin();
         $this->store->save('brand', 'logo', $new, $this->now);
         $this->store->end(true);
         $this->store->orphan('brand', 'logo', $old->sha256(), $this->now);
         self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'));
-        $this->store->transactionEnded(false);
+        $this->store->transactionEnded($a, false);
         self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'));
         self::assertSame([], glob($root . '/brand/.tmp-*'));
 
-        // Nested real transactions (two connections): applied once the last one commits.
-        $this->store->transactionStarted();
-        $this->store->transactionStarted();
+        // Applied when its own connection commits; another connection ending changes nothing (JG-L7).
+        $this->store->transactionStarted($a);
         $this->store->save('brand', 'logo', $new, $this->now);
-        $this->store->transactionEnded(true);
+        $this->store->transactionEnded($b, false);
+        $this->store->savepointCreated($b, 'DOCTRINE_2');
         self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'));
-        $this->store->transactionEnded(true);
+        $this->store->transactionEnded($a, true);
         self::assertSame($new->original->bytes, file_get_contents($root . '/brand/logo.png'));
 
         // A clear outside a unit waits as well; kernel.reset forgets everything.
-        $this->store->transactionStarted();
+        $this->store->transactionStarted($a);
         $this->store->orphan('brand', 'logo', $new->sha256(), $this->now);
         $this->store->save('brand', 'mark', $old, $this->now);
         $this->store->reset();
-        $this->store->transactionEnded(true);
+        $this->store->transactionEnded($a, true);
         self::assertFileExists($root . '/brand/logo.png');
         self::assertFileDoesNotExist($root . '/brand/mark.png');
         self::assertSame([], glob($root . '/brand/.tmp-*'));
+    }
+
+    public function testASavepointRollbackDropsTheChangesQueuedInside(): void
+    {
+        $old = $this->image(ImageFactory::png(64, 64));
+        $this->store->save('brand', 'logo', $old, $this->now);
+        $root = $this->root();
+        $new  = $this->image(ImageFactory::png(64, 64, 10));
+        $c    = new stdClass();
+
+        // Rolled back to the savepoint, then the outer transaction commits: the image is intact (JG-M3).
+        $this->store->transactionStarted($c);
+        $this->store->savepointCreated($c, 'DOCTRINE_2');
+        $this->store->orphan('brand', 'logo', $old->sha256(), $this->now);
+        $this->store->savepointCreated($c, 'DOCTRINE_3');
+        $this->store->save('brand', 'mark', $new, $this->now);
+        $this->store->savepointRolledBack($c, 'doctrine_2');
+        $this->store->transactionEnded($c, true);
+        self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'));
+        self::assertFileDoesNotExist($root . '/brand/mark.png');
+        self::assertSame([], self::temps($root . '/brand'));
+
+        // Released, then committed: applied. Released, then rolled back: dropped.
+        $this->store->transactionStarted($c);
+        $this->store->savepointCreated($c, 'DOCTRINE_2');
+        $this->store->save('brand', 'logo', $new, $this->now);
+        $this->store->savepointReleased($c, 'DOCTRINE_2');
+        $this->store->savepointReleased($c, 'UNKNOWN');
+        $this->store->transactionEnded($c, true);
+        self::assertSame($new->original->bytes, file_get_contents($root . '/brand/logo.png'));
+
+        $this->store->transactionStarted($c);
+        $this->store->savepointCreated($c, 'DOCTRINE_2');
+        $this->store->save('brand', 'logo', $old, $this->now);
+        $this->store->savepointReleased($c, 'DOCTRINE_2');
+        $this->store->transactionEnded($c, false);
+        self::assertSame($new->original->bytes, file_get_contents($root . '/brand/logo.png'));
+
+        // A platform that cannot release savepoints re-creates the same name: the open level counts as committed.
+        $this->store->transactionStarted($c);
+        $this->store->savepointCreated($c, 'DOCTRINE_2');
+        $this->store->save('brand', 'logo', $old, $this->now);
+        $this->store->savepointCreated($c, 'DOCTRINE_2');
+        $this->store->savepointRolledBack($c, 'DOCTRINE_2');
+        $this->store->transactionEnded($c, true);
+        self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'));
+    }
+
+    public function testTheBaseDirectoryIsRefusedUnderAForbiddenRoot(): void
+    {
+        mkdir($this->dir . '/public', 0o755, true);
+        $store = new FilesystemSettingFileStore($this->dir . '/x/../public/files', [$this->dir . '/public']);
+        $this->assertRefused(fn () => $store->save('brand', 'logo', $this->image(ImageFactory::png(8, 8)), $this->now), 'under the public web root');
+        self::assertDirectoryDoesNotExist($this->dir . '/public/files');
     }
 
     public function testAFailedRenameAfterTheCommitKeepsThePreviousFile(): void

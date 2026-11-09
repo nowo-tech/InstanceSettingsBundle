@@ -27,6 +27,7 @@ use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
@@ -34,6 +35,7 @@ use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
+use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\File\SettingFileController;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\File\SettingFileUrls;
@@ -86,10 +88,8 @@ use function interface_exists;
 use function is_array;
 use function is_bool;
 use function is_string;
-use function realpath;
 use function rtrim;
 use function sprintf;
-use function str_replace;
 use function str_starts_with;
 
 /**
@@ -176,6 +176,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->assertFilePrefix($config['files']['path_prefix'], $config['web_ui']['path_prefix']);
 
         $container->setParameter('nowo_instance_settings.doctrine.table_prefix', $config['doctrine']['table_prefix']);
+        $container->setParameter(FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER, $config['doctrine']['entity_manager']);
         $container->setParameter('nowo_instance_settings.web_ui.enabled', $webUi);
         $container->setParameter('nowo_instance_settings.web_ui.path_prefix', $config['web_ui']['path_prefix']);
         $container->setParameter('nowo_instance_settings.web_ui.layout_template', $config['web_ui']['layout_template']);
@@ -201,7 +202,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         if ($filesEnabled && $config['files']['store'] === 'filesystem') {
             $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
         }
-        $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files']);
+        $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files'] + ['public_dir' => $config['brand']['public_dir']]);
         $this->registerPortability($container, $portability, $filesEnabled);
         // The access checker / guard also serve kits (their own actions, CLI) when the admin UI is off.
         $this->registerAccess($container, $config['security']);
@@ -451,7 +452,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      * image field, which needs the flag.
      *
      * @param array{table_prefix: string, entity_manager: string|null} $doctrine
-     * @param array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string} $files
+     * @param array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, public_dir: string} $files
      */
     private function registerFiles(ContainerBuilder $container, array $doctrine, bool $enabled, array $files): void
     {
@@ -470,7 +471,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         ]));
         if ($files['store'] === 'filesystem') {
             // 1.7 (owner decision D-20261109-03): stable files per field in files.directory, no database blob.
-            $container->setDefinition(FilesystemSettingFileStore::class, (new Definition(FilesystemSettingFileStore::class, [$files['directory']]))
+            $container->setDefinition(FilesystemSettingFileStore::class, (new Definition(FilesystemSettingFileStore::class, [$files['directory'], ['%kernel.project_dir%/public', $files['public_dir']]]))
                 ->addTag('kernel.reset', ['method' => 'reset']));
             // Follows the real transactions (a host transaction around a bundle call) for the file changes (JG-M1).
             $container->setDefinition(FileStoreTransactionMiddleware::class, (new Definition(FileStoreTransactionMiddleware::class, [new Reference(FilesystemSettingFileStore::class)]))
@@ -693,21 +694,16 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      */
     private function assertFilesDirectoryNotPublic(ContainerBuilder $container, string $directory, string $publicDir): void
     {
-        $bag  = $container->getParameterBag();
-        $path = static function (string $value) use ($bag): string {
-            $value = (string) $bag->resolveValue($value);
-
-            return rtrim(str_replace('\\', '/', realpath($value) ?: $value), '/') . '/';
-        };
+        $bag = $container->getParameterBag();
         try {
-            $dir   = $path($directory);
-            $roots = [$path('%kernel.project_dir%/public'), $path($publicDir)];
+            $dir   = (string) $bag->resolveValue($directory);
+            $roots = [(string) $bag->resolveValue('%kernel.project_dir%/public'), (string) $bag->resolveValue($publicDir)];
         } catch (ParameterNotFoundException) {
-            // Built outside a kernel (no kernel.project_dir): nothing to compare with.
+            // Built outside a kernel (no kernel.project_dir): the store checks again before creating the directory.
             return;
         }
         foreach ($roots as $root) {
-            if (str_starts_with($dir, $root)) {
+            if (PathGuard::isUnder($dir, $root)) {
                 throw new LogicException(sprintf('NowoInstanceSettingsBundle: files.directory "%s" is under the public web root "%s": the web server would serve the images without the file route\'s access check and headers. Use a directory outside it, e.g. "%%kernel.project_dir%%/config/instance-files".', $dir, $root));
             }
         }

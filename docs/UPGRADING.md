@@ -56,7 +56,12 @@ services, schema and behaviour are unchanged (the database file store is byte fo
    authoritative, and a file without a setting row is not served.
 3. **Committed images are re-encoded when seeded** with the filesystem store (as uploads are): the committed file at
    the field's stable path may change once in git (EXIF / appended bytes dropped).
-4. **`ImageUpload::fromPath()`** now refuses `scheme://` and `data:` paths (`upload_failed`). Only code that passed a
+4. **`doctrine/dbal` ^4.0** is now a direct requirement. Hosts still on DBAL 3 stay on 1.6 until they upgrade
+   (DoctrineBundle 3 and ORM 3 already run on DBAL 4).
+5. **`SettingFileController` built by hand** (not through the container): pass the new fourth argument
+   (`InstanceSettingsInterface`); without it every file of the filesystem store answers 404. The database store is
+   unaffected.
+6. **`ImageUpload::fromPath()`** now refuses `scheme://` and `data:` paths (`upload_failed`). Only code that passed a
    stream wrapper path on purpose is affected.
 
 ## To 1.6.0

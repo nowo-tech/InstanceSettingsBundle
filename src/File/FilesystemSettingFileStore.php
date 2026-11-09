@@ -12,7 +12,9 @@ use Symfony\Contracts\Service\ResetInterface;
 use Throwable;
 
 use function array_diff;
+use function array_key_last;
 use function array_pop;
+use function array_slice;
 use function array_values;
 use function chmod;
 use function count;
@@ -33,16 +35,17 @@ use function is_link;
 use function is_string;
 use function json_decode;
 use function json_encode;
-use function max;
 use function mkdir;
 use function preg_match;
 use function realpath;
 use function rename;
 use function rsort;
 use function scandir;
+use function spl_object_id;
 use function sprintf;
 use function stat;
 use function str_starts_with;
+use function strcasecmp;
 use function strlen;
 use function substr;
 use function tempnam;
@@ -118,22 +121,22 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     private array $units = [];
 
-    /** Real database transactions in progress (reported by the DBAL middleware). */
-    private int $transactions = 0;
-
     /**
-     * Operations committed by the bundle while a database transaction (the host's) is still open: applied when it
-     * commits, discarded when it rolls back.
+     * Open database transactions of the bundle's connection (reported by the DBAL middleware), keyed by connection,
+     * in the order they began: the real transaction, then one level per savepoint, each with the operations the bundle
+     * committed while it was the innermost level. A rolled-back level drops its operations (audit JG-M3).
      *
-     * @var list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>
+     * @var array<int, list<array{0: string|null, 1: list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>}>>
      */
-    private array $deferred = [];
+    private array $transactions = [];
 
     /**
      * @param string $directory base directory of the files (`files.directory`); created on the first write
+     * @param list<string> $forbiddenRoots directories the base must not be in (the public web root, audit JG-L6)
      */
     public function __construct(
         private readonly string $directory,
+        private readonly array $forbiddenRoots = [],
     ) {
     }
 
@@ -214,7 +217,7 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
 
             return;
         }
-        foreach ([...$this->units, $this->deferred] as $unit) {
+        foreach ($this->pending() as $unit) {
             foreach ($unit as $operation) {
                 if ($operation[0] === 'clean' && $operation[1] === $section && $operation[2] === $field && $operation[3] !== null) {
                     return;
@@ -251,35 +254,62 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     public function reset(): void
     {
-        foreach ([...$this->units, $this->deferred] as $operations) {
+        foreach ($this->pending() as $operations) {
             $this->discard($operations);
         }
         $this->units        = [];
-        $this->deferred     = [];
-        $this->transactions = 0;
+        $this->transactions = [];
     }
 
     /**
-     * A real database transaction started (DBAL middleware).
+     * A real database transaction started on `$connection` (DBAL middleware).
      */
-    public function transactionStarted(): void
+    public function transactionStarted(object $connection): void
     {
-        ++$this->transactions;
+        unset($this->transactions[spl_object_id($connection)]);
+        $this->transactions[spl_object_id($connection)] = [[null, []]];
     }
 
     /**
-     * A real database transaction ended: once none is left after a commit, the deferred changes are applied; a
-     * rollback discards them.
+     * The real transaction of `$connection` ended: a commit applies every operation it holds, a rollback discards them.
      */
-    public function transactionEnded(bool $committed): void
+    public function transactionEnded(object $connection, bool $committed): void
     {
-        $this->transactions = max(0, $this->transactions - 1);
-        if ($committed && $this->transactions > 0) {
+        $levels = $this->transactions[spl_object_id($connection)] ?? [];
+        unset($this->transactions[spl_object_id($connection)]);
+        $operations = $this->flatten($levels);
+        $committed ? $this->apply($operations) : $this->discard($operations);
+    }
+
+    /**
+     * A savepoint was created on `$connection`: a new innermost level (a level of the same name still open was
+     * implicitly committed into its parent, as on platforms that cannot release savepoints).
+     */
+    public function savepointCreated(object $connection, string $name): void
+    {
+        $id = spl_object_id($connection);
+        if (!isset($this->transactions[$id])) {
             return;
         }
-        $operations     = $this->deferred;
-        $this->deferred = [];
-        $committed ? $this->apply($operations) : $this->discard($operations);
+        $this->closeSavepoint($id, $name, true);
+        $this->transactions[$id][] = [$name, []];
+    }
+
+    /**
+     * A savepoint was released (committed) on `$connection`: its operations go to the enclosing level.
+     */
+    public function savepointReleased(object $connection, string $name): void
+    {
+        $this->closeSavepoint(spl_object_id($connection), $name, true);
+    }
+
+    /**
+     * The connection rolled back to a savepoint: the operations of that level (and of the levels inside it) are
+     * discarded (audit JG-M3).
+     */
+    public function savepointRolledBack(object $connection, string $name): void
+    {
+        $this->closeSavepoint(spl_object_id($connection), $name, false);
     }
 
     /**
@@ -363,8 +393,10 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     private function queue(array $operations): void
     {
-        if ($this->units === [] && $this->transactions > 0) {
-            $this->deferred = [...$this->deferred, ...$operations];
+        $connection = array_key_last($this->transactions);
+        if ($this->units === [] && $connection !== null) {
+            $level                                      = count($this->transactions[$connection]) - 1;
+            $this->transactions[$connection][$level][1] = [...$this->transactions[$connection][$level][1], ...$operations];
 
             return;
         }
@@ -482,10 +514,71 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
     }
 
     /**
-     * The real directory of a section (or of its variants), created 0755 when missing; a symlink is refused.
+     * Closes the savepoint level `$name` and every level inside it: committed into the enclosing level, or discarded.
+     */
+    private function closeSavepoint(int $connection, string $name, bool $committed): void
+    {
+        $levels = $this->transactions[$connection] ?? [];
+        foreach ($levels as $index => [$level]) {
+            if ($index > 0 && $level !== null && strcasecmp($level, $name) === 0) {
+                $closed = $this->flatten(array_slice($levels, $index));
+                $levels = array_slice($levels, 0, $index);
+                $parent = count($levels) - 1;
+                if ($committed) {
+                    $levels[$parent][1] = [...$levels[$parent][1], ...$closed];
+                } else {
+                    $this->discard($closed);
+                }
+                $this->transactions[$connection] = $levels;
+
+                return;
+            }
+        }
+    }
+
+    /**
+     * Every staged operation list: the open units and the levels of the open transactions.
+     *
+     * @return list<list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>>
+     */
+    private function pending(): array
+    {
+        $lists = $this->units;
+        foreach ($this->transactions as $levels) {
+            foreach ($levels as [, $operations]) {
+                $lists[] = $operations;
+            }
+        }
+
+        return $lists;
+    }
+
+    /**
+     * @param list<array{0: string|null, 1: list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>}> $levels
+     *
+     * @return list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>
+     */
+    private function flatten(array $levels): array
+    {
+        $operations = [];
+        foreach ($levels as [, $level]) {
+            $operations = [...$operations, ...$level];
+        }
+
+        return $operations;
+    }
+
+    /**
+     * The real directory of a section (or of its variants), created 0755 when missing; a symlink is refused, and so
+     * is a base directory under one of the forbidden roots (checked before it is created).
      */
     private function directory(string $section, ?string $sub = null): string
     {
+        foreach ($this->forbiddenRoots as $root) {
+            if (PathGuard::isUnder($this->directory, $root)) {
+                throw new RuntimeException(sprintf('Instance settings file store: "%s" is under the public web root "%s"; refusing to write.', $this->directory, $root));
+            }
+        }
         if (!is_dir($this->directory) && !@mkdir($this->directory, 0o755, true)) {
             throw new RuntimeException(sprintf('Instance settings file store: cannot create the directory "%s" (files.directory).', $this->directory));
         }

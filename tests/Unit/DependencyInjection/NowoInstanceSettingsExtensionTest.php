@@ -34,6 +34,7 @@ use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class NowoInstanceSettingsExtensionTest extends TestCase
 {
@@ -185,6 +186,33 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertNull($off->getDefinition(SeedFileSeeder::class)->getArgument(5));
         self::assertNull($off->getDefinition(SeedFileSeeder::class)->getArgument(4));
         self::assertFalse($off->hasDefinition(FilesystemSettingFileStore::class));
+    }
+
+    public function testTheFilesystemDirectoryMayNotBeUnderThePublicWebRootWhateverItsSpelling(): void
+    {
+        $project = sys_get_temp_dir() . '/nowo-is-ext-' . bin2hex(random_bytes(6));
+        mkdir($project . '/public', 0o755, true);
+        mkdir($project . '/src', 0o755, true);
+        mkdir($project . '/web', 0o755, true);
+        symlink($project . '/public', $project . '/linked');
+        try {
+            foreach (['%kernel.project_dir%/src/../public/files', $project . '//public/files', $project . '/./public/files', $project . '/linked/sub', $project . '/web/files'] as $directory) {
+                $container = new ContainerBuilder();
+                $container->setParameter('kernel.project_dir', $project);
+                try {
+                    (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => $directory], 'brand' => ['public_dir' => $project . '/web']]], $container);
+                    self::fail('Expected the refusal of ' . $directory);
+                } catch (LogicException $e) {
+                    self::assertStringContainsString('under the public web root', $e->getMessage());
+                }
+            }
+            $container = new ContainerBuilder();
+            $container->setParameter('kernel.project_dir', $project);
+            (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '%kernel.project_dir%/config/instance-files']]], $container);
+            self::assertSame(['%kernel.project_dir%/public', '%kernel.project_dir%/public'], $container->getDefinition(FilesystemSettingFileStore::class)->getArgument(1));
+        } finally {
+            (new Filesystem())->remove($project);
+        }
     }
 
     public function testFilePrefixMustBeOutsideTheAdminPrefix(): void

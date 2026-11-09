@@ -38,6 +38,7 @@
     ],
     "require": {
         "php": ">=8.2 <8.6",
+        "doctrine/dbal": "^4.0",
         "doctrine/doctrine-bundle": "^2.13 || ^3.0",
         "doctrine/orm": "^3.3",
         "doctrine/persistence": "^3.1 || ^4.0",
@@ -69,7 +70,6 @@
         "twig/twig": "^3.12"
     },
     "require-dev": {
-        "doctrine/dbal": "^3.8 || ^4.0",
         "friendsofphp/php-cs-fixer": "^3.0",
         "igor-php/igor-php": "^0.10.1",
         "nowo-tech/brand-contracts": "^1.0",

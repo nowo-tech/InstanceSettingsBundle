@@ -240,10 +240,12 @@ Behaviour:
   retention with this store, so `files.orphan_retention` does not apply and e-mails already sent lose the old image).
 - **Transactional (audit JG-M1).** Inside a save, an import or a seed the new files are only staged (temporary files)
   and clears are queued; renames and deletes happen after the **outermost** commit, and a rollback removes the staged
-  files. A DBAL middleware follows a transaction the host opens around a bundle call (`$em->wrapInTransaction(...)`):
-  the file changes wait for its real commit and are discarded when it rolls back. With several connections, a
-  rollback on any of them discards the pending file changes (the files then keep the previous image). A rename that
-  fails after the commit keeps the previous file (still served).
+  files. A DBAL middleware on the **bundle's connection only** (the one of `doctrine.entity_manager`) follows a
+  transaction the host opens around a bundle call (`$em->wrapInTransaction(...)`), savepoints included: the file
+  changes wait for its real commit, and a rollback of the transaction, or to a savepoint that encloses the call
+  (a nested `wrapInTransaction()` that failed and was caught), discards them (audit JG-M3). Transactions on other
+  connections neither delay nor discard them (audit JG-L7). A rename that fails after the commit keeps the previous
+  file (still served).
 - **The file on disk is authoritative.** The setting row says the field is set; the URL carries the first 12 hex
   characters of the current file's SHA-256 (cache busting: a logo replaced under the same name gets a new URL, the old
   URL answers 404, and the strong `ETag` is the hash). A `git pull` that changed a committed logo is served at once.
@@ -257,7 +259,9 @@ Behaviour:
   A file that is not PNG / JPEG / WebP by its content, whose extension disagrees with its content, or larger than
   5 MiB is not served. A directory that cannot be created or written is a clear `RuntimeException`.
 - **Not under the public web root:** the container refuses a `files.directory` under `%kernel.project_dir%/public` or
-  `brand.public_dir` (the web server would serve the images without the file route's access check and headers).
+  `brand.public_dir` (the web server would serve the images without the file route's access check and headers),
+  whatever its spelling (`..`, `//`, `.`, a symlink): the path is normalised and its nearest existing ancestor
+  resolved, also when it does not exist yet. The store checks again before it creates the directory (audit JG-L6).
 - **Permissions:** files 0644 and directories 0755 minus the process umask, so non-public images are readable by
   other local users of the host; use a umask of `027` (process supervisor / container entrypoint) on a shared host.
 - **`purge-files`** removes stale variants and metadata (of another hash, or of a field without a file) and `.tmp-*`
