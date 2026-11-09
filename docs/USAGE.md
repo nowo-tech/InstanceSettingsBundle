@@ -37,6 +37,7 @@
   - [Overriding templates (REQ-TWIG-001)](#overriding-templates-req-twig-001)
 - [Translations](#translations)
 - [Doctrine schema and migrations](#doctrine-schema-and-migrations)
+- [Using it from a DDD / hexagonal application](#using-it-from-a-ddd--hexagonal-application)
 
 ## Contributing a settings section
 
@@ -843,3 +844,75 @@ php bin/console doctrine:migrations:migrate
 ```
 
 `doctrine:schema:update --force` is fine for local demos only. After changing `doctrine.table_prefix`, generate a migration that renames the table and its unique index. The bundle never changes the schema at runtime.
+
+## Using it from a DDD / hexagonal application
+
+InstanceSettingsBundle is a self-contained bounded context for runtime configuration: it owns its entities
+(`instance_setting_value`, and `instance_setting_file` with image fields), its repository and its admin UI. It has no
+relation to your entities and needs no `resolve_target_entities`. In a hexagonal application it is infrastructure:
+your domain declares the configuration it needs as its own port, and an adapter reads it from the bundle.
+
+**Keep the domain free of the bundle**
+
+- Define a port in your domain (`MailerSettings`, `BillingPolicy`, …) with typed methods; never pass
+  `section.field` strings or bundle classes into the domain.
+- Implement it in your infrastructure layer on top of `Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface`
+  (`getString()`, `getInt()`, `getFloat()`, `getBool()`, `getSecret()`, `getFile()`, `getSection()`, `save()`).
+- Put your `SettingsSectionInterface` classes next to that adapter (infrastructure / UI): they carry labels, icons and
+  translation domains as well as the schema.
+
+```php
+// Domain
+interface MailerSettings
+{
+    public function senderAddress(): string;
+    public function dsn(): ?string;
+}
+
+// Infrastructure
+final readonly class InstanceMailerSettings implements MailerSettings
+{
+    public function __construct(private InstanceSettingsInterface $settings) {}
+
+    public function senderAddress(): string
+    {
+        return $this->settings->getString('mailer.from') ?? 'noreply@example.com';
+    }
+
+    public function dsn(): ?string
+    {
+        return $this->settings->getSecret('mailer.dsn');
+    }
+}
+```
+
+**Reacting to changes.** Listen to `Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent` (PSR-14) in an
+infrastructure listener and translate it into your own event or cache reset. It carries `section`, `changedFields`,
+`secretFields`, `origin` (`form`, `import`, `api`, `seed`) and `fileChanges` (hashes), never values: read the new
+values through `InstanceSettingsInterface`. It is dispatched right after the bundle's flush, so inside a transaction
+you opened yourself it fires before your commit.
+
+**Other ports you can implement**
+
+| Port | Purpose | How it is wired |
+| --- | --- | --- |
+| `Security\InstanceSettingsAccessCheckerInterface` | who may open the admin UI / a section | `security.access_checker: <service id>` |
+| `Portability\PortabilityProviderInterface` | add your own data to export / import | autoconfigured tag |
+| `Section\SectionFallbackProviderInterface` | bootstrap values for DB-only seeding | implement on the section |
+| `Brand\BrandFallbackProviderInterface` | seed `brand` / `appearance` from a legacy source | `brand.fallback_provider: <service id>` |
+| `File\SettingFileStoreInterface` | another backend for image files | alias it in your services |
+
+With the brand bridge enabled, consume brand data through `Nowo\Brand\Contract\BrandProviderInterface` rather than the
+`brand.*` keys.
+
+For image fields written from application code, pass `ImageUpload::fromBytes()` / `fromPath()` instead of an HTTP
+`UploadedFile`.
+
+**Known limitations**
+
+- `SettingValueRepositoryInterface` works with the Doctrine entity `SettingValue`, and the ORM mapping is always
+  registered: replacing the storage with a non-Doctrine backend means building those entities and handling secret
+  encryption yourself.
+- `SettingsChangedEvent` carries field names only, not values.
+- Keys are `section.field` strings; map them to typed values in your adapter.
+- Seeding (`FallbackSeeder`) checks the Doctrine connection directly, even with a custom repository.
