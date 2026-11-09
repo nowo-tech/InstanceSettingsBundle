@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Section;
 
 use InvalidArgumentException;
+use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Symfony\Component\Validator\Constraint;
 
@@ -265,6 +266,30 @@ final readonly class SettingField
     public function withFormOptions(array $formOptions): self
     {
         return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image, $this->group);
+    }
+
+    /**
+     * Copy rendered as a theme-card picker (1.6, IS-2): a radio group of cards, each with a colour swatch, instead of a
+     * select ({@see ThemeCardsType}). Only for {@see SettingType::Choice}; values, validation and storage do not change.
+     *
+     * @param array<int|string, list<string>> $swatches choice value => colours (`#rrggbb`; other values are dropped,
+     *                                                  at most 8 per option); an option without colours shows its label only
+     */
+    public function withThemeCards(array $swatches = []): self
+    {
+        if ($this->type !== SettingType::Choice) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": theme cards are only for choice fields.', $this->name));
+        }
+
+        return $this->withFormOptions([ThemeCardsType::SWATCHES => ThemeCardsType::normalizeSwatches($swatches)]);
+    }
+
+    /**
+     * Whether the admin form renders the field as a theme-card picker ({@see self::withThemeCards()}).
+     */
+    public function hasThemeCards(): bool
+    {
+        return $this->type === SettingType::Choice && array_key_exists(ThemeCardsType::SWATCHES, $this->formOptions);
     }
 
     /**

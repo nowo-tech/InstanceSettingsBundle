@@ -27,6 +27,7 @@ use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
+use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
@@ -37,6 +38,7 @@ use Nowo\InstanceSettingsBundle\Form\PortabilityExportType;
 use Nowo\InstanceSettingsBundle\Form\PortabilityImportType;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
+use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
@@ -203,7 +205,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      * The brand bridge (1.5, spec 220 S3): the `brand` and `appearance` sections, the contract provider and asset
      * reader, `nowo_brand()`. UiKit's appearance provider is re-aliased by {@see BrandBridgePass}.
      *
-     * @param array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>} $brand
+     * @param array{enabled: bool, public_dir: string, fallback_provider: string|null, preset_picker?: string, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>} $brand
      */
     private function registerBrand(ContainerBuilder $container, array $brand): void
     {
@@ -278,6 +280,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(BrandPalettes::class),
             new Reference(InstanceBrandProvider::class),
             $fallbacks,
+            ($brand['preset_picker'] ?? Configuration::PRESET_PICKER_SELECT) === Configuration::PRESET_PICKER_CARDS,
         ]))->addTag(NowoInstanceSettingsBundle::SECTION_TAG));
 
         $container->setDefinition(BrandTwigExtension::class, (new Definition(BrandTwigExtension::class, [
@@ -546,7 +549,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             return;
         }
 
-        foreach ([SettingsSectionType::class, SettingImageType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
+        foreach ([SettingsSectionType::class, SettingImageType::class, ThemeCardsType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
             $container->setDefinition($type, (new Definition($type))->addTag('form.type'));
         }
 
@@ -564,6 +567,21 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $webUi['path_prefix'],
         ]))->addTag('kernel.event_listener', ['event' => KernelEvents::REQUEST, 'method' => 'onKernelRequest', 'priority' => InstanceSettingsAccessListener::PRIORITY]));
 
+        // 1.6 (IS-1): the section page, shared by the bundle route and host embeds (public: hosts fetch it in their
+        // own controllers by autowiring).
+        $container->setDefinition(SettingsSectionEmbedder::class, (new Definition(SettingsSectionEmbedder::class, [
+            new Reference(SettingsSectionRegistry::class),
+            new Reference(InstanceSettingsInterface::class),
+            new Reference(AccessGuard::class),
+            new Reference(SettingsPageFactory::class),
+            new Reference('form.factory'),
+            new Reference('twig'),
+            new Reference('router'),
+            new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            $portabilityEnabled,
+            new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->setPublic(true));
+
         // REQ-SF-004 rule 7: not autoconfigured (no `routing.controller` tag from #[Route]); the routes come only from
         // the `nowo_instance_settings` loader. Autowired only for AbstractController::setContainer().
         $container->setDefinition(SettingsController::class, (new Definition(SettingsController::class, [
@@ -575,6 +593,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(JsonUploadReader::class),
             $portabilityEnabled,
             new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(SettingsSectionEmbedder::class),
         ]))
             ->setAutowired(true)
             ->setAutoconfigured(false)

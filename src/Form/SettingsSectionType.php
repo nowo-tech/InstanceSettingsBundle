@@ -127,6 +127,11 @@ final class SettingsSectionType extends AbstractType
             }
 
             [$type, $extra] = self::widget($field);
+            if ($field->hasThemeCards()) {
+                // 1.6 SettingField::withThemeCards(): the same choice as radio cards with swatches.
+                $type  = ThemeCardsType::class;
+                $extra = ['choices' => $field->choices];
+            }
             if ($field->type === SettingType::Choice) {
                 $extra['choice_translation_domain'] = $domain;
             }

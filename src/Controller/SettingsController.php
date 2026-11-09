@@ -5,41 +5,35 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Controller;
 
 use JsonException;
-use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
-use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
-use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
-use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
+use LogicException;
+use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
 use Nowo\InstanceSettingsBundle\Form\PortabilityExportType;
 use Nowo\InstanceSettingsBundle\Form\PortabilityImportType;
-use Nowo\InstanceSettingsBundle\Form\SettingImageType;
-use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityException;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
-use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
-use Nowo\InstanceSettingsBundle\Section\SettingField;
-use Nowo\InstanceSettingsBundle\Section\SettingsSectionActionsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
-use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
-use Nowo\InstanceSettingsBundle\Ui\ImagePreview;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\Form\FormError;
+use Symfony\Component\Form\FormFactoryInterface;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
+use Twig\Environment;
 
 use function array_key_first;
 use function array_keys;
@@ -63,7 +57,11 @@ use const JSON_UNESCAPED_UNICODE;
 final class SettingsController extends AbstractController
 {
     /**
+     * @param InstanceSettingsInterface $settings used only to build the section page when no embedder is given
      * @param bool $portabilityEnabled `portability.web_ui` (import / export page)
+     * @param SettingsSectionEmbedder|null $embedder section page (1.6: shared with host embeds; wired by the extension).
+     *                                               Null (a controller built by hand, 1.5 signature): section() builds
+     *                                               one from this controller's arguments and its service locator
      */
     public function __construct(
         private readonly SettingsSectionRegistry $registry,
@@ -74,6 +72,7 @@ final class SettingsController extends AbstractController
         private readonly JsonUploadReader $reader,
         private readonly bool $portabilityEnabled = true,
         private readonly ?TranslatorInterface $translator = null,
+        private readonly ?SettingsSectionEmbedder $embedder = null,
     ) {
     }
 
@@ -95,72 +94,12 @@ final class SettingsController extends AbstractController
     }
 
     /**
-     * Shows and saves one section.
+     * Shows and saves one section (the same code as a host embed: {@see SettingsSectionEmbedder}).
      */
     #[Route(path: '/sections/{section}', name: InstanceSettingsRoutes::SECTION, requirements: ['section' => '[a-z][a-z0-9_]{0,63}'], methods: ['GET', 'POST'])]
     public function section(Request $request, string $section): Response
     {
-        if (!$this->registry->has($section)) {
-            throw new NotFoundHttpException('Unknown settings section.');
-        }
-        if (!$this->guard->isGranted($section)) {
-            $this->guard->deny('Access denied to this settings section.');
-        }
-
-        $definition = $this->registry->get($section);
-        $fields     = $this->registry->fields($section);
-        $stored     = [];
-        $images     = [];
-        $previews   = [];
-        foreach ($fields as $name => $field) {
-            if ($field->secret) {
-                $stored[$name] = $this->settings->hasSecret($section . '.' . $name);
-            }
-            if ($field->image !== null) {
-                $file          = $this->settings->getFile($section . '.' . $name);
-                $images[$name] = $file instanceof StoredSettingFile;
-                // 1.5 (audit IO Q3): opt-in preview of the stored image, by its file route URL only.
-                $preview = $file instanceof StoredSettingFile && ($field->formOptions['preview'] ?? false) === true ? ImagePreview::of($file, $field, $definition->getTranslationDomain()) : null;
-                if ($preview instanceof ImagePreview) {
-                    $previews[] = $preview;
-                }
-            }
-        }
-
-        $form = $this->createForm(SettingsSectionType::class, $this->settings->getSection($section), [
-            'section'        => $definition,
-            'fields'         => $fields,
-            'stored_secrets' => $stored,
-            'stored_images'  => $images,
-            'csrf_token_id'  => 'nowo_instance_settings_section_' . $section,
-        ]);
-        $form->handleRequest($request);
-
-        if ($form->isSubmitted() && $form->isValid()) {
-            try {
-                $changed = $this->settings->save($section, $this->submittedValues($form, $fields), SettingsChangedEvent::ORIGIN_FORM);
-                $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
-
-                return $this->redirectToRoute(InstanceSettingsRoutes::SECTION, ['section' => $section]);
-            } catch (InvalidSettingValueException $e) {
-                foreach ($e->violations as $name => $messages) {
-                    foreach ($messages as $message) {
-                        $form->get($name)->addError(new FormError($message));
-                    }
-                }
-            }
-        }
-
-        $context = new SectionActionContext($section, $request, $this->guard->user());
-        $actions = $definition instanceof SettingsSectionActionsInterface ? $definition->getActions($context) : [];
-        $notices = $definition instanceof SettingsSectionNoticesInterface ? $this->pages->notices($definition->getNotices($context), $definition->getTranslationDomain()) : [];
-
-        return $this->render($this->pages->template('section'), [
-            'page'           => $this->pages->section($this->accessibleSections(), $section, $form->createView(), $actions, $this->canUsePortability()),
-            'section'        => $section,
-            'notices'        => $notices,
-            'image_previews' => $previews,
-        ], new Response(status: $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK));
+        return ($this->embedder ?? $this->fallbackEmbedder())->handleBundlePage($request, $section);
     }
 
     /**
@@ -249,57 +188,21 @@ final class SettingsController extends AbstractController
     }
 
     /**
-     * Values to save: every field visible for the submitted values (provider-dependent fields hidden for the submitted
-     * controlling value are left out, so "empty = delete" and validation only apply to visible fields), plus a null
-     * for a hidden secret whose "clear" box was checked.
-     *
-     * @param FormInterface<mixed> $form
-     * @param array<string, SettingField> $fields
-     *
-     * @return array<string, mixed>
+     * The section page of a controller built without the embedder (1.5 constructor signature): the same class, built
+     * from this controller's arguments and the AbstractController service locator (form factory, Twig, router, request
+     * stack), so the checks are the same as with the wired service.
      */
-    private function submittedValues(FormInterface $form, array $fields): array
+    private function fallbackEmbedder(): SettingsSectionEmbedder
     {
-        /** @var array<string, mixed> $data */
-        $data   = (array) $form->getData();
-        $values = [];
-        foreach ($fields as $name => $field) {
-            if (!$field->isVisibleFor($data)) {
-                // Hidden for the submitted provider (1.3): neither validated nor written; its stored row is kept,
-                // except an explicit "clear" on a secret, which deletes it (never writes a value).
-                if ($field->secret) {
-                    SecretFieldApplier::applyData($form->get($name)->getData(), static function (?string $secret) use (&$values, $name): void {
-                        if ($secret === null) {
-                            $values[$name] = null;
-                        }
-                    });
-                }
-
-                continue;
-            }
-            if ($field->image !== null) {
-                // Image (1.4): a new upload replaces, "remove" deletes the row, nothing keeps the stored image.
-                $child  = $form->get($name);
-                $upload = $child->get(SettingImageType::FILE)->getData();
-                if ($upload instanceof UploadedFile) {
-                    $values[$name] = $upload;
-                } elseif ($child->has(SettingImageType::REMOVE) && $child->get(SettingImageType::REMOVE)->getData() === true) {
-                    $values[$name] = null;
-                }
-
-                continue;
-            }
-            if (!$field->secret) {
-                $values[$name] = $data[$name] ?? null;
-
-                continue;
-            }
-            SecretFieldApplier::applyData($form->get($name)->getData(), static function (?string $secret) use (&$values, $name): void {
-                $values[$name] = $secret;
-            });
+        $formFactory = $this->container->get('form.factory');
+        $twig        = $this->container->get('twig');
+        $router      = $this->container->get('router');
+        $stack       = $this->container->get('request_stack');
+        if (!$formFactory instanceof FormFactoryInterface || !$twig instanceof Environment || !$router instanceof UrlGeneratorInterface || !$stack instanceof RequestStack) {
+            throw new LogicException('SettingsController::section() needs the form factory, Twig and the router (or the SettingsSectionEmbedder service).');
         }
 
-        return $values;
+        return new SettingsSectionEmbedder($this->registry, $this->settings, $this->guard, $this->pages, $formFactory, $twig, $router, $stack, $this->portabilityEnabled, $this->translator);
     }
 
     /**

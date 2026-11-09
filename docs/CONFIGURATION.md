@@ -50,6 +50,7 @@ nowo_instance_settings:
         enabled: false                 # opt-in: brand + appearance sections, BrandProviderInterface, UiKit provider; implies files.enabled
         public_dir: '%kernel.project_dir%/public'   # default asset paths are relative to it
         fallback_provider: null        # service id implementing Brand\BrandFallbackProviderInterface (seed)
+        preset_picker: select          # 1.6: select | cards (preset / preset_dark as theme cards with swatches)
         defaults:
             name: null                 # required with enabled: true (≤ 80 characters)
             short_name: null           # ≤ 12 (null = the name cut at 12)
@@ -195,6 +196,7 @@ registered (no section, no service, no alias, no Twig function) and UiKit's appe
 | `enabled` | `false` | Registers the `brand` and `appearance` sections, `Brand\InstanceBrandProvider` (aliased as `Nowo\Brand\Contract\BrandProviderInterface`), `Brand\InstanceBrandAssetReader` (`BrandAssetReaderInterface`), `nowo_brand()`, and takes over `nowo_ui_kit.appearance.provider` when UiKit's appearance is enabled, the host set no provider and kept `nowo_ui_kit.appearance.brand: auto` (with `brand: off` UiKit keeps its config look). Needs `nowo-tech/brand-contracts` (compile error otherwise). **Implies `files.enabled: true`** (the brand images are image fields). Literal boolean only. |
 | `public_dir` | `%kernel.project_dir%/public` | Directory the default asset paths are relative to. Default assets are served by your web server as plain static files at `/<path>`. |
 | `fallback_provider` | `null` | Service id of a `Brand\BrandFallbackProviderInterface`: values the two sections seed from (`nowo:instance-settings:seed-from-fallbacks`). |
+| `preset_picker` | `select` | 1.6 (IS-2): `select` shows `appearance.preset` / `preset_dark` as a select of preset ids; `cards` as a radio group of theme cards with a swatch of each preset (light palette for `preset`, dark for `preset_dark`) and UiKit's preset names (`appearance.preset.<id>`, domain `NowoUiKitBundle`; host presets show a readable id). Values, validation and export are the same. See [USAGE](USAGE.md#theme-cards). |
 | `defaults.name` | `null` | Brand name while none is stored. **Required** with `enabled: true`. At most 80 printable characters (no control characters, bidi controls or line separators). |
 | `defaults.short_name` / `wordmark` | `null` | At most 12 / 40 characters; null = the contract defaults (the name cut at 12; the lower-cased name). |
 | `defaults.eyebrow` | `null` | A literal string (≤ 120), or `{key, domain}`: a translation key translated in the viewer's locale while nothing is stored. A stored eyebrow is a literal. |
