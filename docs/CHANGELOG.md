@@ -17,6 +17,42 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.7.0: host brand seed file with images (IS-3) and an opt-in filesystem image store (owner decision
+D-20261109-03). Hosts that set neither `seed` nor `files.store` keep the 1.5 behaviour (the database store is
+unchanged byte for byte).
+
+### Added
+
+- `nowo:instance-settings:seed [file] [--section=…] [--dry-run]` and the public service `Seed\SeedFileSeeder`: load a
+  versioned host seed file (`schema: nowo-instance-settings-seed`, `version: 1`; YAML or JSON) with plain values under
+  `settings` and image fields under `files` as paths relative to the seed file. Fill-only (a stored value or image is
+  never overwritten; a second run is a no-op), insert-only in one transaction with a re-check (a concurrent admin save
+  wins), all-or-nothing validation before any write (unknown key / section / field, secret fields, wrong kind,
+  invalid values, refused paths or images → `Seed\SeedFileException`, exit 1, names and reason codes only). Values go
+  through the section save filter and the field validation; images through the upload pipeline (type sniffing,
+  byte / dimension / square limits; SVG refused with `svg_not_supported`). Audited like a save: `Instance settings
+  saved.` log line and `SettingsChangedEvent` (origin `seed`, with `fileChanges`) per section, after the commit.
+- Image paths of a seed: relative only, no URL / stream wrapper / `data:` / NUL, resolved with `realpath()` and refused
+  outside `seed.base_dir` (symlink escapes included).
+- Host-side importer API: `SeedFileSeeder::seedFile()`, `::seed(array, directory)` and `::seedImage('<section>.<field>',
+  path)` (fill-only); replacing an image stays `InstanceSettingsInterface::save()` with `ImageUpload::fromPath()`.
+- Configuration `seed.file` (default seed file, null) and `seed.base_dir` (default `%kernel.project_dir%`).
+- `files.store: filesystem` and `files.directory` (default `%kernel.project_dir%/config/instance-files`):
+  `File\FilesystemSettingFileStore` keeps one stable file per image field (`<section>/<field>.<png|jpg|webp>`,
+  variants in `<section>/.variants/<field>-<hash12>-<size>.png`) instead of database blobs, so uploads leave files
+  ready to commit next to the seed file. Atomic writes (temporary file + `rename()`, 0644 / 0755 minus the umask),
+  names from the field allowlist only, symlinked directories / targets refused, a replaced image of another type and
+  old variants removed, a cleared field's file deleted, the file on disk authoritative (served under its current hash,
+  so a replaced logo never hits a stale cache). `purge-files` removes stale variants and temporary files only.
+  With the filesystem store the seed adopts an image that already sits at the field's stable path in place.
+
+### Changed
+
+- `InstanceSettings::getFile()` builds the `StoredSettingFile` hash and URLs from the store's record (identical for
+  the database store; the current file for the filesystem store).
+- `ImageUpload::fromPath()` refuses URLs and stream wrapper paths (`scheme://`, `data:`) when read (`upload_failed`).
+- `symfony/yaml` is suggested (YAML seed files); JSON seed files need nothing.
+
 ## [1.5.0] - 2026-11-09
 
 Brand bridge (spec 220 slice S3, target 1.5.0). Opt-in with `brand.enabled: true`: hosts that do not enable it keep

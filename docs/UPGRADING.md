@@ -20,6 +20,38 @@
 
 ## Unreleased
 
+Target **1.7.0**, from **1.5.0** / **1.6.0**: nothing to do unless you opt in. Without `seed` and `files.store` the
+services, schema and behaviour are unchanged (the database file store is byte for byte the same).
+
+1. **Seed file (IS-3).** Commit a seed file and its images, e.g. `config/instance-seed.yaml` (format and example in
+   [CONFIGURATION](CONFIGURATION.md#seed-file-format)), then point the bundle at it:
+
+   ```yaml
+   nowo_instance_settings:
+       seed:
+           file: '%kernel.project_dir%/config/instance-seed.yaml'
+           # base_dir: '%kernel.project_dir%'   # every seed path must resolve inside it
+   ```
+
+   Run `php bin/console nowo:instance-settings:seed --dry-run`, then without `--dry-run`, in your bootstrap of fresh
+   instances (dev, e2e, install) — it is fill-only and idempotent. YAML needs `symfony/yaml` (`.json` needs nothing).
+   Secrets are refused in a seed file: keep them in the admin UI or seed them with `seed-from-fallbacks`.
+2. **Filesystem image store (optional).** To keep the brand images as committed files instead of database blobs:
+
+   ```yaml
+   nowo_instance_settings:
+       files:
+           store: filesystem
+           directory: '%kernel.project_dir%/config/instance-files'
+   ```
+
+   Images already stored in `instance_setting_file` are **not** moved: re-upload them (or export with files and
+   import), or clear the fields and run the seed. In production mount `files.directory` as a persistent, writable
+   volume (not under the public web root). Note the differences: no orphan retention (a replaced or cleared image is
+   deleted at once) and the file on disk is authoritative.
+3. **`ImageUpload::fromPath()`** now refuses `scheme://` and `data:` paths (`upload_failed`). Only code that passed a
+   stream wrapper path on purpose is affected.
+
 ## To 1.5.0
 
 From **1.4.0**:

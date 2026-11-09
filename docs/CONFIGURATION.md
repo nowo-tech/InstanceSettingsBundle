@@ -9,6 +9,10 @@
 - [security](#security)
 - [portability](#portability)
 - [files](#files)
+  - [Filesystem store](#filesystem-store)
+- [seed](#seed)
+  - [Seed file format](#seed-file-format)
+  - [Host-side importer API](#host-side-importer-api)
 - [brand](#brand)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
@@ -46,6 +50,11 @@ nowo_instance_settings:
         enabled: false                 # opt-in: maps the file table, registers the store, route and purge command; needs ext-gd
         path_prefix: /_settings-file   # file route prefix; must be outside web_ui.path_prefix
         orphan_retention: 30           # days a replaced / removed image stays servable before purge-files deletes it (0 … 3650)
+        store: doctrine                # 1.7: doctrine (instance_setting_file table) | filesystem (stable files, no blob)
+        directory: '%kernel.project_dir%/config/instance-files'   # 1.7: directory of the filesystem store
+    seed:                              # host seed file (1.7)
+        file: null                     # default file of nowo:instance-settings:seed (.yaml, .yml, .json)
+        base_dir: '%kernel.project_dir%'   # every seed file / image path must resolve inside it
     brand:                             # brand bridge (1.5, spec 220 S3)
         enabled: false                 # opt-in: brand + appearance sections, BrandProviderInterface, UiKit provider; implies files.enabled
         public_dir: '%kernel.project_dir%/public'   # default asset paths are relative to it
@@ -185,6 +194,172 @@ security:
         - { path: ^/admin/settings, roles: ROLE_ADMIN }
 ```
 
+### Filesystem store
+
+1.7 (owner decision D-20261109-03). With `files.store: filesystem` the images are **not** stored as database blobs:
+each image field keeps one stable file in `files.directory`, so an upload in development leaves a file ready to commit
+next to the [seed file](#seed), git diffs stay readable, and production mounts the directory as a persistent volume.
+The default (`doctrine`) is unchanged.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `store` | `doctrine` | `doctrine`: the `instance_setting_file` table (1.4 behaviour, byte for byte). `filesystem`: `Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore`. The file table stays mapped either way (no schema change between the two). |
+| `directory` | `%kernel.project_dir%/config/instance-files` | Base directory of the filesystem store, created (0755 minus the umask) on the first write. A local path only (no `scheme://`). It **must not** be under the public web root to work: files are served by the file route only. |
+
+```yaml
+# config/packages/nowo_instance_settings.yaml
+nowo_instance_settings:
+    brand: { enabled: true, defaults: { name: Beacon } }
+    files:
+        store: filesystem
+        directory: '%kernel.project_dir%/config/instance-files'
+    seed:
+        file: '%kernel.project_dir%/config/instance-seed.yaml'
+```
+
+Layout (names come only from the section / field allowlist, never from the request or the client file name):
+
+```text
+config/instance-files/
+    brand/
+        logo_light.png                    # <field>.<png|jpg|webp>: extension from the sniffed type
+        app_icon.png
+        extra_email_mascot.webp           # brand.extra_images.email_mascot
+        .variants/
+            app_icon-<hash12>-512.png     # generated PNG variants, bound to the hash of the original
+            app_icon-<hash12>-192.png
+```
+
+Behaviour:
+
+- **Uploads** (admin form, API, import) are checked and re-encoded by the usual pipeline, then written atomically
+  (temporary file in the same directory, `chmod` 0644 minus the umask, `rename()`): a reader or a concurrent save
+  never sees a half-written file. Replacing an image overwrites the stable file and removes the file of another
+  extension and the old variants; clearing a field deletes its file at once (there is no orphan retention with this
+  store, so `files.orphan_retention` does not apply).
+- **The file on disk is authoritative.** The setting row only says the field is set; the URL carries the first 12 hex
+  characters of the current file's SHA-256 (cache busting: a logo replaced under the same name gets a new URL, the old
+  URL answers 404, and the strong `ETag` is the hash). A `git pull` that changed a committed logo is served at once.
+- **Confinement:** the base is resolved with `realpath()`; section and `.variants` directories must be real
+  directories (a symlink is refused), a target that is a symlink is refused, and a symlinked file is never served.
+  A file that is not PNG / JPEG / WebP by its content, whose extension disagrees with its content, or larger than
+  5 MiB is not served. A directory that cannot be created or written is a clear `RuntimeException`.
+- **`purge-files`** removes stale variants (of another hash, or of a field without a file) and leftover `.tmp-*`
+  files; it never deletes an original (a committed file of a field that is not seeded yet must survive).
+- Commit the originals and, if you like, `.variants/` (or add `*/.variants/` to `.gitignore`: variants are regenerated
+  when the image is saved or seeded).
+
+## seed
+
+1.7 (IS-3). `nowo:instance-settings:seed` loads a **host seed file** — the initial values and images of an instance,
+committed in the host repository — **fill-only**: a field that already has a stored value or image is never touched,
+so fresh instances (dev, e2e, new installs) can run it on every boot; a second run is a no-op.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `file` | `null` | Default seed file of the command (`.yaml`, `.yml` — needs `symfony/yaml` — or `.json`). Null: give the file as argument. |
+| `base_dir` | `%kernel.project_dir%` | Every seed file and every image path must resolve (with `realpath()`, symlinks followed) inside this directory. A local path only. |
+
+```bash
+php bin/console nowo:instance-settings:seed --dry-run          # validate; list what would be seeded (names only)
+php bin/console nowo:instance-settings:seed                    # seed.file
+php bin/console nowo:instance-settings:seed config/e2e-seed.yaml --section=brand --section=appearance
+```
+
+Why a new command instead of an option of `seed-from-fallbacks`: the two sources differ (code-provided fallbacks vs a
+committed file with images, path checks and all-or-nothing validation), both are fill-only, so they compose: run
+`seed` then `seed-from-fallbacks` (or the other way round); the first one to fill a field wins.
+
+Rules:
+
+- **All-or-nothing validation before any write.** Unknown top-level key, section or field, a **secret field** (never in
+  a committed file: set secrets in the admin UI or seed them from the environment with `seed-from-fallbacks`), an image
+  field under `settings` or a plain field under `files`, a non-scalar or invalid value, a refused path or image: the
+  command prints every problem as `<section>.<field>: <code> (<sentence>)` — never a value — writes nothing and
+  exits 1.
+- **Values** go through the section save filter (e.g. `appearance` lower-cases colours and drops one equal to its
+  preset: reported as `default`) and the field validation, like a save. Blank values are skipped (`empty`).
+- **Image paths** are relative to the seed file's directory: no absolute path, URL or stream wrapper (`http://`,
+  `phar://`, `data:` …), no NUL byte; resolved with `realpath()` and refused outside `base_dir` (also through a
+  symlink). The bytes go through the same checks as an upload (type from the content: PNG / JPEG / WebP only; the
+  field's `maxBytes`, dimension limits, square rule, e.g. `app_icon` ≥ 512 px; animated WebP refused). **SVG is
+  refused** (`svg_not_supported`: use PNG or WebP; owner decision spec 220). Images are stored by the configured
+  store: rows of `instance_setting_file` with the database store; with the [filesystem store](#filesystem-store) an
+  image that already sits at the field's stable path is **adopted in place** (validated, its variants generated, its
+  bytes kept as committed), any other path is re-encoded into the stable file.
+- **Insert-only** in one transaction, each field re-checked there (an admin save that wins the race is kept). Audited
+  like a save: one `Instance settings saved.` log line and one `SettingsChangedEvent` per section with origin `seed`
+  and `fileChanges` (`old: null`, `new: <sha256>`), dispatched after the commit, then one summary line. Output, report
+  and logs carry names and reason codes only.
+
+### Seed file format
+
+Versioned (`schema: nowo-instance-settings-seed`, `version: 1`); top-level keys `schema`, `version`, `settings`
+(section => field => scalar) and `files` (section => image field => path relative to this file).
+
+```yaml
+# config/instance-seed.yaml
+schema: nowo-instance-settings-seed
+version: 1
+settings:
+    brand:
+        name: Beacon
+        short_name: Beacon
+        eyebrow: Uptime for teams
+        wordmark: beacon
+    appearance:
+        preset: ocean
+        preset_dark: obsidian
+        light_accent: '#0f766e'
+        light_accent_deep: '#115e59'
+        light_danger: '#b91c1c'
+        light_warn: '#b45309'
+        light_paper: '#f8fafc'
+        light_ink: '#0f172a'
+        light_surface: '#ffffff'
+        dark_accent: '#2dd4bf'
+        # … dark_accent_deep, dark_danger, dark_warn, dark_paper, dark_ink, dark_surface
+        corner_style: rounded
+        border_strength: subtle
+        footer_fixed: false
+files:
+    brand:
+        logo_light: instance-files/brand/logo_light.png
+        logo_dark: instance-files/brand/logo_dark.png
+        mark: instance-files/brand/mark.png
+        app_icon: instance-files/brand/app_icon.png      # square, ≥ 512 px
+        favicon: instance-files/brand/favicon.png        # square, ≥ 32 px
+        extra_email_mascot: instance-files/brand/extra_email_mascot.webp   # brand.extra_images.email_mascot
+```
+
+The same structure as JSON (`instance-seed.json`) is accepted. The seed file itself is capped at 1 MiB.
+
+### Host-side importer API
+
+`Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder` is a public service; every method is fill-only, validates
+all-or-nothing, audits like the command and returns a `SeedReport` (`seeded`, `skipped` => reason, `dryRun`) or throws
+`SeedFileException` (`errors`: one line per problem):
+
+```php
+use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
+
+$seeder->seedFile('/srv/app/config/instance-seed.yaml', sections: ['brand'], dryRun: false);
+$seeder->seed(['settings' => ['brand' => ['name' => 'Beacon']], 'files' => ['brand' => ['logo_light' => 'brand/logo.png']]], '/srv/app/config');
+// One image setting from a local file (absolute, or relative to seed.base_dir; must resolve inside it):
+$seeder->seedImage('brand.logo_light', '/srv/app/config/instance-files/brand/logo_light.png');
+```
+
+To **replace** an image (not fill-only) use the regular save API, which works with both stores:
+
+```php
+use Nowo\InstanceSettingsBundle\File\ImageUpload;
+
+$settings->save('brand', ['logo_light' => ImageUpload::fromPath('/path/to/logo.png')]);   // InstanceSettingsInterface
+```
+
+`ImageUpload::fromPath()` reads a local file with the field's byte cap; since 1.7 it refuses URLs and stream wrappers.
+It does not confine the path to a directory: pass only paths your code chose.
+
 ## brand
 
 Brand bridge (1.5, spec 220 S3, [USAGE](USAGE.md#brand-bridge)). Opt-in: with the default `enabled: false` nothing is
@@ -249,7 +424,7 @@ REQ-CFG-001 does not apply: the bundle has one configuration tree. Variants are 
 
 ## Seeding from fallbacks
 
-No configuration key: `FallbackSeeder` (public service) and `nowo:instance-settings:seed-from-fallbacks` are always
+For a committed seed file with images, see [seed](#seed). No configuration key: `FallbackSeeder` (public service) and `nowo:instance-settings:seed-from-fallbacks` are always
 registered and use `doctrine.entity_manager`. Sections opt in with `SectionFallbackProviderInterface`. See
 [USAGE](USAGE.md#seeding-from-fallbacks-db-only-mode), including the non-transactional migration rule.
 

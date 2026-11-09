@@ -492,6 +492,9 @@ skipped (keep the images as config default assets or upload them). Remove the ol
 
 ## Seeding from fallbacks (DB-only mode)
 
+To seed values **and images** from a file committed in the host repository, use `nowo:instance-settings:seed`
+instead (1.7, [CONFIGURATION](CONFIGURATION.md#seed)); both are fill-only and can run one after the other.
+
 Kits used to read bundle configuration (`%env(...)%` / YAML) while a field had nothing stored. Since 1.2.0 a section can
 expose those values with `SectionFallbackProviderInterface::getFallbacks()` (`SettingFallback::plain('sender', $x)`,
 `SettingFallback::secret('api_key', $y)`), and the host copies them **once** into the store:
