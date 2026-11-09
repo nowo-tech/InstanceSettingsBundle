@@ -94,6 +94,18 @@ final class FileValueObjectsTest extends TestCase
         GdSupport::assertAvailable([]);
     }
 
+    public function testImageUploadFromPathRefusesUrlsAndStreamWrappers(): void
+    {
+        foreach (['phar:///tmp/x.phar/logo.png', 'http://example.test/logo.png', 'data:image/png;base64,iVBORw0KGgo=', 'DATA:text/plain,x', 'php://memory'] as $path) {
+            try {
+                ImageUpload::fromPath($path)->read(100);
+                self::fail('Expected a refusal for ' . $path);
+            } catch (ImageRefusedException $e) {
+                self::assertSame('upload_failed', $e->reason());
+            }
+        }
+    }
+
     public function testImageUploadReadsWithAHardCap(): void
     {
         self::assertSame('abc', ImageUpload::fromBytes('abc')->read(3));

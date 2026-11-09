@@ -24,6 +24,7 @@ use function is_string;
 use function mb_strlen;
 use function preg_match;
 use function sprintf;
+use function str_contains;
 use function str_starts_with;
 use function trim;
 
@@ -43,6 +44,9 @@ final class Configuration implements ConfigurationInterface
 
     /** Default URL prefix of the image file route (1.4), outside the admin prefix. */
     public const DEFAULT_FILE_PATH_PREFIX = '/_settings-file';
+
+    /** Default directory of the filesystem file store (1.7). */
+    public const DEFAULT_FILES_DIRECTORY = '%kernel.project_dir%/config/instance-files';
 
     /** Default days a replaced / removed image is kept before `purge-files` deletes it. */
     public const DEFAULT_ORPHAN_RETENTION = 30;
@@ -209,6 +213,37 @@ final class Configuration implements ConfigurationInterface
                             ->defaultValue(self::DEFAULT_ORPHAN_RETENTION)
                             ->min(0)
                             ->max(3650)
+                        ->end()
+                        ->enumNode('store')
+                            ->info('Where the images live (1.7): "doctrine" (default, the instance_setting_file table) or "filesystem" (one stable file per field in files.directory, no database blob; ready to commit next to the seed file, mounted as a persistent volume in production).')
+                            ->values(['doctrine', 'filesystem'])
+                            ->defaultValue('doctrine')
+                        ->end()
+                        ->scalarNode('directory')
+                            ->info('Directory of the filesystem store (files.store: filesystem): <directory>/<section>/<field>.<png|jpg|webp>, variants in <section>/.variants/. Need not be under the public web root.')
+                            ->defaultValue(self::DEFAULT_FILES_DIRECTORY)
+                            ->validate()
+                                ->ifTrue(static fn (mixed $v): bool => !is_string($v) || trim($v) === '' || str_contains($v, '://'))
+                                ->thenInvalid('nowo_instance_settings.files.directory must be a local directory path, got %s.')
+                            ->end()
+                        ->end()
+                    ->end()
+                ->end()
+                ->arrayNode('seed')
+                    ->info('Host seed file (1.7): initial values and images loaded fill-only by nowo:instance-settings:seed.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('file')
+                            ->info('Default seed file (.yaml, .yml or .json), e.g. "%kernel.project_dir%/config/instance-seed.yaml". Null: the command needs the file argument.')
+                            ->defaultNull()
+                        ->end()
+                        ->scalarNode('base_dir')
+                            ->info('Every seed file and seed image path must resolve (symlinks followed) inside this directory.')
+                            ->defaultValue('%kernel.project_dir%')
+                            ->validate()
+                                ->ifTrue(static fn (mixed $v): bool => !is_string($v) || trim($v) === '' || str_contains($v, '://'))
+                                ->thenInvalid('nowo_instance_settings.seed.base_dir must be a local directory path, got %s.')
+                            ->end()
                         ->end()
                     ->end()
                 ->end()

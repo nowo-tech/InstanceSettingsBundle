@@ -18,6 +18,64 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.7.0: host brand seed file with images (IS-3) and an opt-in filesystem image store (owner decision
+D-20261109-03). Hosts that set neither `seed` nor `files.store` keep the 1.6 behaviour (the database store is
+unchanged byte for byte).
+
+### Added
+
+- `nowo:instance-settings:seed [file] [--section=…] [--dry-run]` and the public service `Seed\SeedFileSeeder`: load a
+  versioned host seed file (`schema: nowo-instance-settings-seed`, `version: 1`; YAML or JSON) with plain values under
+  `settings` and image fields under `files` as paths relative to the seed file. Fill-only (a stored value or image is
+  never overwritten; a second run is a no-op), insert-only in one transaction with a re-check (a concurrent admin save
+  wins), all-or-nothing validation before any write (unknown key / section / field, secret fields, wrong kind,
+  invalid values, refused paths or images → `Seed\SeedFileException`, exit 1, names and reason codes only). Values go
+  through the section save filter and the field validation; images through the upload pipeline (type sniffing,
+  byte / dimension / square limits; SVG refused with `svg_not_supported`). Audited like a save: `Instance settings
+  saved.` log line and `SettingsChangedEvent` (origin `seed`, with `fileChanges`) per section, after the commit.
+- Image paths of a seed: relative only, no URL / stream wrapper / `data:` / NUL, resolved with `realpath()` and refused
+  outside `seed.base_dir` (symlink escapes included).
+- Host-side importer API: `SeedFileSeeder::seedFile()`, `::seed(array, directory)` and `::seedImage('<section>.<field>',
+  path)` (fill-only); replacing an image stays `InstanceSettingsInterface::save()` with `ImageUpload::fromPath()`.
+- Configuration `seed.file` (default seed file, null) and `seed.base_dir` (default `%kernel.project_dir%`).
+- `files.store: filesystem` and `files.directory` (default `%kernel.project_dir%/config/instance-files`):
+  `File\FilesystemSettingFileStore` keeps one stable file per image field (`<section>/<field>.<png|jpg|webp>`,
+  variants in `<section>/.variants/<field>-<hash12>-<size>.png`) instead of database blobs, so uploads leave files
+  ready to commit next to the seed file. Atomic writes (temporary file + `rename()`, 0644 / 0755 minus the umask),
+  names from the field allowlist only, symlinked directories / targets refused, a replaced image of another type and
+  old variants removed, a cleared field's file deleted, the file on disk authoritative (served under its current hash,
+  so a replaced logo never hits a stale cache). `purge-files` removes stale variants and temporary files only.
+  With the filesystem store the seed adopts a valid image that already sits at the field's stable path (re-encoded
+  like an upload) instead of overwriting it with another file.
+- Filesystem store, transactional (audit JG-M1): `File\StagedSettingFileStoreInterface`, `File\FileStoreTransaction`
+  and the DBAL middleware `Doctrine\FileStoreTransactionMiddleware` (registered with `files.store: filesystem`). New
+  files are staged as temporary files and clears queued; renames and deletes happen after the outermost commit (also
+  of a transaction the host opened around the call) and a rollback discards them, so a failed save, clear, import or
+  seed never changes the files. Saves, imports and seeds run in a file unit. The middleware is attached to the bundle's
+  connection only (`DependencyInjection\Compiler\FileStoreMiddlewarePass`, audit JG-L7) and follows savepoints
+  (`SAVEPOINT` / `RELEASE SAVEPOINT` / `ROLLBACK TO SAVEPOINT`, SQL Server `SAVE` / `ROLLBACK TRANSACTION`): changes
+  inside a savepoint that is rolled back are dropped even when the outer transaction commits (audit JG-M3).
+- Filesystem store metadata `<section>/.variants/<field>.meta` (hash, type, dimensions bound to the file's stat):
+  lookups and wrong-hash requests no longer read and hash the file (audit JG-L1).
+
+### Changed
+
+- `InstanceSettings::save()` skips an image of the same hash as the stored reference only when the store holds it, so
+  a re-upload or an import after a store switch writes the file again (audit JG-M2).
+- The file route answers 404 (no-store) when the store returns no bytes for a record it found, instead of an empty
+  immutable 200 (audit JG-L2); with the filesystem store it serves a field's file only while the field has a setting
+  row (audit JG-L3, new optional `SettingFileController` argument).
+- The container refuses a filesystem store directory under `%kernel.project_dir%/public` or `brand.public_dir`,
+  whatever its spelling and also before it exists (`File\PathGuard`; audits JG-L4, JG-L6); the store checks again before
+  creating it.
+- `doctrine/dbal` is now required as `^4.0` (it was only allowed through `doctrine/orm`): the transaction middleware
+  wraps DBAL 4's driver connection (`exec(): int|string`), and DBAL 4 nests transactions with savepoints by default.
+
+- `InstanceSettings::getFile()` builds the `StoredSettingFile` hash and URLs from the store's record (identical for
+  the database store; the current file for the filesystem store).
+- `ImageUpload::fromPath()` refuses URLs and stream wrapper paths (`scheme://`, `data:`) when read (`upload_failed`).
+- `symfony/yaml` is suggested (YAML seed files); JSON seed files need nothing.
+
 ## [1.6.0] - 2026-11-09
 
 Target 1.6.0. Two asks from Symfony Beacon's brand adoption (IS-1, IS-2). Both are opt-in: hosts that do not use the

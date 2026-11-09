@@ -518,6 +518,9 @@ explicit "none" choice value of your own. Style hooks: UiKit slots `cards` / `ca
 
 ## Seeding from fallbacks (DB-only mode)
 
+To seed values **and images** from a file committed in the host repository, use `nowo:instance-settings:seed`
+instead (1.7, [CONFIGURATION](CONFIGURATION.md#seed)); both are fill-only and can run one after the other.
+
 Kits used to read bundle configuration (`%env(...)%` / YAML) while a field had nothing stored. Since 1.2.0 a section can
 expose those values with `SectionFallbackProviderInterface::getFallbacks()` (`SettingFallback::plain('sender', $x)`,
 `SettingFallback::secret('api_key', $y)`), and the host copies them **once** into the store:
@@ -712,6 +715,8 @@ GET and POST.
 - **Call it from the host route's controller**, or `forward()` to that controller. Do not embed it with Twig
   `{{ render(controller(...)) }}`: fragments are GET sub-requests, so the form's POST would be dropped silently (and a
   denial would render an empty fragment). `handle()` refuses a GET sub-request of a POST with a `LogicException`.
+  In production (`kernel.debug` false) that refusal is not shown: the fragment renders empty and the `LogicException`
+  is logged, so check the logs when an embedded form "does nothing" on submit.
 
 ### Overriding templates (REQ-TWIG-001)
 

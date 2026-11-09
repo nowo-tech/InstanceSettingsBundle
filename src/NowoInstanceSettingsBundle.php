@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle;
 
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsSectionPass;
@@ -53,6 +54,8 @@ final class NowoInstanceSettingsBundle extends Bundle
         $container->addCompilerPass(new BrandBridgePass());
         // Before the tagged iterators are resolved (PassConfig::TYPE_BEFORE_OPTIMIZATION, priority 10).
         $container->addCompilerPass(new SettingsSectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        // Before DoctrineBundle's MiddlewaresPass (priority 0): the middleware follows the bundle's connection only.
+        $container->addCompilerPass(new FileStoreMiddlewarePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
     }
 
     /**

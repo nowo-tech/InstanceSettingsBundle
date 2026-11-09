@@ -38,6 +38,7 @@
     ],
     "require": {
         "php": ">=8.2 <8.6",
+        "doctrine/dbal": "^4.0",
         "doctrine/doctrine-bundle": "^2.13 || ^3.0",
         "doctrine/orm": "^3.3",
         "doctrine/persistence": "^3.1 || ^4.0",
@@ -69,7 +70,6 @@
         "twig/twig": "^3.12"
     },
     "require-dev": {
-        "doctrine/dbal": "^3.8 || ^4.0",
         "friendsofphp/php-cs-fixer": "^3.0",
         "igor-php/igor-php": "^0.10.1",
         "nowo-tech/brand-contracts": "^1.0",
@@ -94,7 +94,8 @@
         "nowo-tech/brand-contracts": "Required for the brand bridge (brand.enabled: true, 1.5): BrandProviderInterface for UiKit, Pwa, MailKit, LegalKit and SeoKit",
         "symfony/flex": "For automatic recipe installation",
         "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
-        "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()"
+        "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()",
+        "symfony/yaml": "To load YAML seed files with nowo:instance-settings:seed (1.7; JSON seed files need nothing)"
     },
     "conflict": {
         "nowo-tech/brand-contracts": "<1.0 || >=2.0"

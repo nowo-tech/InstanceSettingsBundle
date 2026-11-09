@@ -11,6 +11,7 @@ use Nowo\InstanceSettingsBundle\Brand\BrandFallbackProviderInterface;
 use Nowo\InstanceSettingsBundle\Brand\BrandPalettes;
 use Nowo\InstanceSettingsBundle\Brand\BrandSection;
 use Nowo\InstanceSettingsBundle\Brand\InstanceBrandProvider;
+use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\File\SettingFileUrls;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
@@ -51,6 +52,7 @@ final class BrandFixture
         ?BrandFallbackProviderInterface $fallbacks = null,
         ?SettingValueRepositoryInterface $repository = null,
         bool $router = true,
+        ?SettingFileStoreInterface $store = null,
     ) {
         $this->repository = new InMemorySettingValueRepository();
         $this->store      = new InMemorySettingFileStore();
@@ -72,7 +74,7 @@ final class BrandFixture
             null,
             null,
             null,
-            $this->store,
+            $store ?? $this->store,
             fileUrls: new SettingFileUrls($router ? new UrlGenerator($routes, new RequestContext()) : null),
         );
         $this->provider          = new InstanceBrandProvider($this->settings, $this->defaults, $this->palettes, $translator, $logger);

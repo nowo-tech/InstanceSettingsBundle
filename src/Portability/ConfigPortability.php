@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Portability;
 
 use LogicException;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
+use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
 use Nowo\InstanceSettingsBundle\File\ImageUpload;
@@ -283,7 +284,7 @@ final readonly class ConfigPortability
         }
 
         // @igor-ignore - The closure runs synchronously inside the transaction and is not stored by the repository.
-        $changes = $this->repository->transactional(function () use ($settings, $secrets, $providers): array {
+        $changes = FileStoreTransaction::run($this->repository, $this->fileStore, function () use ($settings, $secrets, $providers): array {
             $changes  = [];
             $sections = $settings;
             foreach ($secrets as $section => $values) {

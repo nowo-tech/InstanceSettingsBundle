@@ -9,6 +9,7 @@ use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
 use Nowo\InstanceSettingsBundle\File\ImageUpload;
@@ -118,6 +119,9 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         $original = $records[0] ?? null;
         $file     = null;
         if ($original !== null) {
+            // The store's hash: the reference for the database store; the current file for the filesystem store (1.7),
+            // whose file on disk is authoritative.
+            $sha  = $original->sha256;
             $urls = [0 => $this->fileUrls->path($section, $name, $sha, $original->mimeType)];
             foreach ($field->image->variants as $size) {
                 if (isset($records[$size])) {
@@ -344,8 +348,9 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             $row = $existing[$name] ?? null;
             $old = $row === null ? null : self::imageHash($row->getValue());
             $new = $value instanceof ProcessedImage ? $value->sha256() : null;
-            if (is_string($value) || ($row === null && $value === null) || ($new !== null && $new === $old)) {
-                // Unchanged reference, nothing to remove, or the same image uploaded again.
+            if (is_string($value) || ($row === null && $value === null) || ($new !== null && $new === $old && $this->holds($section, $name, $new))) {
+                // Unchanged reference, nothing to remove, or the same image uploaded again while the store holds it
+                // (1.7, audit JG-M2: after a store switch the same image is written again).
                 continue;
             }
             if ($row !== null && $value === null) {
@@ -354,7 +359,7 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
                 $newImages[$name] = $value;
                 $save[]           = ($row ?? new SettingValue($section, $name, $now))->storeValue(SettingField::IMAGE_REFERENCE_PREFIX . $new, $now);
             }
-            if ($old !== null) {
+            if ($old !== null && $old !== $new) {
                 $orphans[] = [$name, $old];
             }
             $changed[]          = $name;
@@ -467,7 +472,8 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
     {
         $store = $this->fileStore ?? throw new LogicException('Instance settings image fields need a file store (SettingFileStoreInterface).');
         // @igor-ignore - The closure runs synchronously inside the transaction and is not stored by the repository.
-        $this->repository->transactional(function () use ($store, $section, $save, $remove, $newImages, $orphans, $now): void {
+        // A staged (filesystem) store applies its file changes only after the outermost commit (1.7, audit JG-M1).
+        FileStoreTransaction::run($this->repository, $store, function () use ($store, $section, $save, $remove, $newImages, $orphans, $now): void {
             foreach ($newImages as $name => $image) {
                 if ($image instanceof ProcessedImage) {
                     $store->save($section, $name, $image, $now);
@@ -478,6 +484,14 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             }
             $this->repository->apply($save, $remove);
         });
+    }
+
+    /**
+     * Whether the store holds the original of image `$sha256` for the field.
+     */
+    private function holds(string $section, string $field, string $sha256): bool
+    {
+        return ($this->fileStore?->findImage($section, $field, $sha256)[0] ?? null)?->sha256 === $sha256;
     }
 
     /**

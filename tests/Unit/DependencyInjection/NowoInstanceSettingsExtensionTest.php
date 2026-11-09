@@ -7,10 +7,13 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\DependencyInjection;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
+use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
+use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
+use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\SettingFileController;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
@@ -24,12 +27,14 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
+use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\Filesystem\Filesystem;
 
 final class NowoInstanceSettingsExtensionTest extends TestCase
 {
@@ -161,6 +166,53 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertSame('/media/settings', $container->getParameter('nowo_instance_settings.files.path_prefix'));
         self::assertSame('/media/settings', $container->getDefinition(InstanceSettingsRouteLoader::class)->getArgument(5));
         self::assertTrue($container->hasDefinition(SettingImageType::class));
+    }
+
+    public function testFilesystemStoreAndSeedServices(): void
+    {
+        $container = $this->load(['brand' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '/srv/files'], 'seed' => ['file' => '/srv/app/seed.yaml', 'base_dir' => '/srv/app']], withSecurity: true);
+
+        self::assertSame(FilesystemSettingFileStore::class, (string) $container->getAlias(SettingFileStoreInterface::class));
+        self::assertSame('/srv/files', $container->getDefinition(FilesystemSettingFileStore::class)->getArgument(0));
+        self::assertTrue($container->getDefinition(FilesystemSettingFileStore::class)->hasTag('kernel.reset'));
+        self::assertTrue($container->getDefinition(FileStoreTransactionMiddleware::class)->hasTag('doctrine.middleware'));
+        $seeder = $container->getDefinition(SeedFileSeeder::class);
+        self::assertTrue($seeder->isPublic());
+        self::assertSame(['/srv/app', '/srv/app/seed.yaml'], [$seeder->getArgument(3), $seeder->getArgument(4)]);
+        self::assertSame(SettingFileStoreInterface::class, (string) $seeder->getArgument(5));
+        self::assertTrue($container->getDefinition(SeedCommand::class)->hasTag('console.command'));
+
+        $off = $this->load([], withSecurity: true);
+        self::assertNull($off->getDefinition(SeedFileSeeder::class)->getArgument(5));
+        self::assertNull($off->getDefinition(SeedFileSeeder::class)->getArgument(4));
+        self::assertFalse($off->hasDefinition(FilesystemSettingFileStore::class));
+    }
+
+    public function testTheFilesystemDirectoryMayNotBeUnderThePublicWebRootWhateverItsSpelling(): void
+    {
+        $project = sys_get_temp_dir() . '/nowo-is-ext-' . bin2hex(random_bytes(6));
+        mkdir($project . '/public', 0o755, true);
+        mkdir($project . '/src', 0o755, true);
+        mkdir($project . '/web', 0o755, true);
+        symlink($project . '/public', $project . '/linked');
+        try {
+            foreach (['%kernel.project_dir%/src/../public/files', $project . '//public/files', $project . '/./public/files', $project . '/linked/sub', $project . '/web/files'] as $directory) {
+                $container = new ContainerBuilder();
+                $container->setParameter('kernel.project_dir', $project);
+                try {
+                    (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => $directory], 'brand' => ['public_dir' => $project . '/web']]], $container);
+                    self::fail('Expected the refusal of ' . $directory);
+                } catch (LogicException $e) {
+                    self::assertStringContainsString('under the public web root', $e->getMessage());
+                }
+            }
+            $container = new ContainerBuilder();
+            $container->setParameter('kernel.project_dir', $project);
+            (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '%kernel.project_dir%/config/instance-files']]], $container);
+            self::assertSame(['%kernel.project_dir%/public', '%kernel.project_dir%/public'], $container->getDefinition(FilesystemSettingFileStore::class)->getArgument(1));
+        } finally {
+            (new Filesystem())->remove($project);
+        }
     }
 
     public function testFilePrefixMustBeOutsideTheAdminPrefix(): void

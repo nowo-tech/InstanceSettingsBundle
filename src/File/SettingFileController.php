@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\File;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
+use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -52,11 +53,14 @@ final readonly class SettingFileController
      * @param SettingsSectionRegistry $registry sections and fields
      * @param SettingFileStoreInterface $store file store
      * @param AccessGuard $guard section areas of non-public fields
+     * @param InstanceSettingsInterface|null $settings setting rows (1.7): the filesystem store serves a field's file only while the field is set;
+     *                                                 without it (a controller wired by hand) every filesystem-store file is a 404
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
         private SettingFileStoreInterface $store,
         private AccessGuard $guard,
+        private ?InstanceSettingsInterface $settings = null,
     ) {
     }
 
@@ -75,6 +79,10 @@ final readonly class SettingFileController
             return $this->notFound();
         }
 
+        // 1.7 (audit JG-L3): a file in the filesystem store's directory without a setting row is never served.
+        if ($this->store instanceof FilesystemSettingFileStore && $this->settings?->isOverridden($section . '.' . $field) !== true) {
+            return $this->notFound();
+        }
         $record = $this->store->find($section, $field, $match[1], $variant);
         if (!$record instanceof SettingFileRecord || SettingFileUrls::EXTENSIONS[$record->mimeType] !== $ext) {
             return $this->notFound();
@@ -105,7 +113,12 @@ final readonly class SettingFileController
 
         $response->headers->set('Content-Length', (string) $record->byteSize);
         if (!$request->isMethod('HEAD')) {
-            $response->setContent($this->store->read($record));
+            $content = $this->store->read($record);
+            if ($content === '') {
+                // The file changed or vanished since the lookup: never cache an empty body (1.7, audit JG-L2).
+                return $this->notFound();
+            }
+            $response->setContent($content);
         }
 
         return $response;

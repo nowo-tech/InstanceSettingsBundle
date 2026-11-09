@@ -21,6 +21,50 @@
 
 ## Unreleased
 
+Target **1.7.0**, from **1.6.0**: nothing to do unless you opt in. Without `seed` and `files.store` the
+services, schema and behaviour are unchanged (the database file store is byte for byte the same).
+
+1. **Seed file (IS-3).** Commit a seed file and its images, e.g. `config/instance-seed.yaml` (format and example in
+   [CONFIGURATION](CONFIGURATION.md#seed-file-format)), then point the bundle at it:
+
+   ```yaml
+   nowo_instance_settings:
+       seed:
+           file: '%kernel.project_dir%/config/instance-seed.yaml'
+           # base_dir: '%kernel.project_dir%'   # every seed path must resolve inside it
+   ```
+
+   Run `php bin/console nowo:instance-settings:seed --dry-run`, then without `--dry-run`, in your bootstrap of fresh
+   instances (dev, e2e, install) — it is fill-only and idempotent. YAML needs `symfony/yaml` (`.json` needs nothing).
+   Secrets are refused in a seed file: keep them in the admin UI or seed them with `seed-from-fallbacks`.
+2. **Filesystem image store (optional).** To keep the brand images as committed files instead of database blobs:
+
+   ```yaml
+   nowo_instance_settings:
+       files:
+           store: filesystem
+           directory: '%kernel.project_dir%/config/instance-files'
+   ```
+
+   Images already stored in `instance_setting_file` are **not** moved. Before switching, export with files
+   (`nowo:instance-settings:export --include-files` or the admin page); after switching, import that file, re-upload the
+   images, or clear the fields and run the seed. An image of the same hash as the stored reference is written again
+   when the new store does not hold it (audit JG-M2). The old blobs stay in `instance_setting_file` (`purge-files` of the
+   filesystem store does not remove them). In production mount `files.directory` as a persistent, writable volume
+   outside the public web root (the container refuses a directory under `public/` or `brand.public_dir`). Note the
+   differences: no orphan retention (a replaced or cleared image is deleted at once), the file on disk is
+   authoritative, and a file without a setting row is not served.
+3. **Committed images are re-encoded when seeded** with the filesystem store (as uploads are): the committed file at
+   the field's stable path may change once in git (EXIF / appended bytes dropped).
+4. **`doctrine/dbal` ^4.0** is now a direct requirement. Hosts still on DBAL 3 stay on 1.6 until they upgrade
+   DBAL. DoctrineBundle 3 needs DBAL 4, but ORM 3 also runs on DBAL 3.8+, so an ORM 3 host on DBAL 3 must upgrade DBAL
+   first (audit JG-I18).
+5. **`SettingFileController` built by hand** (not through the container): pass the new fourth argument
+   (`InstanceSettingsInterface`); without it every file of the filesystem store answers 404. The database store is
+   unaffected.
+6. **`ImageUpload::fromPath()`** now refuses `scheme://` and `data:` paths (`upload_failed`). Only code that passed a
+   stream wrapper path on purpose is affected.
+
 ## To 1.6.0
 
 From **1.5.0**:
