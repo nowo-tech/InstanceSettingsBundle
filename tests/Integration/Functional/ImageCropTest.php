@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\CropEdgeFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\EmbedHostController;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ImageFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
@@ -107,6 +108,35 @@ final class ImageCropTest extends KernelTestCase
         self::assertSame(['1', '64', '1024'], $attr($crawler->filter('input[name="settings_section[mark][file]"]')));
         self::assertSame(['1', '512', '2048'], $attr($crawler->filter('input[name="settings_section[app_icon][file]"]')));
         self::assertSame(['1', '32', '2048'], $attr($crawler->filter('input[name="settings_section[favicon][file]"]')));
+    }
+
+    public function testFieldsTheDerivedCropCannotFitAreShownWithoutIt(): void
+    {
+        // Audit JP-M1: files.crop never takes a page with valid field rules down.
+        $admin   = $this->client($this->bootKernel(['files' => ['enabled' => true, 'crop' => true]], [CropEdgeFixtureSection::class => CropEdgeFixtureSection::class]));
+        $crawler = $admin->request('GET', '/admin/settings/sections/edges');
+        self::assertSame(200, $admin->getResponse()->getStatusCode());
+        self::assertNull($crawler->filter('input[name="settings_section[banner][file]"]')->attr(ImageCrop::ATTRIBUTE));
+        self::assertNull($crawler->filter('input[name="settings_section[pixel][file]"]')->attr(ImageCrop::ATTRIBUTE));
+        self::assertSame('', $crawler->filter('input[name="settings_section[logo][file]"]')->attr(ImageCrop::ATTRIBUTE));
+    }
+
+    public function testTinyBrandExtraImagesAreShownWithoutTheCrop(): void
+    {
+        $public = InstanceSettingsTestKernel::baseDir() . '/public-' . $this->name();
+        if (!is_dir($public)) {
+            mkdir($public, 0o777, true);
+        }
+        $admin = $this->client($this->bootKernel(['files' => ['crop' => ['shape' => 'circle']], 'brand' => [
+            'enabled'      => true,
+            'public_dir'   => $public,
+            'defaults'     => ['name' => 'Acme'],
+            'extra_images' => ['dot' => ['max_width' => 10, 'max_height' => 10], 'mascot' => ['max_width' => 512, 'max_height' => 512, 'square' => true]],
+        ]], fixtures: false));
+        $crawler = $admin->request('GET', '/admin/settings/sections/brand');
+        self::assertSame(200, $admin->getResponse()->getStatusCode());
+        self::assertNull($crawler->filter('input[name="settings_section[extra_dot][file]"]')->attr(ImageCrop::ATTRIBUTE));
+        self::assertSame('circle', $crawler->filter('input[name="settings_section[extra_mascot][file]"]')->attr(ImageCrop::ATTRIBUTE . '-shape'));
     }
 
     public function testARefusedBundleDefaultFailsTheBoot(): void

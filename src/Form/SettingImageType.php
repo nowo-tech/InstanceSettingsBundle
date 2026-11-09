@@ -62,11 +62,13 @@ final class SettingImageType extends AbstractType
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
         $attr = ['accept' => implode(',', $options['types'])];
-        $crop = $this->crop($options['crop']);
-        if ($crop !== null) {
-            // 1.8: the field's own attributes (accept) win over the printed crop attributes.
+        if ($options['crop'] !== false && ($options['crop'] !== null || $this->cropDefault !== false)) {
             $spec = $options['spec'] ?? new ImageSpec($options['types'] === [] ? ImageSpec::TYPES : $options['types'], min(ImageSpec::MAX_BYTES_CEILING, max(1, $options['max_bytes'])));
-            $attr += SettingImageCrop::attributes($spec, $crop, $this->translator);
+            $crop = $this->crop($spec, $options['crop']);
+            if ($crop !== null) {
+                // 1.8: the field's own attributes (accept) win over the printed crop attributes.
+                $attr += SettingImageCrop::attributes($spec, $crop, $this->translator);
+            }
         }
         $this->addWithDefaults($builder, self::FILE, FileType::class, [
             'label'              => $options['stored'] ? 'image.replace' : 'image.upload',
@@ -116,22 +118,20 @@ final class SettingImageType extends AbstractType
     }
 
     /**
-     * Crop options of the field (null = no crop step): its own setting, else the bundle default.
+     * Crop options of the field (null = no crop step): its own setting, with the bundle default under it; a field the
+     * bundle default cannot crop is shown without it (audit JP-M1).
      *
-     * @param array<mixed>|bool|null $crop
+     * @param array<mixed>|true|null $crop
      *
      * @return array<mixed>|null
      */
-    private function crop(array|bool|null $crop): ?array
+    private function crop(ImageSpec $spec, array|true|null $crop): ?array
     {
-        if ($crop === null) {
-            return $this->cropDefault === false ? null : $this->cropDefault;
+        $own = $crop === null ? null : ($crop === true ? [] : $crop);
+        if ($this->cropDefault === false) {
+            return $own;
         }
-        if ($crop === false) {
-            return null;
-        }
-        $own = $crop === true ? [] : $crop;
 
-        return $this->cropDefault === false ? $own : $own + $this->cropDefault;
+        return SettingImageCrop::withBundleDefault($spec, $own, $this->cropDefault);
     }
 }

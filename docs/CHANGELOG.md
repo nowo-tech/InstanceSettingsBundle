@@ -32,13 +32,18 @@ UiKit 2.43's image crop. With the crop off (the default) the admin output is byt
   `SettingImageType` prints the attributes through UiKit's `ImageCrop::attributes()` (dialog texts translated); the
   field's own `accept` is kept.
 - **Defaults derived from the field** (`Form\SettingImageCrop::derive()`): square fields crop with `aspect` 1, others
-  `free`; `min` the field's larger minimum dimension (`app_icon` 512); `max` the smaller maximum dimension, at most
-  2048 (logos 800); `format` `auto` when the field takes PNG, WebP and JPEG, else one it takes; `max_bytes` 95 % of
-  `maxBytes`.
+  `free` (or 1 when `max` is under 3 × `min`); `min` the field's larger minimum dimension, clamped to the smaller
+  maximum one (`app_icon` 512); `max` the smaller maximum dimension, at most 2048 (logos 800); `format` `auto` when
+  the field takes PNG, WebP and JPEG, else one it takes; `max_bytes` 95 % of `maxBytes`.
+- **The bundle default never fails a page** (audit JP-M1): a field its options cannot crop (both maximum dimensions
+  under 16 px, a minimum width over the maximum height, a circle on a field that cannot take aspect 1) is shown
+  without them; `withCrop()` still refuses such a field when the section definitions load. Per-field `labels` merge
+  with the bundle ones per text.
 - **Options checked against the field** when the section definitions load (`SettingImageCrop::resolve()`): a format
-  the field does not take (`auto` needs the three), `max_bytes` over `maxBytes`, a non-1 aspect on a square field,
-  `max` / `min` outside its dimensions, unknown options or bad values throw `InvalidArgumentException` naming the
-  field; `files.crop` with other keys or bad values fails the container build.
+  the field does not take (`auto` needs the three), `max_bytes` over `maxBytes`, a non-1 aspect on a square field
+  (`1/1` and `1:1` count as 1), a fixed-aspect crop at `max` outside the field's dimensions or with its short side
+  under `min`, a free crop with `max` over the smaller maximum dimension or under 3 × `min` (audit JP-L1), unknown
+  options or bad values throw `InvalidArgumentException` naming the field; `files.crop` with other keys or bad values fails the container build.
 - **The section page and the IS-1 embed load UiKit's `image-crop` script** when the current section has a cropped
   field (template variable `image_crop`, nonce from `csp_nonce`).
 - `SettingImageType` options `crop` (null = bundle default, false, true or options) and `spec` (the field's

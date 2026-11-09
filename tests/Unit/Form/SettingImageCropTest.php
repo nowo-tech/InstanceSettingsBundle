@@ -25,6 +25,7 @@ use Symfony\Contracts\Translation\TranslatorInterface;
 
 use function array_filter;
 use function array_keys;
+use function array_slice;
 use function json_decode;
 
 use const ARRAY_FILTER_USE_KEY;
@@ -53,10 +54,12 @@ final class SettingImageCropTest extends TestCase
             ['aspect' => 1, 'min' => 64, 'max' => 1024, 'format' => 'auto', 'max_bytes' => 996_147],
             SettingImageCrop::derive(new ImageSpec(maxWidth: 1024, maxHeight: 1024, minWidth: 64, minHeight: 64, square: true)),
         );
-        // The largest minimum wins; a minimum over the cap raises max; tiny fields still get UiKit's smallest max.
-        self::assertSame(3000, SettingImageCrop::derive(new ImageSpec(minWidth: 3000, minHeight: 10))['max']);
-        self::assertSame(3000, SettingImageCrop::derive(new ImageSpec(minWidth: 3000, minHeight: 10))['min']);
-        self::assertSame(16, SettingImageCrop::derive(new ImageSpec(maxWidth: 8, maxHeight: 8))['max']);
+        // The largest minimum wins; a minimum over the cap raises max; a free frame needs max >= 3 x min, else aspect 1.
+        self::assertSame(['aspect' => 1, 'min' => 3000, 'max' => 3000], array_slice(SettingImageCrop::derive(new ImageSpec(minWidth: 3000, minHeight: 10)), 0, 3));
+        self::assertSame(['aspect' => 1, 'min' => 400, 'max' => 512], array_slice(SettingImageCrop::derive(new ImageSpec(maxWidth: 512, maxHeight: 512, minWidth: 400, minHeight: 400)), 0, 3));
+        // Audit JP-M1: min is clamped to the smaller maximum dimension; tiny fields keep their own size.
+        self::assertSame(['aspect' => 1, 'min' => 400, 'max' => 400], array_slice(SettingImageCrop::derive(new ImageSpec(maxWidth: 1200, maxHeight: 400, minWidth: 600)), 0, 3));
+        self::assertSame(['aspect' => 'free', 'min' => 1, 'max' => 8], array_slice(SettingImageCrop::derive(new ImageSpec(maxWidth: 8, maxHeight: 8)), 0, 3));
         // max_bytes: 95 % of maxBytes, at least 1.
         self::assertSame(190_000, SettingImageCrop::derive(new ImageSpec(maxBytes: 200_000))['max_bytes']);
         self::assertSame(1, SettingImageCrop::derive(new ImageSpec(maxBytes: 1))['max_bytes']);
@@ -121,10 +124,40 @@ final class SettingImageCropTest extends TestCase
         yield 'max_bytes over maxBytes' => [new ImageSpec(maxBytes: 200_000), ['max_bytes' => 200_001], 'over the field maxBytes'];
         yield 'non-square aspect' => [new ImageSpec(square: true), ['aspect' => '16/9'], 'aspect 1'];
         yield 'free on a square field' => [new ImageSpec(square: true), ['aspect' => 'free'], 'aspect 1'];
-        yield 'max over the dimensions' => [new ImageSpec(maxWidth: 2400, maxHeight: 800), ['max' => 2401], 'over the field maximum'];
-        yield 'min over max' => [new ImageSpec(), ['min' => 600, 'max' => 500], 'crop min (600)'];
-        yield 'min over the smaller side' => [new ImageSpec(maxWidth: 2400, maxHeight: 800), ['min' => 801, 'max' => 2400], 'crop min (801)'];
-        yield 'too small to crop' => [new ImageSpec(maxWidth: 8, maxHeight: 8), [], 'over the field maximum'];
+        // Audit JP-L1: a free crop must fit the smaller maximum dimension and keep min after the scale-down.
+        yield 'free max over the smaller side' => [new ImageSpec(maxWidth: 2400, maxHeight: 800), ['max' => 2400], 'With aspect "free" the crop max (2400)'];
+        yield 'free max under 3 x min' => [new ImageSpec(), ['min' => 400, 'max' => 1000], 'at least 1200'];
+        yield 'free max under 3 x the field minimum' => [new ImageSpec(minWidth: 300), ['max' => 800], 'at least 900'];
+        yield 'portrait over the height' => [new ImageSpec(maxWidth: 2400, maxHeight: 800), ['aspect' => '1/3', 'max' => 2400], '(800 × 2400) does not fit'];
+        yield 'fixed min over max' => [new ImageSpec(), ['aspect' => 1, 'min' => 600, 'max' => 500], 'under the crop min (600)'];
+        yield 'fixed min over the short side' => [new ImageSpec(maxWidth: 2400, maxHeight: 800), ['aspect' => '3/1', 'min' => 801, 'max' => 2400], 'under the crop min (801)'];
+        yield 'fixed under the field minimum width' => [new ImageSpec(maxWidth: 1200, maxHeight: 400, minWidth: 600), [], '(400 × 400) does not fit'];
+        yield 'too small to crop' => [new ImageSpec(maxWidth: 8, maxHeight: 8), [], 'max is an integer'];
+    }
+
+    public function testSquareFieldsAcceptEveryOneToOneSpelling(): void
+    {
+        // Audit JP-I1.
+        foreach ([[1, '1'], [1.0, '1'], ['1', '1'], ['1/1', '1/1'], ['1:1', '1/1'], ['2/2', '2/2']] as [$aspect, $normalized]) {
+            self::assertSame($normalized, SettingImageCrop::resolve(new ImageSpec(square: true), ['aspect' => $aspect])['aspect']);
+        }
+    }
+
+    public function testTheBundleDefaultNeverFailsAField(): void
+    {
+        // Audit JP-M1: specs whose derived crop does not fit are shown without the crop under the bundle default.
+        self::assertNull(SettingImageCrop::withBundleDefault(new ImageSpec(maxWidth: 1200, maxHeight: 400, minWidth: 600), null, []));
+        self::assertNull(SettingImageCrop::withBundleDefault(new ImageSpec(maxWidth: 10, maxHeight: 10), null, ['shape' => 'circle']));
+        self::assertSame(['quality' => 0.5], SettingImageCrop::withBundleDefault(new ImageSpec(), null, ['quality' => 0.5]));
+
+        // A field's own options keep working when the bundle default does not fit them (circle forces aspect 1).
+        $own = ['aspect' => '3/1', 'max' => 2400];
+        self::assertSame($own, SettingImageCrop::withBundleDefault(new ImageSpec(maxWidth: 2400, maxHeight: 800), $own, ['shape' => 'circle']));
+        // Labels merge per key (JP-I2).
+        self::assertSame(
+            ['labels' => ['apply' => 'Use', 'cancel' => 'Back'], 'quality' => 0.5],
+            SettingImageCrop::withBundleDefault(new ImageSpec(), ['labels' => ['apply' => 'Use']], ['labels' => ['apply' => 'OK', 'cancel' => 'Back'], 'quality' => 0.5]),
+        );
     }
 
     public function testAttributesFollowUiKitsContract(): void
@@ -220,9 +253,12 @@ final class SettingImageCropTest extends TestCase
         self::assertSame(['3/1', '2400'], [$this->fileAttr($off, 'logo')[ImageCrop::ATTRIBUTE . '-aspect'], $this->fileAttr($off, 'logo')[ImageCrop::ATTRIBUTE . '-max']]);
         self::assertSame(['accept'], array_keys($this->fileAttr($off, 'icon')));
 
-        $on   = $this->sectionForm(FormFactorySupport::factory(cropDefault: ['shape' => 'circle', 'quality' => 0.5]), $fields);
+        $on   = $this->sectionForm(FormFactorySupport::factory(cropDefault: ['quality' => 0.5]), $fields);
         $logo = $this->fileAttr($on, 'logo');
-        self::assertSame(['circle', '0.5'], [$logo[ImageCrop::ATTRIBUTE . '-shape'], $logo[ImageCrop::ATTRIBUTE . '-quality']], 'the bundle default fills what the field leaves out');
+        self::assertSame(['3/1', '0.5'], [$logo[ImageCrop::ATTRIBUTE . '-aspect'], $logo[ImageCrop::ATTRIBUTE . '-quality']], 'the bundle default fills what the field leaves out');
+        // A bundle circle would force aspect 1 on the 3:1 logo: the field's own crop is kept.
+        $circle = $this->fileAttr($this->sectionForm(FormFactorySupport::factory(cropDefault: ['shape' => 'circle']), $fields), 'logo');
+        self::assertSame(['square', '3/1'], [$circle[ImageCrop::ATTRIBUTE . '-shape'], $circle[ImageCrop::ATTRIBUTE . '-aspect']]);
         self::assertSame(['accept'], array_keys($this->fileAttr($on, 'icon')), 'withoutCrop() wins');
     }
 

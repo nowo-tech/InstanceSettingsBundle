@@ -454,25 +454,37 @@ yield SettingField::image('scan', 'kyc.scan', types: ['image/jpeg'])
     ->withoutCrop();                                  // never cropped, even with files.crop: true
 ```
 
-**Derived defaults.** Every crop starts from the field's own rules (`SettingImageCrop::derive()`), so a crop the server
-would refuse is not offered:
+**Derived defaults.** Every crop starts from the field's own rules (`SettingImageCrop::derive()`), so that a crop
+made at `max` from a large enough picture fits the field. A smaller picture gives a smaller crop (it is never
+enlarged), which the server refuses as before when it is under the field's minimum:
 
 | Option | Derived from the field | Brand fields |
 | --- | --- | --- |
-| `aspect` | `1` for `square: true`, else `free` (the frame takes the image's proportions, within 1:3 and 3:1) | logos `free`; `mark`, `app_icon`, `favicon` `1` |
-| `min` | the larger of `minWidth` / `minHeight`: zooming stops there (the crop is never enlarged) | `mark` 64, `app_icon` 512, `favicon` 32 |
+| `aspect` | `1` for `square: true`; else `free` (the frame takes the image's proportions, within 1:3 and 3:1) when `max` is at least 3 × `min`, else `1` | logos `free`; `mark`, `app_icon`, `favicon` `1` |
+| `min` | the larger of `minWidth` / `minHeight`, at most the smaller of `maxWidth` / `maxHeight`: zooming stops there | `mark` 64, `app_icon` 512, `favicon` 32 |
 | `max` | the smaller of `maxWidth` / `maxHeight` (a free crop then fits both), at most 2048 and at least `min` | logos 800, `mark` 1024, `app_icon` / `favicon` 2048 |
 | `format` | `auto` (WebP, else PNG with transparency or JPEG) when the field takes PNG, WebP and JPEG; else one it takes (`webp` for PNG + WebP, `png`, `jpeg`) | `auto` |
 | `max_bytes` | 95 % of `maxBytes` (quality, then size, step down to fit) | 996 147 (1 MiB field) |
 
 `withCrop()` takes UiKit's options (`shape`, `aspect`, `max`, `min`, `format`, `max_bytes`, `quality`, `bake_circle`,
 `preview`, `labels`) over these, and checks them when the section definitions load: an unknown option, a bad value,
-or one the field would refuse throws `InvalidArgumentException` naming the field (a format giving a type the field
-does not take, with `auto` needing all three; `max_bytes` over `maxBytes`; a non-1 aspect on a square field; `max`
-over its larger maximum dimension; `min` over `max` or its smaller maximum dimension). A logo whose proportions you
-know can keep its full width: `->withCrop(['aspect' => '3/1', 'max' => 2400])` on a 2400 × 800 field. `files.crop`
-sets only `shape`, `quality` and `labels` (they fit every field); a field's own options win, and `withoutCrop()` wins
-over `files.crop`.
+or one the field would refuse throws `InvalidArgumentException` naming the field:
+
+- a format giving a type the field does not take (`auto` needs all three); `max_bytes` over `maxBytes`;
+- a square field with an aspect other than 1 (`1`, `'1/1'`, `'1:1'` and the circle shape are all 1);
+- a fixed aspect whose crop at `max` (e.g. `3/1` at 2400 = 2400 × 800) is outside the field's minimum or maximum
+  width or height, or whose short side is under `min`;
+- `aspect: free` with `max` over the smaller maximum dimension (a free crop may be portrait or landscape) or under 3 ×
+  `min` (or 3 × the field's minimum dimensions: a 1:3 crop scaled to `max` must keep them).
+
+A field whose derived crop cannot fit (both maximum dimensions under 16 px, or a minimum width over the maximum height
+such as `minWidth: 600, maxHeight: 400`) is refused by `withCrop()` with the reason, and **shown without the crop**
+under `files.crop` (the page never fails because of the bundle default). A logo whose proportions you know can keep
+its full width: `->withCrop(['aspect' => '3/1', 'max' => 2400])` on a 2400 × 800 field.
+
+`files.crop` sets only `shape`, `quality` and `labels`; a field's own options win over it key by key (`labels` merge
+per text), and `withoutCrop()` wins over `files.crop`. A bundle `shape: circle` makes the aspect 1 (UiKit: a circle is
+always 1): on a field it does not fit, the field keeps its own crop (or no crop when it has none).
 
 **Formats.** A crop is WebP, PNG or JPEG depending on the browser (`auto`: Chromium encodes WebP; an engine without a
 WebP encoder sends PNG or JPEG). Keep the default `types` (all three) on cropped fields, or set a `format` the field

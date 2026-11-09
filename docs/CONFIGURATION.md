@@ -312,7 +312,7 @@ nowo_instance_settings:
             labels: { apply: 'Use this crop' }
 ```
 
-Other keys (`aspect`, `max`, `max_bytes`, …) are refused here: set them per field with `SettingField::withCrop()`,
+A field these options cannot crop (its derived crop does not fit its rules, or `shape: circle` forces an aspect 1 it does not take) is shown without them: without the crop, or with its own `withCrop()` options. Per-field `labels` merge with these per text. Other keys (`aspect`, `max`, `max_bytes`, …) are refused here: set them per field with `SettingField::withCrop()`,
 and turn a field off with `SettingField::withoutCrop()`. Unknown labels or out-of-range values fail the container
 build (`nowo_instance_settings.files.crop: …`). The server-side checks and re-encoding do not change. Add `img-src
 blob:` to a strict CSP on the admin pages.

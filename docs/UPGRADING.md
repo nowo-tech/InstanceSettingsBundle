@@ -34,8 +34,9 @@ composer update nowo-tech/instance-settings-bundle nowo-tech/ui-kit-bundle
 2. **Nothing changes by default.** `files.crop` is `false`: the admin markup is byte-identical to 1.7.1 and no script
    is added.
 3. **Opt in** with `files.crop: true` (every image field, brand ones included) or per field with
-   `SettingField::withCrop()`; `SettingField::withoutCrop()` keeps a field out. Options a field would refuse throw when
-   the section definitions load ([USAGE](USAGE.md#crop-step-18)).
+   `SettingField::withCrop()`; `SettingField::withoutCrop()` keeps a field out. `withCrop()` options a field would refuse
+   throw when the section definitions load; under `files.crop` a field the derived crop cannot fit is shown without
+   it ([USAGE](USAGE.md#crop-step-18)).
 4. **CSP.** With a strict Content-Security-Policy on the admin pages, add `img-src blob:`.
 5. **Host templates.** A page template set with `SectionEmbedOptions::withTemplate()` that replaces the
    `nowo_ui_settings_section` block must load the script itself when `image_crop` is true:

@@ -11,15 +11,19 @@ use Nowo\UiKitBundle\Form\ImageCrop;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
+use function abs;
 use function array_diff;
 use function array_keys;
 use function array_map;
+use function count;
+use function explode;
 use function implode;
 use function in_array;
 use function intdiv;
 use function is_array;
 use function max;
 use function min;
+use function round;
 use function sprintf;
 use function strval;
 
@@ -54,21 +58,29 @@ final class SettingImageCrop
     public const BUNDLE_KEYS = ['shape', 'quality', 'labels'];
 
     /**
-     * Defaults derived from the field's rules: a square field gets `aspect` 1, any other `free`; `min` is the field's
-     * largest minimum dimension (the crop is never enlarged, so zooming stops there); `max` the smaller maximum
-     * dimension (so a free crop fits both, at most {@see self::DERIVED_MAX_CAP}); `format` `auto` when the field takes
-     * PNG, WebP and JPEG, else one it takes; `max_bytes` {@see self::MAX_BYTES_PERCENT} % of its `maxBytes`.
+     * Defaults derived from the field's rules: `min` is the field's larger minimum dimension, clamped to its smaller
+     * maximum dimension (the crop is never enlarged, so zooming stops there); `max` the smaller maximum dimension (so
+     * a free crop fits both, at most {@see self::DERIVED_MAX_CAP}, at least `min`); a square field gets `aspect` 1, any
+     * other `free` while `max` is at least 3 × `min` (a free frame may be 1:3, so its short side keeps `min`), else 1;
+     * `format` `auto` when the field takes PNG, WebP and JPEG, else one it takes; `max_bytes`
+     * {@see self::MAX_BYTES_PERCENT} % of its `maxBytes`.
+     *
+     * Never throws. The result may still not {@see self::resolve()} (a field smaller than {@see self::MIN_MAX} px, or
+     * whose minimum width does not fit its maximum height): such a field is shown without the crop under the bundle
+     * default, and `SettingField::withCrop()` refuses it when the section definitions load.
      *
      * @return array{aspect: int|string, min: int, max: int, format: string, max_bytes: int}
      */
     public static function derive(ImageSpec $spec): array
     {
-        $min = max($spec->minWidth, $spec->minHeight);
+        $smaller = min($spec->maxWidth, $spec->maxHeight);
+        $min     = min(max($spec->minWidth, $spec->minHeight), $smaller);
+        $max     = max($min, min($smaller, self::DERIVED_MAX_CAP));
 
         return [
-            'aspect'    => $spec->square ? 1 : 'free',
+            'aspect'    => $spec->square || $max < 3 * $min ? 1 : 'free',
             'min'       => $min,
-            'max'       => max(self::MIN_MAX, $min, min($spec->maxWidth, $spec->maxHeight, self::DERIVED_MAX_CAP)),
+            'max'       => $max,
             'format'    => self::format($spec->types),
             'max_bytes' => max(1, intdiv($spec->maxBytes * self::MAX_BYTES_PERCENT, 100)),
         ];
@@ -76,6 +88,11 @@ final class SettingImageCrop
 
     /**
      * The crop options of a field: derived defaults, then `$options`, validated by UiKit and against the field.
+     *
+     * The output of a crop at `max` must fit the field: with a fixed aspect, its width and height within the field's
+     * minimum and maximum dimensions and its short side at least `min`; with `free` (any proportions from 1:3 to
+     * 3:1), `max` at most the smaller maximum dimension and at least 3 × `min` and the minimum dimensions. A picked
+     * image smaller than that gives a smaller crop (never enlarged), which the server refuses as before.
      *
      * @param array<mixed> $options
      *
@@ -92,17 +109,60 @@ final class SettingImageCrop
         if ($config['max_bytes'] !== null && $config['max_bytes'] > $spec->maxBytes) {
             throw new InvalidArgumentException(sprintf('The crop max_bytes (%d) is over the field maxBytes (%d).', $config['max_bytes'], $spec->maxBytes));
         }
-        if ($spec->square && $config['aspect'] !== '1') {
+        $ratio = self::ratio($config['aspect']);
+        if ($spec->square && ($ratio === null || abs($ratio - 1) > 1e-9)) {
             throw new InvalidArgumentException('A square image field crops with aspect 1 (or the circle shape).');
         }
-        if ($config['max'] > max($spec->maxWidth, $spec->maxHeight)) {
-            throw new InvalidArgumentException(sprintf('The crop max (%d) is over the field maximum dimensions (%d × %d).', $config['max'], $spec->maxWidth, $spec->maxHeight));
+        $max = $config['max'];
+        $min = $config['min'];
+        if ($ratio === null) {
+            $least = 3 * max($min, $spec->minWidth, $spec->minHeight);
+            if ($max > min($spec->maxWidth, $spec->maxHeight) || $max < $least) {
+                throw new InvalidArgumentException(sprintf('With aspect "free" the crop max (%d) must be at most the smaller field maximum dimension (%d) and at least %d (3 × the crop min or the field minimum dimensions: a free crop may be 1:3); set a fixed aspect for other sizes.', $max, min($spec->maxWidth, $spec->maxHeight), $least));
+            }
+
+            return $config;
         }
-        if ($config['min'] > $config['max'] || $config['min'] > min($spec->maxWidth, $spec->maxHeight)) {
-            throw new InvalidArgumentException(sprintf('The crop min (%d) is over the crop max (%d) or the field maximum dimensions (%d × %d).', $config['min'], $config['max'], $spec->maxWidth, $spec->maxHeight));
+        [$width, $height] = $ratio >= 1 ? [$max, (int) round($max / $ratio)] : [(int) round($max * $ratio), $max];
+        if ($width > $spec->maxWidth || $height > $spec->maxHeight || $width < $spec->minWidth || $height < $spec->minHeight || min($width, $height) < $min) {
+            throw new InvalidArgumentException(sprintf('A crop of aspect %s at max %d (%d × %d) does not fit the field (%d…%d × %d…%d) or its short side is under the crop min (%d).', $config['aspect'], $max, $width, $height, $spec->minWidth, $spec->maxWidth, $spec->minHeight, $spec->maxHeight, $min));
         }
 
         return $config;
+    }
+
+    /**
+     * Crop options of a field when the bundle default applies (1.8, audit JP-M1): the bundle default over the
+     * field's own options (labels merged per key); null when the field cannot be cropped with them, so a field with
+     * valid rules never fails the page. A field whose own options are refused still throws.
+     *
+     * @param array<mixed>|null $own the field's own options (null = none)
+     * @param array<mixed> $bundle the bundle default (`files.crop`)
+     *
+     * @return array<mixed>|null
+     */
+    public static function withBundleDefault(ImageSpec $spec, ?array $own, array $bundle): ?array
+    {
+        if ($own === null) {
+            try {
+                self::resolve($spec, $bundle);
+            } catch (InvalidArgumentException) {
+                return null;
+            }
+
+            return $bundle;
+        }
+        $merged = $own + $bundle;
+        if (is_array($own['labels'] ?? null) && is_array($bundle['labels'] ?? null)) {
+            $merged['labels'] = $own['labels'] + $bundle['labels'];
+        }
+        try {
+            self::resolve($spec, $merged);
+        } catch (InvalidArgumentException) {
+            return $own;
+        }
+
+        return $merged;
     }
 
     /**
@@ -154,6 +214,19 @@ final class SettingImageCrop
         }
 
         return false;
+    }
+
+    /**
+     * Width / height of a normalized aspect (`free` = null).
+     */
+    private static function ratio(string $aspect): ?float
+    {
+        if ($aspect === 'free') {
+            return null;
+        }
+        $parts = explode('/', $aspect);
+
+        return count($parts) === 2 ? (float) $parts[0] / (float) $parts[1] : (float) $aspect;
     }
 
     /**
