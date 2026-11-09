@@ -3,7 +3,8 @@ FROM dunglas/frankenphp:1-php8.5-alpine
 
 RUN apk add --no-cache git unzip bash
 
-RUN install-php-extensions zip intl sodium pdo_mysql
+# gd (PNG, JPEG, WebP): image setting fields (files.enabled) re-encode uploads with it.
+RUN install-php-extensions zip intl sodium pdo_mysql gd
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 

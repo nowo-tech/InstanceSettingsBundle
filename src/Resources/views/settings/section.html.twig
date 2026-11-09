@@ -8,6 +8,8 @@
   SettingsSectionNoticesInterface warnings), rendered as UiKit `flash_warning` alerts above the current section form.
   Optional (1.5): image_previews (list of Ui\ImagePreview: the stored image of each image field with the `preview` form
   option, by its file route URL only; never bytes, data: or base64), rendered above the form.
+  Optional (1.8): image_crop (true when an image field has the crop step): loads UiKit's image-crop script (nonce from
+  the csp_nonce request attribute; the runtime binds once even when the host layout loads it too).
   Data block: nowo_ui_settings_section (`section` in context).
 #}
 {% extends '@NowoUiKit/page/settings.html.twig' %}
@@ -30,5 +32,5 @@
         </ul>
         {%- endif %}
     {% endif %}
-    {{ parent() }}
+    {% if image_crop|default(false) %}{{ include(nowo_ui_partial('scripts', page.bundle), {script_names: ['image-crop']}) }}{% endif %}{{ parent() }}
 {% endblock %}

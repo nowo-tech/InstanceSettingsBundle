@@ -296,6 +296,20 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
+    public function testCropDefaultReachesTheImageType(): void
+    {
+        // 1.8: files.crop, off by default; on with its set options only; refused options fail the configuration.
+        self::assertFalse($this->load([], withSecurity: true)->getDefinition(SettingImageType::class)->getArgument(0));
+        self::assertSame([], $this->load(['files' => ['crop' => true]], withSecurity: true)->getDefinition(SettingImageType::class)->getArgument(0));
+        self::assertSame(['shape' => 'circle', 'labels' => ['apply' => 'Use']], $this->load(['files' => ['crop' => ['shape' => 'circle', 'labels' => ['apply' => 'Use']]]], withSecurity: true)->getDefinition(SettingImageType::class)->getArgument(0));
+        self::assertSame(['quality' => 0.5], NowoInstanceSettingsExtension::cropDefault(['enabled' => true, 'shape' => null, 'quality' => 0.5, 'labels' => []]));
+        self::assertFalse(NowoInstanceSettingsExtension::cropDefault(['enabled' => false, 'shape' => 'circle', 'quality' => null, 'labels' => []]));
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessage('nowo_instance_settings.files.crop: The image crop labels');
+        $this->load(['files' => ['crop' => ['labels' => ['nope' => 'x']]]], withSecurity: true);
+    }
+
     /**
      * @param array<string, mixed> $config
      */

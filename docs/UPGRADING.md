@@ -23,6 +23,26 @@
 
 ## Unreleased
 
+Target **1.8.0**, from **1.7.x**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle nowo-tech/ui-kit-bundle
+```
+
+1. **UiKit ^2.43.** The bundle now requires `nowo-tech/ui-kit-bundle` ^2.43 (its image crop). Run `assets:install`
+   (or your asset build) so `nowo-ui-image-crop.js` is published.
+2. **Nothing changes by default.** `files.crop` is `false`: the admin markup is byte-identical to 1.7.1 and no script
+   is added.
+3. **Opt in** with `files.crop: true` (every image field, brand ones included) or per field with
+   `SettingField::withCrop()`; `SettingField::withoutCrop()` keeps a field out. Options a field would refuse throw when
+   the section definitions load ([USAGE](USAGE.md#crop-step-18)).
+4. **CSP.** With a strict Content-Security-Policy on the admin pages, add `img-src blob:`.
+5. **Host templates.** A page template set with `SectionEmbedOptions::withTemplate()` that replaces the
+   `nowo_ui_settings_section` block must load the script itself when `image_crop` is true:
+   `{{ include(nowo_ui_partial('scripts'), {script_names: ['image-crop']}) }}`.
+6. **Building `SettingImageType` by hand** (tests, a form factory without the container): the type now takes `(array|false $cropDefault = false,
+   ?TranslatorInterface $translator = null)`; the defaults keep 1.7 behaviour.
+
 ## To 1.7.1
 
 From **1.7.0**:

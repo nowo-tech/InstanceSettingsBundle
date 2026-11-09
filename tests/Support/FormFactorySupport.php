@@ -38,10 +38,13 @@ final class FormFactorySupport
         return new FormOptionsMerger($profiles, NowoInstanceSettingsBundle::FORM_KIT_PROFILE, new ConstraintDefinitionFactory());
     }
 
-    public static function factory(bool $validCsrf = true): FormFactoryInterface
+    /**
+     * @param array<string, mixed>|false $cropDefault bundle default `files.crop` (1.8)
+     */
+    public static function factory(bool $validCsrf = true, array|false $cropDefault = false): FormFactoryInterface
     {
         $merger = self::merger();
-        $types  = [new SettingsSectionType(), new SettingImageType(), new PortabilityImportType(), new PortabilityExportType()];
+        $types  = [new SettingsSectionType(), new SettingImageType($cropDefault), new PortabilityImportType(), new PortabilityExportType()];
         foreach ($types as $type) {
             $type->setFormOptionsMerger($merger);
         }

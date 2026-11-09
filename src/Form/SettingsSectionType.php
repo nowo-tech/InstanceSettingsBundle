@@ -121,6 +121,7 @@ final class SettingsSectionType extends AbstractType
                     'stored'    => $options['stored_images'][$name] ?? false,
                     'max_bytes' => $field->image->maxBytes,
                     'types'     => $field->image->types,
+                    'spec'      => $field->image,
                 ], $field->formOptions));
 
                 continue;

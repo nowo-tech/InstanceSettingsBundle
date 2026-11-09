@@ -23,7 +23,7 @@ help:
 	@echo "  make key          Generate Halite encryption secret key"
 	@echo "  make cache-clear  Clear Symfony cache"
 	@echo "  make update-bundle Update bundle from path repo"
-	@echo "  make test-e2e     Playwright happy path (official Playwright image)"
+	@echo "  make test-e2e     Playwright happy path, Chromium + WebKit image crop (official Playwright image)"
 	@echo "  make demo-screenshots Refresh docs/images/demo/*.webp"
 	@echo ""
 
@@ -116,7 +116,7 @@ test-e2e: ensure-up seed
 		-v "$(CURDIR)/e2e:/e2e" -w /e2e \
 		-e DEMO_BASE_URL=http://127.0.0.1:$$PORT \
 		$(PLAYWRIGHT_IMAGE) \
-		bash -lc 'npm install --no-fund --no-audit && npx playwright test --project=chromium'
+		bash -lc 'npm install --no-fund --no-audit && npx playwright test --project=chromium --project=webkit'
 
 demo-screenshots: ensure-up seed
 	@mkdir -p ../../docs/images/demo e2e/node_modules

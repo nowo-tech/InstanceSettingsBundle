@@ -10,6 +10,7 @@
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
+  - [Crop step](#crop-step)
 - [seed](#seed)
   - [Seed file format](#seed-file-format)
   - [Host-side importer API](#host-side-importer-api)
@@ -52,6 +53,7 @@ nowo_instance_settings:
         orphan_retention: 30           # days a replaced / removed image stays servable before purge-files deletes it (0 … 3650)
         store: doctrine                # 1.7: doctrine (instance_setting_file table) | filesystem (stable files, no blob)
         directory: '%kernel.project_dir%/config/instance-files'   # 1.7: directory of the filesystem store
+        crop: false                    # 1.8: crop step of every image field: false | true | { shape, quality, labels }
     seed:                              # host seed file (1.7)
         file: null                     # default file of nowo:instance-settings:seed (.yaml, .yml, .json)
         base_dir: '%kernel.project_dir%'   # every seed file / image path must resolve inside it
@@ -183,6 +185,7 @@ file route.
 | `enabled` | `false` | Maps the file entity (`<prefix>instance_setting_file`, Doctrine mapping `NowoInstanceSettingsFiles`) and registers the file store, the file controller and `nowo:instance-settings:purge-files`. Required by image fields: a section declaring one without it fails when the section definitions load. With `true` the container refuses to compile without `ext-gd` (PNG, JPEG, WebP). Literal boolean only (the mapping is decided before the configuration is processed). The file route is still added only when a section declares an image field. |
 | `path_prefix` | `/_settings-file` | Prefix of the file route `{prefix}/{section}/{field}/{hash12}[-{variant}].{ext}`. Must be outside `web_ui.path_prefix` (and not contain it): public images must not depend on the admin firewall. The container refuses an overlap. Add a `PUBLIC_ACCESS` `access_control` line for it when your firewall covers it. **Private (non-public) image fields need a firewall over this prefix** (the same context as the admin UI): the controller trusts the user only when a firewall matched the request, so without one every private image is a 404. For a CDN, ignore the query string in the cache key for this prefix and purge the CDN when you withdraw an image ([USAGE](USAGE.md#image-fields)). |
 | `orphan_retention` | `30` | Days a replaced or removed image (and its variants) stays in the database and servable, so e-mails already sent keep showing it, before `nowo:instance-settings:purge-files` deletes it. `0` deletes on the next run. |
+| `crop` | `false` | 1.8: UiKit's crop step (2.43) on every image field: `false`, `true` or `{shape, quality, labels}` (see [Crop step](#crop-step)). |
 
 ```yaml
 # config/packages/security.yaml
@@ -286,6 +289,33 @@ Behaviour:
   `git status`; it never overwrites a `.gitignore` you put there. Add `<directory>/**/.variants/` to the host
   `.gitignore` as well (covers checkouts made before the first save, and directories created by 1.7.0). Variants and
   metadata are regenerated when the image is saved or seeded.
+
+### Crop step
+
+1.8 (owner decision D-20261109-09). `files.crop` puts UiKit's image crop step (UiKit 2.43) on the file input of every
+image field, the brand ones included. The aspect, `min`, `max`, `format` and `max_bytes` are derived per field from
+its rules ([USAGE](USAGE.md#crop-step-18)); here you set only what fits every field:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `crop` | `false` | `true` turns it on with the defaults; an array turns it on with these keys. `{enabled: false, …}` keeps it off. |
+| `crop.shape` | `null` (square) | `square` or `circle` (a visual mask: the stored image stays square). |
+| `crop.quality` | `null` (0.92) | WebP / JPEG encoder quality, 0 to 1. |
+| `crop.labels` | `{}` | Dialog texts over UiKit's translations `image_crop.*`: `title`, `instructions`, `stage`, `zoom`, `zoom_status`, `apply`, `cancel`, `close`, `too_large`, `optimizing`. |
+
+```yaml
+nowo_instance_settings:
+    files:
+        enabled: true
+        crop:
+            quality: 0.85
+            labels: { apply: 'Use this crop' }
+```
+
+Other keys (`aspect`, `max`, `max_bytes`, …) are refused here: set them per field with `SettingField::withCrop()`,
+and turn a field off with `SettingField::withoutCrop()`. Unknown labels or out-of-range values fail the container
+build (`nowo_instance_settings.files.crop: …`). The server-side checks and re-encoding do not change. Add `img-src
+blob:` to a strict CSP on the admin pages.
 
 ## seed
 

@@ -10,6 +10,8 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Definition\Processor;
 
+use function json_encode;
+
 final class ConfigurationTest extends TestCase
 {
     public function testSafeDefaults(): void
@@ -20,8 +22,28 @@ final class ConfigurationTest extends TestCase
         self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'templates' => []], $config['web_ui']);
         self::assertSame(['access_roles' => ['ROLE_ADMIN'], 'area_roles' => [], 'access_checker' => null, 'allow_unauthenticated' => false], $config['security']);
         self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true, 'max_file_bytes' => 8_388_608], $config['portability']);
-        self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files'], $config['files']);
+        self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files', 'crop' => ['enabled' => false, 'shape' => null, 'quality' => null, 'labels' => []]], $config['files']);
         self::assertSame(['file' => null, 'base_dir' => '%kernel.project_dir%'], $config['seed']);
+    }
+
+    public function testCropConfiguration(): void
+    {
+        // 1.8: files.crop is false (default), true, or {shape, quality, labels}.
+        self::assertSame(['enabled' => true, 'shape' => null, 'quality' => null, 'labels' => []], $this->process(['files' => ['crop' => true]])['files']['crop']);
+        self::assertFalse($this->process(['files' => ['crop' => false]])['files']['crop']['enabled']);
+        self::assertSame(
+            ['shape' => 'circle', 'quality' => 0.8, 'labels' => ['apply' => 'Use'], 'enabled' => true],
+            $this->process(['files' => ['crop' => ['shape' => 'circle', 'quality' => 0.8, 'labels' => ['apply' => 'Use']]]])['files']['crop'],
+        );
+
+        foreach ([['shape' => 'oval'], ['quality' => 2], ['aspect' => 1], ['max' => 512]] as $invalid) {
+            try {
+                $this->process(['files' => ['crop' => $invalid]]);
+                self::fail('Expected an invalid crop configuration: ' . json_encode($invalid));
+            } catch (InvalidConfigurationException) {
+                $this->addToAssertionCount(1);
+            }
+        }
     }
 
     public function testSeedAndFilesystemStoreConfiguration(): void
@@ -47,7 +69,7 @@ final class ConfigurationTest extends TestCase
 
     public function testFilesConfiguration(): void
     {
-        self::assertSame(['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files'], $this->process(['files' => ['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0]])['files']);
+        self::assertSame(['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files', 'crop' => ['enabled' => false, 'shape' => null, 'quality' => null, 'labels' => []]], $this->process(['files' => ['enabled' => true, 'path_prefix' => '/media/brand', 'orphan_retention' => 0]])['files']);
 
         foreach ([['path_prefix' => 'media'], ['path_prefix' => '/'], ['path_prefix' => '/a b'], ['path_prefix' => '/x?y'], ['orphan_retention' => -1], ['enabled' => 'yes']] as $files) {
             try {
