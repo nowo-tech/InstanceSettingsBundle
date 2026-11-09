@@ -6,7 +6,7 @@
   "scripts": {
     "test": "playwright test",
     "test:screenshots": "playwright test --project=screenshots",
-    "install-browsers": "playwright install chromium",
+    "install-browsers": "playwright install chromium webkit",
     "to-webp": "node scripts/to-webp.mjs"
   },
   "devDependencies": {

@@ -10,6 +10,7 @@ use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
 use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
+use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
@@ -218,6 +219,8 @@ final readonly class SettingsSectionEmbedder
             'section'        => $section,
             'notices'        => $notices,
             'image_previews' => $previews,
+            // 1.8: an image field with the crop step: the page loads UiKit's image-crop script.
+            'image_crop' => SettingImageCrop::inForm($form),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);

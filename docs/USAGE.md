@@ -18,6 +18,7 @@
 - [Writing settings from code](#writing-settings-from-code)
 - [Secrets](#secrets)
 - [Image fields](#image-fields)
+  - [Crop step (1.8)](#crop-step-18)
 - [Brand bridge](#brand-bridge)
   - [Reading the brand](#reading-the-brand)
   - [UiKit appearance](#uikit-appearance)
@@ -427,6 +428,83 @@ so the stored `isf:` reference can differ from the one in the envelope; this is 
 
 **Audit.** The "Instance settings saved." log line gets `files`: `logo=3f1c9a0b7e21 image/png 512x512 20480B` (or
 `logo=removed`); `SettingsChangedEvent::$fileChanges` gives `field => {old, new}` full hashes. Never content.
+
+### Crop step (1.8)
+
+Opt-in (owner decision D-20261109-09): a picked image opens UiKit's crop dialog (UiKit 2.43,
+[UiKit USAGE "Image crop"](https://github.com/nowo-tech/UiKitBundle/blob/main/docs/USAGE.md#image-crop)); the user moves
+and zooms it, and "Apply" puts the crop in the file input **in place of the picked file**. The form then uploads the
+crop as an ordinary file: the server is unchanged and stays the source of truth (type from the content, the field's
+limits, re-encoding). Without JavaScript, or in a browser that cannot crop, the picked file is uploaded as it is.
+
+Turn it on for every image field (brand `logo_light`, `logo_dark`, `mark`, `app_icon`, `favicon`, the extra images and
+your own `SettingField::image()` fields) with `files.crop`, or per field:
+
+```yaml
+nowo_instance_settings:
+    files:
+        enabled: true
+        crop: true                     # or { shape: circle, quality: 0.85, labels: { apply: 'Use this crop' } }
+```
+
+```php
+yield SettingField::image('logo', 'brand.logo', maxWidth: 2400, maxHeight: 800, public: true)
+    ->withCrop(['aspect' => '3/1', 'max' => 2400]);   // over the derived defaults
+yield SettingField::image('scan', 'kyc.scan', types: ['image/jpeg'])
+    ->withoutCrop();                                  // never cropped, even with files.crop: true
+```
+
+**Derived defaults.** Every crop starts from the field's own rules (`SettingImageCrop::derive()`), so that a crop
+made at `max` from a large enough picture fits the field. A smaller picture gives a smaller crop (it is never
+enlarged), which the server refuses as before when it is under the field's minimum:
+
+| Option | Derived from the field | Brand fields |
+| --- | --- | --- |
+| `aspect` | `1` for `square: true`; else `free` (the frame takes the image's proportions, within 1:3 and 3:1) when `max` is at least 3 × `min`, else `1` | logos `free`; `mark`, `app_icon`, `favicon` `1` |
+| `min` | the larger of `minWidth` / `minHeight`, at most the smaller of `maxWidth` / `maxHeight`: zooming stops there | `mark` 64, `app_icon` 512, `favicon` 32 |
+| `max` | the smaller of `maxWidth` / `maxHeight` (a free crop then fits both), at most 2048 and at least `min` | logos 800, `mark` 1024, `app_icon` / `favicon` 2048 |
+| `format` | `auto` (WebP, else PNG with transparency or JPEG) when the field takes PNG, WebP and JPEG; else one it takes (`webp` for PNG + WebP, `png`, `jpeg`) | `auto` |
+| `max_bytes` | 95 % of `maxBytes` (quality, then size, step down to fit) | 996 147 (1 MiB field) |
+
+`withCrop()` takes UiKit's options (`shape`, `aspect`, `max`, `min`, `format`, `max_bytes`, `quality`, `bake_circle`,
+`preview`, `labels`) over these, and checks them when the section definitions load: an unknown option, a bad value,
+or one the field would refuse throws `InvalidArgumentException` naming the field:
+
+- a format giving a type the field does not take (`auto` needs all three); `max_bytes` over `maxBytes`;
+- a square field with an aspect other than 1 (`1`, `'1/1'`, `'1:1'` and the circle shape are all 1);
+- a fixed aspect whose crop at `max` (e.g. `3/1` at 2400 = 2400 × 800) is outside the field's minimum or maximum
+  width or height, or whose short side is under `min`;
+- `aspect: free` with `max` over the smaller maximum dimension (a free crop may be portrait or landscape) or under 3 ×
+  `min` (or 3 × the field's minimum dimensions: a 1:3 crop scaled to `max` must keep them).
+
+A field whose derived crop cannot fit (both maximum dimensions under 16 px, or a minimum width over the maximum height
+such as `minWidth: 600, maxHeight: 400`) is refused by `withCrop()` with the reason, and **shown without the crop**
+under `files.crop` (the page never fails because of the bundle default). A logo whose proportions you know can keep
+its full width: `->withCrop(['aspect' => '3/1', 'max' => 2400])` on a 2400 × 800 field.
+
+`files.crop` sets only `shape`, `quality` and `labels`; a field's own options win over it key by key (`labels` merge
+per text), and `withoutCrop()` wins over `files.crop`. A bundle `shape: circle` makes the aspect 1 (UiKit: a circle is
+always 1): on a field it does not fit, the field keeps its own crop (or no crop when it has none).
+
+**Formats.** A crop is WebP, PNG or JPEG depending on the browser (`auto`: Chromium encodes WebP; an engine without a
+WebP encoder sends PNG or JPEG). Keep the default `types` (all three) on cropped fields, or set a `format` the field
+takes. A WebP-only field gets `format: webp`, which an engine without a WebP encoder sends as PNG: the server then
+refuses it as before.
+
+**Page.** The section page (and the [embed](#embedding-sections-in-a-host-page)) loads UiKit's `image-crop` script
+itself when the current section has a cropped field (`image_crop: true` in the template context; the runtime binds
+once, so a host layout that loads it as well is fine). A host page template set with `withTemplate()` that replaces the
+`nowo_ui_settings_section` block must include it:
+`{{ include(nowo_ui_partial('scripts'), {script_names: ['image-crop']}) }}`. Theme cards and the other fields are not
+affected.
+
+**CSP.** The runtime needs no inline script or style. Its `<img>` decoding fallback (and a `preview` image) use `blob:`
+URLs: add `img-src blob:` to a strict Content-Security-Policy on the admin pages. The script tag carries the request's
+`csp_nonce` attribute when set.
+
+**Server unchanged.** The crop is a convenience, not a control: the upload still runs the whole pipeline (content
+sniffing, pixel cap before decoding, the field's dimensions and square rule, `maxBytes`, GD re-encoding). With the crop
+off (the default) the admin markup is byte-identical to 1.7.
 
 ## Brand bridge
 

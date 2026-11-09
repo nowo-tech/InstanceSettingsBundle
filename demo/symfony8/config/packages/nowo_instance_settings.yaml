@@ -12,3 +12,7 @@ nowo_instance_settings:
     portability:
         sealed_secrets: true
         max_upload_bytes: 1048576
+    # Image fields (1.4) and their crop step (1.8): the site logo is cropped in the browser (UiKit image crop) before
+    # it is uploaded; the server still checks and re-encodes it.
+    files:
+        enabled: true

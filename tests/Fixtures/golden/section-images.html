@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Settings</title>
+            <script src="/bundles/nowouikit/js/nowo-ui-theme-boot.js" data-nowo-ui-theme-boot></script>
+
+                    <link rel="stylesheet" href="/bundles/nowouikit/css/nowo-ui.css">
+    </head>
+<body class="nowo-ui-body">
+            <div class="nowo-ui-page nowo-ui-page--admin">
+                <main class="nowo-ui-content" id="nowo-ui-content" data-nowo-ui-bundle="NowoInstanceSettingsBundle">
+                            <div class="nowo-ui-page-header d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3" data-nowo-ui-region="header">
+    <div class="nowo-ui-page-header__text">            
+                                <h1 class="nowo-ui-page-header__title h3 mb-1">Settings</h1>
+                                <p class="nowo-ui-page-header__intro">Instance-wide settings. Changes apply on the next request, without a deploy.</p>
+            </div>
+            <div class="nowo-ui-toolbar d-flex flex-wrap align-items-center gap-1 mb-2"><a class="nowo-ui-btn nowo-ui-btn--secondary btn btn-outline-secondary nowo-ui-action--export" href="/admin/settings/portability" data-testid="instance-settings-portability-link"><span class="nowo-ui-action__label">Import / export</span></a></div>
+        </div>
+
+
+                                
+                                <div class="nowo-ui-settings-page" data-nowo-ui-page="settings" data-testid="instance-settings-section" data-section="brand">
+                                                                                                                                <nav class="nowo-ui-tabs nav nav-tabs mb-3" aria-label="Sections" data-nowo-ui-region="tabs">
+                                                                    <a
+            class="nowo-ui-tabs__item nav-link"
+            href="/admin/settings/sections/mailer"
+                        data-rail-label="Mailer"                    ><span class="nowo-ui-tabs__icon" aria-hidden="true"><i class="bi bi-gear" aria-hidden="true"></i></span><span class="nowo-ui-tabs__label">Mailer</span></a>
+                                                                    <a
+            class="nowo-ui-tabs__item nav-link"
+            href="/admin/settings/sections/general"
+                                            >General</a>
+                                                                    <a
+            class="nowo-ui-tabs__item nowo-ui-tabs__item--active nav-link active"
+            href="/admin/settings/sections/brand"
+            aria-current="page"                                >brand.label</a>
+    </nav>
+
+                            <section class="nowo-ui-section mb-4 nowo-ui-card card" id="nowo-ui-settings-brand" data-nowo-ui-region="section">
+                <header class="nowo-ui-card__header card-header d-flex flex-wrap align-items-start justify-content-between gap-2">
+                    <div class="nowo-ui-card__heading">
+                        <h2 class="nowo-ui-card__title">brand.label</h2>
+                                            </div>
+                </header>
+                <div class="nowo-ui-card__body card-body">
+                                                                                                                <form name="settings_section" method="post" class="nowo-ui-form" data-nowo-ui-region="form" enctype="multipart/form-data">
+                        <div><label for="settings_section_name">name</label><input type="text" id="settings_section_name" name="settings_section[name]" value="Acme" /></div>
+                                <div><label>logo</label><div id="settings_section_logo"><div><label for="settings_section_logo_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_logo_file" name="settings_section[logo][file]" accept="image/png,image/webp,image/jpeg" /></div></div></div>
+                                <div><label>icon</label><div id="settings_section_icon"><div><label for="settings_section_icon_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_icon_file" name="settings_section[icon][file]" accept="image/png,image/webp,image/jpeg" /></div></div></div>
+                                <div><label>scan</label><div id="settings_section_scan"><div><label for="settings_section_scan_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_scan_file" name="settings_section[scan][file]" accept="image/jpeg" /></div></div></div>
+                                <div><label>local_only</label><div id="settings_section_local_only"><div><label for="settings_section_local_only_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_local_only_file" name="settings_section[local_only][file]" accept="image/png,image/webp,image/jpeg" /></div></div></div>
+                                <input type="hidden" id="settings_section__token" name="settings_section[_token]" data-controller="csrf-protection" value="TOKEN" />
+                    <div class="nowo-ui-form__actions d-flex flex-wrap gap-2">
+        <button type="submit" class="nowo-ui-btn nowo-ui-btn--primary btn btn-primary">Save</button>
+                
+    </div>
+</form>
+
+                                            
+                </div>
+            </section>
+            </div>
+        </main>
+            </div>
+                            <script src="/bundles/nowouikit/js/nowo-ui-modal.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-confirm.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-dialog.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-toast.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-tabs.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-theme.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-popover.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-segmented.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-autosubmit.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-avatar.js" defer></script>
+
+            </body>
+</html>

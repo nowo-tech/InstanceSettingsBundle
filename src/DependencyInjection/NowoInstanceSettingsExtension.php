@@ -41,6 +41,7 @@ use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\File\SettingFileUrls;
 use Nowo\InstanceSettingsBundle\Form\PortabilityExportType;
 use Nowo\InstanceSettingsBundle\Form\PortabilityImportType;
+use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
@@ -81,6 +82,7 @@ use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\KernelEvents;
 
+use function array_filter;
 use function array_key_exists;
 use function array_keys;
 use function in_array;
@@ -164,7 +166,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -576,7 +578,28 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string}} $config
+     * The bundle default of the image crop step (1.8, `files.crop`): false when off, else its set options (shape,
+     * quality, labels), checked against UiKit's image crop.
+     *
+     * @param array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>} $crop
+     *
+     * @return array<string, mixed>|false
+     */
+    public static function cropDefault(array $crop): array|false
+    {
+        if (!$crop['enabled']) {
+            return false;
+        }
+        $options = array_filter(['shape' => $crop['shape'], 'quality' => $crop['quality'], 'labels' => $crop['labels']], static fn (mixed $value): bool => $value !== null && $value !== []);
+        try {
+            return SettingImageCrop::bundleDefault($options);
+        } catch (InvalidArgumentException $e) {
+            throw new InvalidConfigurationException('nowo_instance_settings.files.crop: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}} $config
      */
     private function registerWebUi(ContainerBuilder $container, array $config): void
     {
@@ -596,9 +619,14 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             return;
         }
 
-        foreach ([SettingsSectionType::class, SettingImageType::class, ThemeCardsType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
+        foreach ([SettingsSectionType::class, ThemeCardsType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
             $container->setDefinition($type, (new Definition($type))->addTag('form.type'));
         }
+        // 1.8: the bundle default of the image crop step (files.crop) and the translator of its dialog texts.
+        $container->setDefinition(SettingImageType::class, (new Definition(SettingImageType::class, [
+            self::cropDefault($config['files']['crop']),
+            new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->addTag('form.type'));
 
         $container->setDefinition(SettingsPages::class, new Definition(SettingsPages::class, [
             $webUi['layout_template'],

@@ -39,5 +39,10 @@ final class SiteSettingsSection extends AbstractSettingsSection
         yield SettingField::int('page_size', 25, 'site.page_size', 'site.page_size_help', constraints: [new Range(min: 5, max: 200)]);
         yield SettingField::choice('theme', ['site.theme_light' => 'light', 'site.theme_dark' => 'dark', 'site.theme_auto' => 'auto'], 'auto', 'site.theme');
         yield SettingField::bool('maintenance_banner', false, 'site.maintenance_banner')->notPortable();
+        // 1.8: crop step (UiKit image crop) on the logo, a 3:1 band up to 1200 px wide (the derived default would be
+        // a free crop of at most 400 px, the smaller side); the server still checks and re-encodes the upload.
+        yield SettingField::image('logo', 'site.logo', 'site.logo_help', maxWidth: 1200, maxHeight: 400, public: true)
+            ->withCrop(['aspect' => '3/1', 'max' => 1200])
+            ->withFormOptions(['preview' => true]);
     }
 }

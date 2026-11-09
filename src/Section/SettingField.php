@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Section;
 
 use InvalidArgumentException;
+use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Symfony\Component\Validator\Constraint;
@@ -293,6 +294,58 @@ final readonly class SettingField
     }
 
     /**
+     * Copy with the crop step on its file input (1.8, owner decision D-20261109-09): a picked image opens UiKit's crop
+     * dialog (2.43) and the crop is uploaded in its place. Only for {@see SettingType::Image}. The server is unchanged:
+     * the upload is still checked against the field's rules and re-encoded.
+     *
+     * Options are UiKit's image crop options (`shape`, `aspect`, `max`, `min`, `format`, `max_bytes`, `quality`,
+     * `bake_circle`, `preview`, `labels`) over the defaults derived from the field ({@see SettingImageCrop::derive()}:
+     * a square field crops square at least its minimum size, `max_bytes` 95 % of its `maxBytes`, `format` `auto`).
+     * They are checked now, against UiKit and the field: an option the field would refuse (a format it does not take,
+     * `max_bytes` over its `maxBytes`, a non-square aspect on a square field, `max` / `min` outside its dimensions)
+     * throws when the section definitions load. Wins over the bundle default `files.crop`.
+     *
+     * @param array<string, mixed> $options
+     */
+    public function withCrop(array $options = []): self
+    {
+        $spec = $this->imageSpec('crop');
+        try {
+            SettingImageCrop::resolve($spec, $options);
+        } catch (InvalidArgumentException $e) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": %s', $this->name, $e->getMessage()), 0, $e);
+        }
+
+        return $this->withFormOptions([SettingImageCrop::OPTION => $options]);
+    }
+
+    /**
+     * Copy without the crop step even when the bundle default `files.crop` turns it on (1.8). Only for image fields.
+     */
+    public function withoutCrop(): self
+    {
+        $this->imageSpec('crop');
+
+        return $this->withFormOptions([SettingImageCrop::OPTION => false]);
+    }
+
+    /**
+     * The field's own crop setting (1.8): null (the bundle default applies), false (off) or its options.
+     *
+     * @return array<string, mixed>|false|null
+     */
+    public function crop(): array|false|null
+    {
+        $crop = $this->formOptions[SettingImageCrop::OPTION] ?? null;
+
+        return match (true) {
+            is_array($crop), $crop === false => $crop,
+            $crop === true                   => [],
+            default                          => null,
+        };
+    }
+
+    /**
      * Copy shown only while another field of the same section (the "provider") holds one of `$in` (1.3).
      *
      * The admin form hides the row (UiKit `visible-when` peer: hidden + inert, never disabled nor cleared) and the
@@ -322,6 +375,18 @@ final readonly class SettingField
     public function withGroup(string $group): self
     {
         return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $group);
+    }
+
+    /**
+     * Upload rules of an image field, or a refusal naming `$feature` for any other type.
+     */
+    private function imageSpec(string $feature): ImageSpec
+    {
+        if (!$this->image instanceof ImageSpec) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": %s is only for image fields.', $this->name, $feature));
+        }
+
+        return $this->image;
     }
 
     /**

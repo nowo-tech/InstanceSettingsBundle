@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Settings</title>
+            <script src="/bundles/nowouikit/js/nowo-ui-theme-boot.js" data-nowo-ui-theme-boot></script>
+
+                    <link rel="stylesheet" href="/bundles/nowouikit/css/nowo-ui.css">
+    </head>
+<body class="nowo-ui-body">
+            <div class="nowo-ui-page nowo-ui-page--admin">
+                <main class="nowo-ui-content" id="nowo-ui-content" data-nowo-ui-bundle="NowoInstanceSettingsBundle">
+                            <div class="nowo-ui-page-header d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3" data-nowo-ui-region="header">
+    <div class="nowo-ui-page-header__text">            
+                                <h1 class="nowo-ui-page-header__title h3 mb-1">Settings</h1>
+                                <p class="nowo-ui-page-header__intro">Instance-wide settings. Changes apply on the next request, without a deploy.</p>
+            </div>
+            <div class="nowo-ui-toolbar d-flex flex-wrap align-items-center gap-1 mb-2"><a class="nowo-ui-btn nowo-ui-btn--secondary btn btn-outline-secondary nowo-ui-action--export" href="/admin/settings/portability" data-testid="instance-settings-portability-link"><span class="nowo-ui-action__label">Import / export</span></a></div>
+        </div>
+
+
+                                
+                                <div class="nowo-ui-settings-page" data-nowo-ui-page="settings" data-testid="instance-settings-section" data-section="brand">
+                                                                                                    <nav class="nowo-ui-tabs nav nav-tabs mb-3" aria-label="Sections" data-nowo-ui-region="tabs">
+                                                                    <a
+            class="nowo-ui-tabs__item nowo-ui-tabs__item--active nav-link active"
+            href="/admin/settings/sections/brand"
+            aria-current="page"                                >Brand</a>
+                                                                    <a
+            class="nowo-ui-tabs__item nav-link"
+            href="/admin/settings/sections/appearance"
+                                            >Appearance</a>
+    </nav>
+
+                            <section class="nowo-ui-section mb-4 nowo-ui-card card" id="nowo-ui-settings-brand" data-nowo-ui-region="section">
+                <header class="nowo-ui-card__header card-header d-flex flex-wrap align-items-start justify-content-between gap-2">
+                    <div class="nowo-ui-card__heading">
+                        <h2 class="nowo-ui-card__title">Brand</h2>
+                        <p class="nowo-ui-card__intro">Name, texts and images of this instance. Images are PNG, JPEG or WebP (no SVG upload), re-encoded on upload and served publicly.</p>                    </div>
+                </header>
+                <div class="nowo-ui-card__body card-body">
+                                                                                                                <form name="settings_section" method="post" class="nowo-ui-form" data-nowo-ui-region="form" enctype="multipart/form-data">
+                        <div data-nowo-instance-settings-group="identity"><label for="settings_section_name" class="required">Name</label><input type="text" id="settings_section_name" name="settings_section[name]" required="required" aria-describedby="settings_section_name_help" value="Acme" /><div id="settings_section_name_help" class="help-text">Shown in the header, page titles, e-mails and the app manifest. At most 80 characters.</div></div>
+                                <div data-nowo-instance-settings-group="identity"><label for="settings_section_short_name">Short name</label><input type="text" id="settings_section_short_name" name="settings_section[short_name]" aria-describedby="settings_section_short_name_help" /><div id="settings_section_short_name_help" class="help-text">At most 12 characters (home screen label). Empty = the name cut at 12.</div></div>
+                                <div data-nowo-instance-settings-group="identity"><label for="settings_section_eyebrow">Eyebrow</label><input type="text" id="settings_section_eyebrow" name="settings_section[eyebrow]" aria-describedby="settings_section_eyebrow_help" /><div id="settings_section_eyebrow_help" class="help-text">Short line above the name. Empty = the configured default.</div></div>
+                                <div data-nowo-instance-settings-group="identity"><label for="settings_section_wordmark">Wordmark</label><input type="text" id="settings_section_wordmark" name="settings_section[wordmark]" aria-describedby="settings_section_wordmark_help" /><div id="settings_section_wordmark_help" class="help-text">Text form of the logo. Empty = the name in lower case.</div></div>
+                                <div data-nowo-instance-settings-group="images"><label>Logo (light backgrounds)</label><div id="settings_section_logo_light" aria-describedby="settings_section_logo_light_help"><div><label for="settings_section_logo_light_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_logo_light_file" name="settings_section[logo_light][file]" accept="image/png,image/webp,image/jpeg" /></div></div><div id="settings_section_logo_light_help" class="help-text">Horizontal logo for light backgrounds, at most 2400 × 800 px. Empty = the configured default, else the name.</div></div>
+                                <div data-nowo-instance-settings-group="images"><label>Logo (dark backgrounds)</label><div id="settings_section_logo_dark" aria-describedby="settings_section_logo_dark_help"><div><label for="settings_section_logo_dark_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_logo_dark_file" name="settings_section[logo_dark][file]" accept="image/png,image/webp,image/jpeg" /></div></div><div id="settings_section_logo_dark_help" class="help-text">Same logo for dark backgrounds. Empty = the light logo.</div></div>
+                                <div data-nowo-instance-settings-group="images"><label>Brand mark</label><div id="settings_section_mark" aria-describedby="settings_section_mark_help"><div><label for="settings_section_mark_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_mark_file" name="settings_section[mark][file]" accept="image/png,image/webp,image/jpeg" /></div></div><div id="settings_section_mark_help" class="help-text">Square mark, 64 to 1024 px (icons-only menu, phones, PDFs). Empty = the app icon.</div></div>
+                                <div data-nowo-instance-settings-group="images"><label>App icon</label><div id="settings_section_app_icon" aria-describedby="settings_section_app_icon_help"><div><label for="settings_section_app_icon_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_app_icon_file" name="settings_section[app_icon][file]" accept="image/png,image/webp,image/jpeg" /></div></div><div id="settings_section_app_icon_help" class="help-text">Square, opaque, at least 512 × 512 px; 512, 192 and 180 px versions are generated. Empty = a square mark of 512 px or more.</div></div>
+                                <div data-nowo-instance-settings-group="images"><label>Favicon</label><div id="settings_section_favicon" aria-describedby="settings_section_favicon_help"><div><label for="settings_section_favicon_file">Upload an image (PNG, JPEG or WebP)</label><input type="file" id="settings_section_favicon_file" name="settings_section[favicon][file]" accept="image/png,image/webp,image/jpeg" /></div></div><div id="settings_section_favicon_help" class="help-text">Square, at least 32 × 32 px; 32 and 16 px versions are generated. Empty = the mark, then the app icon.</div></div>
+                                <input type="hidden" id="settings_section__token" name="settings_section[_token]" data-controller="csrf-protection" value="TOKEN" />
+                    <div class="nowo-ui-form__actions d-flex flex-wrap gap-2">
+        <button type="submit" class="nowo-ui-btn nowo-ui-btn--primary btn btn-primary">Save</button>
+                
+    </div>
+</form>
+
+                                            
+                </div>
+            </section>
+            </div>
+        </main>
+            </div>
+                            <script src="/bundles/nowouikit/js/nowo-ui-modal.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-confirm.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-dialog.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-toast.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-tabs.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-theme.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-popover.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-segmented.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-autosubmit.js" defer></script>
+    <script src="/bundles/nowouikit/js/nowo-ui-avatar.js" defer></script>
+
+            </body>
+</html>

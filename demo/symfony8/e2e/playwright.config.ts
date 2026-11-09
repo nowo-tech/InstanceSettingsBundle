@@ -40,6 +40,12 @@ export default defineConfig({
       testIgnore: /screenshots\.spec\.ts/,
     },
     {
+      // InstanceSettings 1.8: the image crop step also in WebKit (its canvas encoder differs: WebP, PNG or JPEG).
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'] },
+      testMatch: /image-crop\.spec\.ts/,
+    },
+    {
       name: 'screenshots',
       use: { ...devices['Desktop Chrome'] },
       testMatch: /screenshots\.spec\.ts/,
