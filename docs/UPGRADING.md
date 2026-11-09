@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.7.0](#to-170)
 - [To 1.6.0](#to-160)
 - [To 1.5.0](#to-150)
 - [To 1.4.0](#to-140)
@@ -20,6 +21,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.7.0
+
+From **1.6.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 Target **1.7.0**, from **1.6.0**: nothing to do unless you opt in. Without `seed` and `files.store` the
 services, schema and behaviour are unchanged (the database file store is byte for byte the same).

@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.7.0] - 2026-11-09](#170---2026-11-09)
 - [[1.6.0] - 2026-11-09](#160---2026-11-09)
 - [[1.5.0] - 2026-11-09](#150---2026-11-09)
 - [[1.4.0] - 2026-11-08](#140---2026-11-08)
@@ -17,6 +18,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.7.0] - 2026-11-09
 
 Target 1.7.0: host brand seed file with images (IS-3) and an opt-in filesystem image store (owner decision
 D-20261109-03). Hosts that set neither `seed` nor `files.store` keep the 1.6 behaviour (the database store is
