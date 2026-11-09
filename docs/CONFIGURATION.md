@@ -245,7 +245,10 @@ Behaviour:
   changes wait for its real commit, and a rollback of the transaction, or to a savepoint that encloses the call
   (a nested `wrapInTransaction()` that failed and was caught), discards them (audit JG-M3). Transactions on other
   connections neither delay nor discard them (audit JG-L7). A rename that fails after the commit keeps the previous
-  file (still served).
+  file (still served). Savepoints are followed when they go through the connection's `exec()`, as DBAL's nested
+  transactions and `executeStatement('SAVEPOINT …')` do; a savepoint the host sends through `executeQuery()` or a
+  prepared statement is not seen, so use DBAL's nesting (audit JG-I15). Do not attach the middleware to other
+  connections by hand (audit JG-I17).
 - **The file on disk is authoritative.** The setting row says the field is set; the URL carries the first 12 hex
   characters of the current file's SHA-256 (cache busting: a logo replaced under the same name gets a new URL, the old
   URL answers 404, and the strong `ETag` is the hash). A `git pull` that changed a committed logo is served at once.

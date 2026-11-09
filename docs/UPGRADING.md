@@ -57,7 +57,8 @@ services, schema and behaviour are unchanged (the database file store is byte fo
 3. **Committed images are re-encoded when seeded** with the filesystem store (as uploads are): the committed file at
    the field's stable path may change once in git (EXIF / appended bytes dropped).
 4. **`doctrine/dbal` ^4.0** is now a direct requirement. Hosts still on DBAL 3 stay on 1.6 until they upgrade
-   (DoctrineBundle 3 and ORM 3 already run on DBAL 4).
+   DBAL. DoctrineBundle 3 needs DBAL 4, but ORM 3 also runs on DBAL 3.8+, so an ORM 3 host on DBAL 3 must upgrade DBAL
+   first (audit JG-I18).
 5. **`SettingFileController` built by hand** (not through the container): pass the new fourth argument
    (`InstanceSettingsInterface`); without it every file of the filesystem store answers 404. The database store is
    unaffected.
