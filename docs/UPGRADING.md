@@ -19,6 +19,65 @@
 
 ## Unreleased
 
+Target **1.5.0**, from **1.4.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle nowo-tech/ui-kit-bundle
+```
+
+1. **UiKit ^2.40.** The constraint moves from `^2.23` to `^2.40` (the brand bridge uses UiKit's logo slots and its
+   `provider_is_default` parameter). Nothing else changes for hosts that do not enable the brand bridge: same
+   services, routes, forms, schema, and the admin pages render byte for byte as in 1.4.
+2. **Opt in to the brand bridge** (spec 220 S3) only if you want the brand and appearance stored as settings:
+
+   ```bash
+   composer require nowo-tech/brand-contracts:^1.0
+   ```
+
+   ```yaml
+   # config/packages/nowo_instance_settings.yaml
+   nowo_instance_settings:
+       brand:
+           enabled: true
+           defaults:
+               name: Acme                                           # required
+               eyebrow: { key: brand.eyebrow_default, domain: messages }   # or a literal string
+               logo_light: brand/logo-light.svg                     # committed files under public/ (SVG / ICO allowed)
+               mark: brand/mark.svg
+               favicon: brand/favicon.svg
+           extra_images:
+               mascot: { label: brand.mascot, default: brand/mascot.png }
+   ```
+
+   - `brand.enabled: true` implies `files.enabled: true`: if you did not have image fields yet, add the
+     `instance_setting_file` migration of [To 1.4.0](#to-140), `ext-gd` with PNG, JPEG and WebP, and the
+     `PUBLIC_ACCESS` `access_control` line for `files.path_prefix` (brand images are public).
+   - Set `brand.enabled` in the host configuration (or a bundle that prepends before InstanceSettings). A value
+     prepended after InstanceSettings now fails at compile time with a clear message (audit IO-I10).
+   - Two sections appear in the admin UI, `brand` and `appearance` (area roles `security.area_roles.brand` /
+     `.appearance`, default the UI roles). A host section already named `brand` or `appearance` conflicts: rename it
+     before enabling the bridge.
+   - **UiKit's appearance provider switches to the bridge** when `nowo_ui_kit.appearance.enabled: true`, you set no
+     `nowo_ui_kit.appearance.provider` (and no services alias of `nowo_ui_kit.appearance.provider`) and you kept
+     `nowo_ui_kit.appearance.brand: auto` (the default). With `brand: off` UiKit keeps its config look while Pwa, mail,
+     legal and SEO still read the stored brand (audit IU-L1). A host **decorator** of
+     `nowo_ui_kit.appearance.config_provider` no longer applies once the bridge takes over (audit IU-I1): set
+     `nowo_ui_kit.appearance.provider` to your own provider, or `brand: off`, to keep it. With an empty store
+     the output equals UiKit's config provider when `brand.defaults.name` / `eyebrow` match
+     `nowo_ui_kit.appearance.defaults.brand_name` / `brand_eyebrow`. A host provider always wins.
+   - `BrandProviderInterface` and `BrandAssetReaderInterface` are aliased to the bridge. A host service or alias of
+     `BrandProviderInterface` next to `brand.enabled: true` fails the build (two brands, audit IU-I2): keep one source.
+   - Default asset URLs are `/<path>?v=<12 hex of the SHA-256>`, so a changed committed file gets a new URL (audit
+     IU-I3). They are root-relative and ignore a request base path: an app served under a sub-path needs the files
+     reachable at `/<path>` or uploads instead. Pwa, MailKit, LegalKit and SeoKit read them in their brand-aware releases.
+   - Migrating from a host appearance entity: implement `Brand\BrandFallbackProviderInterface` (one read of the old
+     row, only values that differ from the defaults), set `brand.fallback_provider` to its service id, run
+     `bin/console nowo:instance-settings:seed-from-fallbacks --section=brand --section=appearance --dry-run`, then
+     without `--dry-run`. Images are not seeded: keep them as config default assets or upload them.
+3. **Custom `SettingsSectionInterface` implementations** are unaffected. `SettingField` gains an optional trailing
+   constructor argument `$group`; code that builds fields with named arguments or the named constructors needs no
+   change.
+
 ## To 1.4.0
 
 From **1.3.1**:

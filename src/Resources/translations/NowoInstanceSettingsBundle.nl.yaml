@@ -68,3 +68,70 @@ image:
   upload: 'Een afbeelding uploaden (PNG, JPEG of WebP)'
   replace: 'Opgeslagen afbeelding vervangen'
   remove: 'Opgeslagen afbeelding verwijderen'
+brand:
+  section:
+    label: Merk
+    intro: Naam, teksten en afbeeldingen van deze instantie. Afbeeldingen zijn PNG, JPEG of WebP (geen SVG-upload), worden bij het uploaden opnieuw gecodeerd en openbaar aangeboden.
+  field:
+    name: Naam
+    short_name: Korte naam
+    eyebrow: Bovenregel
+    wordmark: Woordmerk
+    logo_light: Logo (lichte achtergronden)
+    logo_dark: Logo (donkere achtergronden)
+    mark: Merkteken
+    app_icon: App-pictogram
+    favicon: Favicon
+    extra: Extra afbeelding
+  help:
+    name: Getoond in de kop, paginatitels, e-mails en het app-manifest. Maximaal 80 tekens.
+    short_name: Maximaal 12 tekens (label op het startscherm). Leeg = de naam ingekort tot 12.
+    eyebrow: Korte regel boven de naam. Leeg = de ingestelde waarde.
+    wordmark: Tekstvorm van het logo. Leeg = de naam in kleine letters.
+    logo_light: Liggend logo voor lichte achtergronden, maximaal 2400 × 800 px. Leeg = het ingestelde, anders de naam.
+    logo_dark: Hetzelfde logo voor donkere achtergronden. Leeg = het lichte logo.
+    mark: Vierkant teken van 64 tot 1024 px (pictogrammenmenu, telefoons, pdf's). Leeg = het app-pictogram.
+    app_icon: Vierkant, dekkend, minstens 512 × 512 px; versies van 512, 192 en 180 px worden gemaakt. Leeg = een vierkant teken van 512 px of meer.
+    favicon: Vierkant, minstens 32 × 32 px; versies van 32 en 16 px worden gemaakt. Leeg = het teken, daarna het app-pictogram.
+appearance:
+  section:
+    label: Weergave
+    intro: Kleuren en opmaak van de interface. Een lege kleur volgt het gekozen thema.
+  field:
+    preset: Thema (lichte modus)
+    preset_dark: Thema (donkere modus)
+    light_accent: 'Licht: accent'
+    light_accent_deep: 'Licht: donker accent'
+    light_danger: 'Licht: gevaar'
+    light_warn: 'Licht: waarschuwing'
+    light_paper: 'Licht: paginaachtergrond'
+    light_ink: 'Licht: tekst'
+    light_surface: 'Licht: vlak'
+    dark_accent: 'Donker: accent'
+    dark_accent_deep: 'Donker: donker accent'
+    dark_danger: 'Donker: gevaar'
+    dark_warn: 'Donker: waarschuwing'
+    dark_paper: 'Donker: paginaachtergrond'
+    dark_ink: 'Donker: tekst'
+    dark_surface: 'Donker: vlak'
+    corner_style: Hoeken
+    border_strength: Randsterkte
+    footer_fixed: Vaste voettekst
+  help:
+    preset: Lege kleuren in de lichte modus volgen dit thema.
+    preset_dark: Lege kleuren in de donkere modus volgen dit thema.
+    color: '#rrggbb. Leeg = de kleur van het gekozen thema.'
+    corner_style: sharp, soft of rounded.
+    border_strength: subtle, medium of strong.
+    footer_fixed: Houdt de voettekst zichtbaar onder in het venster.
+  contrast:
+    light:
+      text_on_paper: 'Lichte modus: tekst op de paginaachtergrond haalt het WCAG AA-contrast (4,5:1) niet.'
+      text_on_surface: 'Lichte modus: tekst op het vlak haalt het WCAG AA-contrast (4,5:1) niet.'
+      primary_contrast_on_primary: 'Lichte modus: tekst op de accentkleur haalt het WCAG AA-contrast (4,5:1) niet.'
+      primary_on_surface: 'Lichte modus: de accentkleur op het vlak haalt 3:1 niet (WCAG 1.4.11).'
+    dark:
+      text_on_paper: 'Donkere modus: tekst op de paginaachtergrond haalt het WCAG AA-contrast (4,5:1) niet.'
+      text_on_surface: 'Donkere modus: tekst op het vlak haalt het WCAG AA-contrast (4,5:1) niet.'
+      primary_contrast_on_primary: 'Donkere modus: tekst op de accentkleur haalt het WCAG AA-contrast (4,5:1) niet.'
+      primary_on_surface: 'Donkere modus: de accentkleur op het vlak haalt 3:1 niet (WCAG 1.4.11).'

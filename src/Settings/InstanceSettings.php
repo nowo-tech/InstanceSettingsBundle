@@ -20,6 +20,7 @@ use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionSaveFilterInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
@@ -242,7 +243,12 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      */
     public function save(string $section, array $values, string $origin = SettingsChangedEvent::ORIGIN_API): array
     {
-        $fields      = $this->registry->fields($section);
+        $fields     = $this->registry->fields($section);
+        $definition = $this->registry->get($section);
+        if ($definition instanceof SettingsSectionSaveFilterInterface) {
+            // 1.5: the section may rewrite its values (lower-case colours, drop a value equal to its runtime default).
+            $values = $definition->filterValues($values, $this->getSection($section));
+        }
         $normalized  = [];
         $imageValues = [];
         $violations  = [];

@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\DependencyInjection;
 
+use Closure;
+use Nowo\InstanceSettingsBundle\Brand\BrandSection;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityEnvelope;
+use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
@@ -18,6 +21,7 @@ use function array_values;
 use function implode;
 use function is_array;
 use function is_string;
+use function mb_strlen;
 use function preg_match;
 use function sprintf;
 use function str_starts_with;
@@ -202,9 +206,116 @@ final class Configuration implements ConfigurationInterface
                         ->end()
                     ->end()
                 ->end()
+                ->append($this->brandNode())
             ->end();
 
         return $treeBuilder;
+    }
+
+    /**
+     * `brand` (1.5, spec 220 S3): the opt-in brand bridge (the `brand` and `appearance` sections, the brand contract
+     * provider and the UiKit appearance provider).
+     */
+    private function brandNode(): ArrayNodeDefinition
+    {
+        $node = (new TreeBuilder('brand'))->getRootNode();
+        $text = static fn (int $max): Closure => static fn (mixed $v): bool => $v !== null && (!is_string($v) || trim($v) === '' || mb_strlen($v) > $max || preg_match(BrandSection::UNSAFE_TEXT_PATTERN, $v) === 1);
+
+        $defaults = $node
+            ->info('Brand bridge (1.5): the "brand" and "appearance" sections, nowo-tech/brand-contracts BrandProviderInterface and, when the host set no nowo_ui_kit.appearance.provider, the UiKit appearance provider. Off by default. Implies files.enabled.')
+            ->addDefaultsIfNotSet()
+            ->children()
+                ->booleanNode('enabled')
+                    ->info('Registers the brand and appearance sections and the bridge. Needs nowo-tech/brand-contracts. Literal boolean only.')
+                    ->defaultFalse()
+                ->end()
+                ->scalarNode('public_dir')
+                    ->info('Directory the default asset paths are relative to (served by the web server as plain static files).')
+                    ->defaultValue('%kernel.project_dir%/public')
+                    ->cannotBeEmpty()
+                ->end()
+                ->scalarNode('fallback_provider')
+                    ->info('Service id implementing Brand\\BrandFallbackProviderInterface: values the two sections seed from (nowo:instance-settings:seed-from-fallbacks). Null = none.')
+                    ->defaultNull()
+                ->end()
+                ->arrayNode('defaults')
+                    ->info('Values while nothing is stored. Asset paths are relative to public_dir (committed, trusted files; SVG and ICO allowed).')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('name')
+                            ->info('Brand name while none is stored (required with enabled: true; at most 80 characters).')
+                            ->defaultNull()
+                            ->validate()->ifTrue($text(BrandSection::NAME_MAX))->thenInvalid('nowo_instance_settings.brand.defaults.name must be a non-empty string of at most 80 printable characters, got %s.')->end()
+                        ->end()
+                        ->scalarNode('short_name')
+                            ->defaultNull()
+                            ->validate()->ifTrue($text(BrandSection::SHORT_NAME_MAX))->thenInvalid('nowo_instance_settings.brand.defaults.short_name must be a non-empty string of at most 12 printable characters, got %s.')->end()
+                        ->end()
+                        ->arrayNode('eyebrow')
+                            ->info('A literal string, or {key, domain} for a translation key (follows the viewer locale while nothing is stored).')
+                            ->addDefaultsIfNotSet()
+                            ->beforeNormalization()
+                                ->ifString()
+                                ->then(static fn (string $v): array => ['text' => $v])
+                            ->end()
+                            ->children()
+                                ->scalarNode('text')->defaultNull()
+                                    ->validate()->ifTrue($text(BrandSection::EYEBROW_MAX))->thenInvalid('nowo_instance_settings.brand.defaults.eyebrow must be a non-empty string of at most 120 printable characters, got %s.')->end()
+                                ->end()
+                                ->scalarNode('key')->defaultNull()
+                                    ->validate()->ifTrue($text(255))->thenInvalid('nowo_instance_settings.brand.defaults.eyebrow.key must be a non-empty translation key, got %s.')->end()
+                                ->end()
+                                ->scalarNode('domain')->defaultValue('messages')->cannotBeEmpty()->end()
+                            ->end()
+                            ->validate()
+                                ->ifTrue(static fn (array $v): bool => ($v['text'] ?? null) !== null && ($v['key'] ?? null) !== null)
+                                ->thenInvalid('nowo_instance_settings.brand.defaults.eyebrow is a string or {key, domain}, not both.')
+                            ->end()
+                        ->end()
+                        ->scalarNode('wordmark')
+                            ->defaultNull()
+                            ->validate()->ifTrue($text(BrandSection::WORDMARK_MAX))->thenInvalid('nowo_instance_settings.brand.defaults.wordmark must be a non-empty string of at most 40 printable characters, got %s.')->end()
+                        ->end();
+        foreach (BrandSection::FIXED_SLOTS as $slot) {
+            $defaults->scalarNode($slot)->defaultNull()->end();
+        }
+
+        $defaults->end()->end()
+                ->arrayNode('extra_images')
+                    ->info('Host-declared extra brand images (slot "extra.<id>", field "extra_<id>"), e.g. {mascot: {label: brand.mascot, default: brand/mascot.png}}.')
+                    ->useAttributeAsKey('id')
+                    ->normalizeKeys(false)
+                    ->arrayPrototype()
+                        ->children()
+                            ->scalarNode('label')->defaultNull()->end()
+                            ->scalarNode('help')->defaultNull()->end()
+                            ->integerNode('max_width')->defaultValue(ImageSpec::DEFAULT_MAX_DIMENSION)->min(1)->max(ImageSpec::DEFAULT_MAX_DIMENSION)->end()
+                            ->integerNode('max_height')->defaultValue(ImageSpec::DEFAULT_MAX_DIMENSION)->min(1)->max(ImageSpec::DEFAULT_MAX_DIMENSION)->end()
+                            ->integerNode('max_bytes')->defaultValue(ImageSpec::DEFAULT_MAX_BYTES)->min(1)->max(ImageSpec::MAX_BYTES_CEILING)->end()
+                            ->booleanNode('square')->defaultFalse()->end()
+                            ->scalarNode('default')->defaultNull()->end()
+                        ->end()
+                    ->end()
+                    ->validate()
+                        ->ifTrue(static function (array $v): bool {
+                            foreach (array_keys($v) as $id) {
+                                if (preg_match(BrandSection::EXTRA_ID_PATTERN, (string) $id) !== 1) {
+                                    return true;
+                                }
+                            }
+
+                            return false;
+                        })
+                        ->thenInvalid('nowo_instance_settings.brand.extra_images ids must match ' . BrandSection::EXTRA_ID_PATTERN . ', got %s.')
+                    ->end()
+                ->end()
+            ->end()
+            ->validate()
+                ->ifTrue(static fn (array $v): bool => ($v['enabled'] ?? false) === true && ($v['defaults']['name'] ?? null) === null)
+                ->thenInvalid('nowo_instance_settings.brand.defaults.name is required when brand.enabled is true (the brand name while none is stored).')
+            ->end();
+
+        return $node;
     }
 
     /**

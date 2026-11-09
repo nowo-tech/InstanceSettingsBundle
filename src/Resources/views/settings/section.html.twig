@@ -6,6 +6,8 @@
   Without any section, SettingsPageFactory::empty() (header only).
   Optional (1.2): notices (list of UiKit Labels from SettingsPageFactory::notices(), the section's
   SettingsSectionNoticesInterface warnings), rendered as UiKit `flash_warning` alerts above the current section form.
+  Optional (1.5): image_previews (list of Ui\ImagePreview: the stored image of each image field with the `preview` form
+  option, by its file route URL only; never bytes, data: or base64), rendered above the form.
   Data block: nowo_ui_settings_section (`section` in context).
 #}
 {% extends '@NowoUiKit/page/settings.html.twig' %}
@@ -15,6 +17,18 @@
         {% for notice in notices|default([]) %}
             <div class="{{ nowo_ui_class('flash_warning', page.bundle) }}" role="alert" data-testid="instance-settings-notice">{{ notice|nowo_ui_trans }}</div>
         {% endfor %}
+        {%- if image_previews|default([]) is not empty %}
+        <ul class="nowo-instance-settings-previews" data-testid="instance-settings-image-previews">
+            {% for preview in image_previews %}
+            <li data-field="{{ preview.field }}">
+                <figure>
+                    <img src="{{ preview.url }}" alt="{{ preview.label|nowo_ui_trans }}" width="{{ preview.width }}" height="{{ preview.height }}" loading="lazy" decoding="async">
+                    <figcaption class="{{ nowo_ui_class('muted', page.bundle) }}">{{ preview.label|nowo_ui_trans }}</figcaption>
+                </figure>
+            </li>
+            {% endfor %}
+        </ul>
+        {%- endif %}
     {% endif %}
     {{ parent() }}
 {% endblock %}

@@ -68,3 +68,70 @@ image:
   upload: 'Carica un''immagine (PNG, JPEG o WebP)'
   replace: 'Sostituisci l''immagine salvata'
   remove: 'Rimuovi l''immagine salvata'
+brand:
+  section:
+    label: Marchio
+    intro: Nome, testi e immagini di questa istanza. Le immagini sono PNG, JPEG o WebP (niente caricamento SVG), ricodificate al caricamento e servite pubblicamente.
+  field:
+    name: Nome
+    short_name: Nome breve
+    eyebrow: Occhiello
+    wordmark: Logotipo testuale
+    logo_light: Logo (sfondi chiari)
+    logo_dark: Logo (sfondi scuri)
+    mark: Simbolo del marchio
+    app_icon: Icona dell'app
+    favicon: Favicon
+    extra: Immagine aggiuntiva
+  help:
+    name: Mostrato nell'intestazione, nei titoli, nelle e-mail e nel manifest dell'app. Al massimo 80 caratteri.
+    short_name: Al massimo 12 caratteri (etichetta nella schermata home). Vuoto = il nome tagliato a 12.
+    eyebrow: Riga breve sopra il nome. Vuoto = il valore configurato.
+    wordmark: Forma testuale del logo. Vuoto = il nome in minuscolo.
+    logo_light: Logo orizzontale per sfondi chiari, al massimo 2400 × 800 px. Vuoto = quello configurato, altrimenti il nome.
+    logo_dark: Lo stesso logo per sfondi scuri. Vuoto = il logo chiaro.
+    mark: Simbolo quadrato da 64 a 1024 px (menu a icone, telefoni, PDF). Vuoto = l'icona dell'app.
+    app_icon: Quadrata, opaca, almeno 512 × 512 px; vengono generate versioni da 512, 192 e 180 px. Vuoto = un simbolo quadrato di almeno 512 px.
+    favicon: Quadrata, almeno 32 × 32 px; vengono generate versioni da 32 e 16 px. Vuoto = il simbolo, poi l'icona dell'app.
+appearance:
+  section:
+    label: Aspetto
+    intro: Colori e layout dell'interfaccia. Un colore vuoto segue il tema selezionato.
+  field:
+    preset: Tema (modalità chiara)
+    preset_dark: Tema (modalità scura)
+    light_accent: 'Chiaro: accento'
+    light_accent_deep: 'Chiaro: accento scuro'
+    light_danger: 'Chiaro: pericolo'
+    light_warn: 'Chiaro: avviso'
+    light_paper: 'Chiaro: sfondo pagina'
+    light_ink: 'Chiaro: testo'
+    light_surface: 'Chiaro: superficie'
+    dark_accent: 'Scuro: accento'
+    dark_accent_deep: 'Scuro: accento scuro'
+    dark_danger: 'Scuro: pericolo'
+    dark_warn: 'Scuro: avviso'
+    dark_paper: 'Scuro: sfondo pagina'
+    dark_ink: 'Scuro: testo'
+    dark_surface: 'Scuro: superficie'
+    corner_style: Angoli
+    border_strength: Intensità dei bordi
+    footer_fixed: Piè di pagina fisso
+  help:
+    preset: I colori vuoti della modalità chiara seguono questo tema.
+    preset_dark: I colori vuoti della modalità scura seguono questo tema.
+    color: '#rrggbb. Vuoto = il colore del tema selezionato.'
+    corner_style: sharp, soft o rounded.
+    border_strength: subtle, medium o strong.
+    footer_fixed: Mantiene il piè di pagina visibile in fondo alla finestra.
+  contrast:
+    light:
+      text_on_paper: 'Modalità chiara: il testo sullo sfondo pagina non raggiunge il contrasto WCAG AA (4,5:1).'
+      text_on_surface: 'Modalità chiara: il testo sulla superficie non raggiunge il contrasto WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Modalità chiara: il testo sul colore d''accento non raggiunge il contrasto WCAG AA (4,5:1).'
+      primary_on_surface: 'Modalità chiara: il colore d''accento sulla superficie non raggiunge 3:1 (WCAG 1.4.11).'
+    dark:
+      text_on_paper: 'Modalità scura: il testo sullo sfondo pagina non raggiunge il contrasto WCAG AA (4,5:1).'
+      text_on_surface: 'Modalità scura: il testo sulla superficie non raggiunge il contrasto WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Modalità scura: il testo sul colore d''accento non raggiunge il contrasto WCAG AA (4,5:1).'
+      primary_on_surface: 'Modalità scura: il colore d''accento sulla superficie non raggiunge 3:1 (WCAG 1.4.11).'

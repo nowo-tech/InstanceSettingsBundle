@@ -68,3 +68,70 @@ image:
   upload: 'Téléverser une image (PNG, JPEG ou WebP)'
   replace: 'Remplacer l''image enregistrée'
   remove: 'Supprimer l''image enregistrée'
+brand:
+  section:
+    label: Marque
+    intro: Nom, textes et images de cette instance. Les images sont en PNG, JPEG ou WebP (pas d'envoi SVG), réencodées à l'envoi et servies publiquement.
+  field:
+    name: Nom
+    short_name: Nom court
+    eyebrow: Surtitre
+    wordmark: Logotype texte
+    logo_light: Logo (fonds clairs)
+    logo_dark: Logo (fonds sombres)
+    mark: Symbole de marque
+    app_icon: Icône de l'application
+    favicon: Favicon
+    extra: Image supplémentaire
+  help:
+    name: Affiché dans l'en-tête, les titres, les e-mails et le manifeste de l'application. 80 caractères au plus.
+    short_name: 12 caractères au plus (libellé de l'écran d'accueil). Vide = le nom coupé à 12.
+    eyebrow: Ligne courte au-dessus du nom. Vide = la valeur configurée.
+    wordmark: Forme texte du logo. Vide = le nom en minuscules.
+    logo_light: Logo horizontal pour fonds clairs, 2400 × 800 px au plus. Vide = celui configuré, sinon le nom.
+    logo_dark: Le même logo pour fonds sombres. Vide = le logo clair.
+    mark: Symbole carré de 64 à 1024 px (menu d'icônes, mobiles, PDF). Vide = l'icône de l'application.
+    app_icon: Carré, opaque, au moins 512 × 512 px ; des versions de 512, 192 et 180 px sont générées. Vide = un symbole carré de 512 px ou plus.
+    favicon: Carré, au moins 32 × 32 px ; des versions de 32 et 16 px sont générées. Vide = le symbole, puis l'icône de l'application.
+appearance:
+  section:
+    label: Apparence
+    intro: Couleurs et mise en page de l'interface. Une couleur vide suit le thème choisi.
+  field:
+    preset: Thème (mode clair)
+    preset_dark: Thème (mode sombre)
+    light_accent: 'Clair: accent'
+    light_accent_deep: 'Clair: accent foncé'
+    light_danger: 'Clair: danger'
+    light_warn: 'Clair: avertissement'
+    light_paper: 'Clair: fond de page'
+    light_ink: 'Clair: texte'
+    light_surface: 'Clair: surface'
+    dark_accent: 'Sombre: accent'
+    dark_accent_deep: 'Sombre: accent foncé'
+    dark_danger: 'Sombre: danger'
+    dark_warn: 'Sombre: avertissement'
+    dark_paper: 'Sombre: fond de page'
+    dark_ink: 'Sombre: texte'
+    dark_surface: 'Sombre: surface'
+    corner_style: Angles
+    border_strength: Intensité des bordures
+    footer_fixed: Pied de page fixe
+  help:
+    preset: Les couleurs vides du mode clair suivent ce thème.
+    preset_dark: Les couleurs vides du mode sombre suivent ce thème.
+    color: '#rrggbb. Vide = la couleur du thème choisi.'
+    corner_style: sharp, soft ou rounded.
+    border_strength: subtle, medium ou strong.
+    footer_fixed: Garde le pied de page visible en bas de la fenêtre.
+  contrast:
+    light:
+      text_on_paper: 'Mode clair: le texte sur le fond de page n''atteint pas le contraste WCAG AA (4,5:1).'
+      text_on_surface: 'Mode clair: le texte sur la surface n''atteint pas le contraste WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Mode clair: le texte sur la couleur d''accent n''atteint pas le contraste WCAG AA (4,5:1).'
+      primary_on_surface: 'Mode clair: la couleur d''accent sur la surface n''atteint pas 3:1 (WCAG 1.4.11).'
+    dark:
+      text_on_paper: 'Mode sombre: le texte sur le fond de page n''atteint pas le contraste WCAG AA (4,5:1).'
+      text_on_surface: 'Mode sombre: le texte sur la surface n''atteint pas le contraste WCAG AA (4,5:1).'
+      primary_contrast_on_primary: 'Mode sombre: le texte sur la couleur d''accent n''atteint pas le contraste WCAG AA (4,5:1).'
+      primary_on_surface: 'Mode sombre: la couleur d''accent sur la surface n''atteint pas 3:1 (WCAG 1.4.11).'

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3991328bd226042635d45269a2994e7c",
+    "content-hash": "abb41904080f42cd39779b6f27bcfa8b",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -1167,16 +1167,16 @@
         },
         {
             "name": "nowo-tech/ui-kit-bundle",
-            "version": "v2.23.0",
+            "version": "v2.40.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/UiKitBundle.git",
-                "reference": "f433e09e70bc6075fe103791fc330b3533eb6009"
+                "reference": "6a574cfdc54481f2d8f7e44b0abab151a8986cc4"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/f433e09e70bc6075fe103791fc330b3533eb6009",
-                "reference": "f433e09e70bc6075fe103791fc330b3533eb6009",
+                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/6a574cfdc54481f2d8f7e44b0abab151a8986cc4",
+                "reference": "6a574cfdc54481f2d8f7e44b0abab151a8986cc4",
                 "shasum": ""
             },
             "require": {
@@ -1192,9 +1192,13 @@
                 "twig/string-extra": "^3.12",
                 "twig/twig": "^3.8"
             },
+            "conflict": {
+                "nowo-tech/brand-contracts": "<1.0 || >=2.0"
+            },
             "require-dev": {
                 "friendsofphp/php-cs-fixer": "^3.0",
-                "igor-php/igor-php": "^0.9.7",
+                "igor-php/igor-php": "^0.9.7 || ^0.10.0",
+                "nowo-tech/brand-contracts": "^1.0",
                 "nowo-tech/phpstan-frankenphp": "^1.0",
                 "phpstan/extension-installer": "^1.0",
                 "phpstan/phpstan": "^2.0",
@@ -1208,15 +1212,19 @@
                 "symfony/http-client": "^7.4 || ^8.0",
                 "symfony/validator": "^7.4 || ^8.0",
                 "symfony/yaml": "^7.4 || ^8.0",
-                "vincentlanglet/twig-cs-fixer": "^3.0"
+                "vincentlanglet/twig-cs-fixer": "^3.0 || ^4.0"
             },
             "suggest": {
+                "nowo-tech/brand-contracts": "2.40: with a BrandProviderInterface service (^1.0) and appearance.provider null, the brand drives the appearance name, colours and logos (spec 220)",
                 "phpunit/phpunit": "UI bundles: require-dev, to run Nowo\\UiKitBundle\\Test\\PageContractTestCase (REQ-UI-003 contract test)",
                 "symfony/form": "For the optional AppearanceType / AppearancePaletteType forms (appearance SPI)",
                 "symfony/http-client": "For the optional release_check feature (GitHub release-version dialog)",
                 "symfony/ux-icons": "For icon_set: ux_icon in row actions and icons",
                 "symfony/validator": "Colour validation in the optional appearance forms"
             },
+            "bin": [
+                "bin/nowo-ui-token-lint"
+            ],
             "type": "symfony-bundle",
             "autoload": {
                 "psr-4": {
@@ -1257,8 +1265,8 @@
                 "issues": "https://github.com/nowo-tech/UiKitBundle/issues",
                 "source": "https://github.com/nowo-tech/UiKitBundle"
             },
-            "time": "2026-11-02T16:08:25+00:00",
-            "published-time": "2026-11-02T16:09:47+00:00"
+            "time": "2026-11-08T22:06:44+00:00",
+            "published-time": "2026-11-08T22:10:42+00:00"
         },
         {
             "name": "paragonie/constant_time_encoding",
@@ -6991,6 +6999,84 @@
             "time": "2026-09-13T18:51:52+00:00"
         },
         {
+            "name": "nowo-tech/brand-contracts",
+            "version": "v1.0.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/nowo-tech/BrandContracts.git",
+                "reference": "bb90b634b66de496489c32087b0310f74c4df9eb"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/nowo-tech/BrandContracts/zipball/bb90b634b66de496489c32087b0310f74c4df9eb",
+                "reference": "bb90b634b66de496489c32087b0310f74c4df9eb",
+                "shasum": ""
+            },
+            "require": {
+                "ext-mbstring": "*",
+                "php": ">=8.2 <8.6",
+                "symfony/translation-contracts": "^3.4"
+            },
+            "require-dev": {
+                "friendsofphp/php-cs-fixer": "^3.0",
+                "igor-php/igor-php": "^0.10.1",
+                "nowo-tech/phpstan-frankenphp": "^1.0",
+                "phpstan/phpstan": "^2.0",
+                "phpunit/phpunit": "^11.5",
+                "rector/rector": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "1.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Nowo\\Brand\\Contract\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Héctor Franco Aceituno",
+                    "email": "hectorfranco@nowo.tech",
+                    "homepage": "https://github.com/HecFranco",
+                    "role": "Maintainer"
+                },
+                {
+                    "name": "Nowo.tech",
+                    "homepage": "https://nowo.tech"
+                }
+            ],
+            "description": "Shared brand contract for PHP apps and nowo-tech bundles: brand name, colours and logo assets a host provides, plus colour math for emails and PDFs. Framework-free.",
+            "homepage": "https://github.com/nowo-tech/BrandContracts",
+            "keywords": [
+                "brand",
+                "branding",
+                "colors",
+                "contracts",
+                "frankenphp",
+                "logo",
+                "nowo",
+                "php",
+                "theme",
+                "wcag",
+                "white-label"
+            ],
+            "support": {
+                "changelog": "https://github.com/nowo-tech/BrandContracts/blob/main/docs/CHANGELOG.md",
+                "docs": "https://github.com/nowo-tech/BrandContracts/tree/main/docs",
+                "issues": "https://github.com/nowo-tech/BrandContracts/issues",
+                "source": "https://github.com/nowo-tech/BrandContracts"
+            },
+            "time": "2026-11-08T21:18:05+00:00",
+            "published-time": "2026-11-08T21:18:57+00:00"
+        },
+        {
             "name": "nowo-tech/phpstan-frankenphp",
             "version": "v1.3.2",
             "source": {
@@ -7305,7 +7391,8 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-28T22:38:53+00:00"
+            "time": "2026-10-28T22:38:53+00:00",
+            "published-time": "2026-10-28T22:39:06+00:00"
         },
         {
             "name": "phpstan/phpstan-phpunit",
