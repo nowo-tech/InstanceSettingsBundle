@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Embed;
 
+use LogicException;
 use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
@@ -34,9 +35,13 @@ use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\Session\FlashBagAwareSessionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\Routing\Exception\ExceptionInterface as RoutingException;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
+
+use function sprintf;
+use function str_starts_with;
 
 /**
  * Shows and saves one settings section: the bundle's own section page and, since 1.6 (IS-1), the same page embedded
@@ -79,11 +84,21 @@ final readonly class SettingsSectionEmbedder
      * Shows (GET) or saves (POST) `$section` inside a host route: tabs for the allowlisted sections the user may open,
      * linked to the host routes; after a successful save, a redirect to the host route of `$section`.
      *
+     * Call it from the host route's own controller (or a `forward()`), not from a Twig `render(controller())`
+     * fragment: fragments are GET sub-requests, so a save would be dropped (refused with a LogicException).
+     *
      * @throws NotFoundHttpException for an unknown section or one outside the allowlist
+     * @throws LogicException for a fragment sub-request of a POST, or a host route that cannot be generated as a
+     *                        local path (unknown route, missing parameter, another host or scheme)
      */
     public function handle(Request $request, string $section, SectionEmbedOptions $options): Response
     {
-        return $this->process($request, $section, $options);
+        $main = $this->requestStack?->getMainRequest();
+        if ($main instanceof Request && $main !== $request && $main->isMethod(Request::METHOD_POST) && !$request->isMethod(Request::METHOD_POST)) {
+            throw new LogicException('SettingsSectionEmbedder::handle() runs in a GET sub-request of a POST (Twig render(controller()) fragment?): the save would be dropped. Call it from the host route\'s controller or forward() to it.');
+        }
+
+        return $this->process($request, $section, $options, $this->hostUrls($options));
     }
 
     /**
@@ -93,18 +108,18 @@ final readonly class SettingsSectionEmbedder
      */
     public function handleBundlePage(Request $request, string $section): Response
     {
-        return $this->process($request, $section, null);
+        return $this->process($request, $section, null, []);
     }
 
     /**
      * Sections the user may open (the UI gate and their own area), in registry order; with `$options`, only the
-     * allowlisted ones.
+     * allowlisted ones. Empty when the UI gate denies the user.
      *
      * @return array<string, SettingsSectionInterface>
      */
     public function accessibleSections(?SectionEmbedOptions $options = null): array
     {
-        if ($options instanceof SectionEmbedOptions && !$this->guard->isGranted()) {
+        if (!$this->guard->isGranted()) {
             return [];
         }
         $sections = [];
@@ -117,12 +132,16 @@ final readonly class SettingsSectionEmbedder
         return $sections;
     }
 
-    private function process(Request $request, string $section, ?SectionEmbedOptions $options): Response
+    /**
+     * @param array<string, string> $hostUrls section => host URL of an embed (checked by {@see self::hostUrls()})
+     */
+    private function process(Request $request, string $section, ?SectionEmbedOptions $options, array $hostUrls): Response
     {
-        // The bundle route is gated by InstanceSettingsAccessListener before the controller runs; a host route is not,
-        // so the UI gate is checked here, first (the bundle route's order and message): a user without UI access is
-        // denied for every section name, allowlisted or not, so the embed cannot be used to probe the registry.
-        if ($options instanceof SectionEmbedOptions && !$this->guard->isGranted()) {
+        // The UI gate first, on every path (audit JE-L1). On the bundle route InstanceSettingsAccessListener has already
+        // passed it (same check, same message), so its output and order do not change; a host route or a direct call
+        // is not behind the listener. A user without UI access is denied for every section name, allowlisted or not,
+        // so the embed cannot be used to probe the registry.
+        if (!$this->guard->isGranted()) {
             $this->guard->deny('Access denied to the instance settings UI.');
         }
         if (!$this->registry->has($section) || ($options instanceof SectionEmbedOptions && !$options->allows($section))) {
@@ -166,7 +185,7 @@ final readonly class SettingsSectionEmbedder
                 $changed = $this->settings->save($section, $this->submittedValues($form, $fields), SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
 
-                return new RedirectResponse($this->sectionUrl($section, $options));
+                return new RedirectResponse($options instanceof SectionEmbedOptions ? $hostUrls[$section] : $this->urlGenerator->generate(InstanceSettingsRoutes::SECTION, ['section' => $section]));
             } catch (InvalidSettingValueException $e) {
                 foreach ($e->violations as $name => $messages) {
                     foreach ($messages as $message) {
@@ -183,7 +202,7 @@ final readonly class SettingsSectionEmbedder
         if ($options instanceof SectionEmbedOptions) {
             $tabs = [];
             foreach ($this->accessibleSections($options) as $name => $tab) {
-                $tabs[$name] = ['section' => $tab, 'href' => $this->sectionUrl($name, $options)];
+                $tabs[$name] = ['section' => $tab, 'href' => $hostUrls[$name]];
             }
             $page     = $this->pages->embeddedSection($tabs, $section, $form->createView(), $actions, $options->header, $options->layout);
             $template = $options->template ?? $this->pages->template('section');
@@ -205,17 +224,31 @@ final readonly class SettingsSectionEmbedder
     }
 
     /**
-     * URL of a section page: the host route of an embed (a route name from host code, generated by the router), else
-     * the bundle route.
+     * Host URL of every allowlisted section, generated once per {@see self::handle()} before any check (audit JE-L3:
+     * a typo, a missing parameter or a wrong section parameter fails for every user, not only for those who see that
+     * tab). Each URL must be a local absolute path, `/` not followed by `/` or `\` (audit JE-I1): a route on another
+     * host or scheme (network path or absolute URL, e.g. from a host placeholder) is refused, so the redirect after a
+     * save never leaves the current host.
+     *
+     * @return array<string, string>
      */
-    private function sectionUrl(string $section, ?SectionEmbedOptions $options): string
+    private function hostUrls(SectionEmbedOptions $options): array
     {
-        if (!$options instanceof SectionEmbedOptions) {
-            return $this->urlGenerator->generate(InstanceSettingsRoutes::SECTION, ['section' => $section]);
+        $urls = [];
+        foreach ($options->sections as $section) {
+            [$route, $parameters] = $options->routeOf($section);
+            try {
+                $url = $this->urlGenerator->generate($route, $parameters);
+            } catch (RoutingException $e) {
+                throw new LogicException(sprintf('The host route "%s" of the embedded section "%s" cannot be generated: %s', $route, $section, $e->getMessage()), 0, $e);
+            }
+            if (!str_starts_with($url, '/') || str_starts_with($url, '//') || str_starts_with($url, '/\\')) {
+                throw new LogicException(sprintf('The host route "%s" of the embedded section "%s" must generate a local path (got "%s"): no other host or scheme.', $route, $section, $url));
+            }
+            $urls[$section] = $url;
         }
-        [$route, $parameters] = $options->routeOf($section);
 
-        return $this->urlGenerator->generate($route, $parameters);
+        return $urls;
     }
 
     /**

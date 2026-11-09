@@ -11,6 +11,9 @@ use Nowo\UiKitBundle\View\PageHeader;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
+use function array_keys;
+use function implode;
+
 /**
  * A host page embedding settings sections (1.6, IS-1): `/host/settings/{section}` (one route with a section parameter,
  * allowlist general + brand), `/host/mailer` (secrets), `/host/look` (theme cards) and `/host/general` (one route per section, the host template,
@@ -36,6 +39,23 @@ final readonly class EmbedHostController
     public function look(Request $request): Response
     {
         return $this->embedder->handle($request, 'look', SectionEmbedOptions::routes(['look' => 'host_look']));
+    }
+
+    /**
+     * A host route calling the bundle page directly (outside the access listener's prefix), and listing the
+     * sections for a menu: audit JE-L1.
+     */
+    public function bundlePage(Request $request): Response
+    {
+        $response = $this->embedder->handleBundlePage($request, 'general');
+        $response->headers->set('X-Menu', implode(',', array_keys($this->embedder->accessibleSections())));
+
+        return $response;
+    }
+
+    public function menu(): Response
+    {
+        return new Response(implode(',', array_keys($this->embedder->accessibleSections())));
     }
 
     public function general(Request $request): Response

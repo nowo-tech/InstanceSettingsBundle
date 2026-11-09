@@ -90,6 +90,28 @@ final class SectionEmbedTest extends KernelTestCase
         self::assertSame(403, $admin->getResponse()->getStatusCode());
     }
 
+    public function testAnAreaRoleAloneNeverOpensTheUi(): void
+    {
+        // Audit JE-L1 / JE-I4: the viewer holds area_roles.general (ROLE_USER) but no access_roles role.
+        $kernel = $this->embedKernel();
+        $viewer = $this->client($kernel, 'viewer');
+
+        $viewer->request('GET', '/host/bundle-page');
+        self::assertSame(403, $viewer->getResponse()->getStatusCode(), 'handleBundlePage() runs the UI gate itself');
+        $viewer->request('POST', '/host/bundle-page', ['settings_section' => ['site_name' => 'Viewer']]);
+        self::assertSame(403, $viewer->getResponse()->getStatusCode());
+        self::assertNotSame('Viewer', $this->settings($kernel)->get('general.site_name'));
+        $viewer->request('GET', '/host/menu');
+        self::assertSame('', $viewer->getResponse()->getContent(), 'accessibleSections() lists nothing');
+        $viewer->request('GET', '/host/acme/settings/general');
+        self::assertSame(403, $viewer->getResponse()->getStatusCode());
+
+        $admin = $this->client($kernel, 'admin');
+        $admin->request('GET', '/host/bundle-page');
+        self::assertSame(200, $admin->getResponse()->getStatusCode());
+        self::assertSame('general', $admin->getResponse()->headers->get('X-Menu'));
+    }
+
     public function testCsrfIsCheckedOnTheEmbed(): void
     {
         $kernel  = $this->embedKernel();
@@ -183,12 +205,14 @@ final class SectionEmbedTest extends KernelTestCase
         return $this->bootKernel(
             [
                 'files'    => ['enabled' => true],
-                'security' => ['area_roles' => ['mailer' => ['ROLE_SUPER_ADMIN'], 'brand' => ['ROLE_SUPER_ADMIN'], '_portability' => ['ROLE_SUPER_ADMIN']]],
+                'security' => ['area_roles' => ['general' => ['ROLE_USER', 'ROLE_ADMIN'], 'mailer' => ['ROLE_SUPER_ADMIN'], 'brand' => ['ROLE_SUPER_ADMIN'], '_portability' => ['ROLE_SUPER_ADMIN']]],
             ],
             [ImageFixtureSection::class => ImageFixtureSection::class, EmbedHostController::class => EmbedHostController::class],
             routes: static function (RoutingConfigurator $routes): void {
                 $routes->import('.', 'nowo_instance_settings');
                 $routes->add('host_settings', '/host/{tenant}/settings/{section}')->controller([EmbedHostController::class, 'page'])->methods(['GET', 'POST']);
+                $routes->add('host_bundle_page', '/host/bundle-page')->controller([EmbedHostController::class, 'bundlePage'])->methods(['GET', 'POST']);
+                $routes->add('host_menu', '/host/menu')->controller([EmbedHostController::class, 'menu'])->methods(['GET']);
                 $routes->add('host_mailer', '/host/mailer')->controller([EmbedHostController::class, 'mailer'])->methods(['GET', 'POST']);
                 $routes->add('host_general', '/host/general')->controller([EmbedHostController::class, 'general'])->methods(['GET', 'POST']);
             },

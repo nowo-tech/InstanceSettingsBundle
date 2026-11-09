@@ -34,7 +34,10 @@ Target 1.6.0, from **1.5.0**. Nothing to do: both additions are opt-in and the b
   ```
 
   Keep your own firewall / `access_control` on the host route; the embedder adds the bundle checks on top (UI gate +
-  section area + CSRF). Your route must accept GET and POST. Pass route names only (a path or URL is refused).
+  section area + CSRF). Your route must accept GET and POST. Pass route names only (a path or URL is refused), call
+  the embedder from your route's controller (not a Twig `render(controller())` fragment), and keep `routeParameters`
+  to values from your code. A role that should open the embed needs the UI role (`access_roles`) too, not only
+  `area_roles.<section>`.
 - **Theme cards (IS-2).** Set `nowo_instance_settings.brand.preset_picker: cards` to show the preset fields as cards.
   The stored values and the export do not change. A host that overrides the section template with its own
   `form_theme ... only` must add `@NowoInstanceSettingsBundle/Form/theme_cards.html.twig` itself.
