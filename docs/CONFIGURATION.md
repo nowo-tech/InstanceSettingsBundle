@@ -30,7 +30,7 @@
 nowo_instance_settings:
     doctrine:
         table_prefix: ''               # letters, digits, underscores; 'app_' => app_instance_setting_value
-        entity_manager: null           # Doctrine ORM entity manager name (null = default)
+        entity_manager: null           # 1.11: source manager of the bundle's private one (null = the one mapping the entity)
     web_ui:
         enabled: true                  # false = no admin UI (no routes, no controller); PHP / Twig / CLI stay
         path_prefix: /admin/settings   # absolute path; protect it with security.access_control
@@ -84,7 +84,7 @@ Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_
 | Key | Default | Description |
 | --- | --- | --- |
 | `table_prefix` | `''` | Prefix of the bundle table **and** its index names (REQ-ORM-002), applied by `TablePrefixListener` on `loadClassMetadata` to the bundle entity only. `app_` gives `app_instance_setting_value` and `app_uniq_instance_setting_value_section_name`. |
-| `entity_manager` | `null` | Entity manager used by the repository (resolved per call from `doctrine`; a closed manager is reset). |
+| `entity_manager` | `null` | Source entity manager of the bundle's private one (1.11). `null`: the manager that maps `SettingValue` (the default one; mapping prepended as before). A literal name: the entities are mapped on that manager only (removed from the others, `auto_mapping` included) and the build fails when it does not exist. Either way the bundle reads and writes through its own private manager on that connection: it never flushes, clears or resets yours. |
 
 ## web_ui
 

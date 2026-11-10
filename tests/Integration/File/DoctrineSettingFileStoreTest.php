@@ -96,7 +96,7 @@ final class DoctrineSettingFileStoreTest extends KernelTestCase
         self::assertSame('', $store->read($records[0]), 'a row that disappeared reads as empty');
     }
 
-    public function testAClosedEntityManagerIsResetAndANonOrmManagerRefused(): void
+    public function testAClosedHostManagerIsNotResetAndANonOrmManagerRefused(): void
     {
         // A configuration of its own: kernels with the same container share its compiled class in one process.
         $kernel   = $this->bootKernel(['files' => ['enabled' => true, 'orphan_retention' => 5]]);
@@ -108,6 +108,7 @@ final class DoctrineSettingFileStoreTest extends KernelTestCase
 
         $store = new DoctrineSettingFileStore($doctrine);
         self::assertSame([], $store->findImage('brand', 'logo', 'x'));
+        self::assertFalse($entityManager->isOpen(), 'the bundle reads through its own manager and never resets the host one');
 
         $registry = $this->createStub(ManagerRegistry::class);
         $registry->method('getManager')->willReturn($this->createStub(ObjectManager::class));

@@ -23,6 +23,45 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.11.0. Architecture bar (standard Symfony and DDD hosts, rules 3 and 6; audit 2026-11-10).
+
+### Fixed
+
+- **The bundle no longer flushes, clears or resets the application's entity manager.** `save()`, imports, both
+  seeders, `SettingValueRepositoryInterface::apply()` / `transactional()` and the database file store used the default
+  entity manager (`doctrine.entity_manager: null`), so a save also committed every change the application had left
+  pending in it, and a failed write reset it. They now read and write through a private entity manager
+  (`Doctrine\SettingsEntityManager`) created on the connection, configuration and event manager of the manager that
+  maps `SettingValue`: only bundle rows are flushed, a failed write closes only that private manager (replaced on the
+  next call, also in a kept-alive worker), and no application manager is reset any more. The connection is shared, so
+  a transaction you open around a bundle call still includes the rows and holds `SettingsChangedEvent` until your
+  outermost commit (as since 1.10).
+- **`doctrine.entity_manager` is now real.** Before, the mapping was always prepended to the default manager, so a
+  named manager did not map the entities unless the host mapped them by hand. With the option set, the entities (and
+  the file entity with `files.enabled`) are mapped on that manager only, removed from every other manager (also with
+  `auto_mapping: true` on the default one), the build fails clearly when the manager does not exist or does not map
+  them, and the bundle manager never becomes the host's default one.
+
+### Added
+
+- `Repository\SettingRowWriterInterface::writeRows(list<StoredSettingRow> $save, list<string> $remove = [])` (public
+  alias; default `RepositorySettingRowWriter` over the aliased repository): writes the raw store with DTOs, in one
+  transaction, secrets encrypted at rest. The counterpart of `SettingRowReaderInterface`.
+- `Doctrine\SettingsEntityManager` (`kernel.reset`), `DependencyInjection\Compiler\EntityManagerMappingPass`.
+
+### Deprecated
+
+- The entity-typed methods of `SettingValueRepositoryInterface` (`findAll()`, `findBySection()`, `apply()`) as a public
+  API: use `SettingRowReaderInterface` / `SettingRowWriterInterface`. They keep working (the bundle still uses them
+  internally) and become DTO-typed in 2.0.
+
+### Changed
+
+- `DoctrineSettingValueRepository` is no longer `readonly` and takes an optional third argument
+  (`?SettingsEntityManager`); `DoctrineSettingFileStore` takes the same optional third argument. With
+  `doctrine.entity_manager: null` the source manager is the one `doctrine` returns for `SettingValue` (the default
+  manager in a standard application, as before).
+
 ## [1.10.0] - 2026-11-10
 
 Target 1.10.0. DDD / hexagonal P2 fixes (audit 2026-11-09).

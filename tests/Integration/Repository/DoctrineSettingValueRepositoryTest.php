@@ -45,13 +45,15 @@ final class DoctrineSettingValueRepositoryTest extends KernelTestCase
         self::assertSame('done', $repository->transactional(static fn (): string => 'done'));
     }
 
-    public function testClosedManagerIsReset(): void
+    public function testAFailedWriteClosesOnlyTheBundleManager(): void
     {
         $kernel    = $this->bootKernel();
         $container = $this->container($kernel);
         /** @var ManagerRegistry $registry */
         $registry   = $container->get('doctrine');
         $repository = new DoctrineSettingValueRepository($registry);
+        $host       = $registry->getManager();
+        self::assertInstanceOf(EntityManagerInterface::class, $host);
 
         $row = new SettingValue('mailer', 'from', new DateTimeImmutable());
         $repository->apply([$row->storeValue('a@example.test', new DateTimeImmutable())], []);
@@ -63,14 +65,14 @@ final class DoctrineSettingValueRepositoryTest extends KernelTestCase
         } catch (Throwable) {
             $this->addToAssertionCount(1);
         }
+        self::assertTrue($host->isOpen(), 'the application manager is neither flushed nor closed by the bundle');
 
-        // The closed manager was reset: the repository works again (also when closed outside the repository).
-        $manager = $registry->getManager();
-        self::assertInstanceOf(EntityManagerInterface::class, $manager);
-        $manager->close();
+        // The private manager is replaced: the repository works again, also when the host closed its own manager.
+        $host->close();
         self::assertCount(1, $repository->findAll());
         $repository->apply([], $repository->findAll());
         self::assertSame([], $repository->findAll());
+        self::assertFalse($host->isOpen(), 'never reset by the bundle');
 
         $failing = new DoctrineSettingValueRepository($registry);
         try {
@@ -78,15 +80,26 @@ final class DoctrineSettingValueRepositoryTest extends KernelTestCase
         } catch (Throwable) {
         }
         self::assertSame([], $failing->findBySection('x'));
+
+        // A failing transaction closes the private manager too; the next call gets a fresh one.
+        try {
+            $failing->transactional(static function () use ($failing): never {
+                $failing->apply([(new SettingValue('t', 'x', new DateTimeImmutable()))->storeValue(1, new DateTimeImmutable())], []);
+                throw new LogicException('host failure');
+            });
+        } catch (LogicException $e) {
+            self::assertSame('host failure', $e->getMessage());
+        }
+        self::assertSame([], $failing->findBySection('t'), 'rolled back');
     }
 
     public function testNonOrmManagerIsRefused(): void
     {
         $registry = $this->createStub(ManagerRegistry::class);
-        $registry->method('getManager')->willReturn($this->createStub(ObjectManager::class));
+        $registry->method('getManagerForClass')->willReturn($this->createStub(ObjectManager::class));
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('Entity manager "default" is not a Doctrine ORM entity manager.');
+        $this->expectExceptionMessage('Entity manager "default" is not a Doctrine ORM entity manager that maps');
         (new DoctrineSettingValueRepository($registry))->findAll();
     }
 }

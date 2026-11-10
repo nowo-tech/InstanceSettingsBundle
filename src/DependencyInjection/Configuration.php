@@ -81,7 +81,7 @@ final class Configuration implements ConfigurationInterface
                             ->end()
                         ->end()
                         ->scalarNode('entity_manager')
-                            ->info('Doctrine ORM entity manager name (null = default).')
+                            ->info('Source manager of the bundle\'s private entity manager (null = the manager that maps the entity; a literal name maps the entities on that manager only, 1.11).')
                             ->defaultNull()
                         ->end()
                     ->end()
