@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.10.0](#to-1100)
 - [To 1.9.0](#to-190)
 - [To 1.8.0](#to-180)
 - [To 1.7.1](#to-171)
@@ -24,6 +25,28 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.10.0
+
+Target **1.10.0**, from **1.9.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+1. **Event timing.** `SettingsChangedEvent` is now dispatched after the write is committed. Code that saves without
+   its own transaction sees no difference. When you wrap `save()` (or an import, or a seed in a migration) in your own
+   transaction on the bundle's connection, the event now arrives after your **outermost commit** instead of right after
+   the bundle's flush, and **not at all** after a rollback (also of a savepoint enclosing the save). A listener that
+   wrote into that same transaction now runs after it, outside of it: open its own transaction if it needs one. A
+   listener that throws during a deferred dispatch no longer fails your commit (which already happened); the error is
+   logged. Event name and payload are unchanged.
+2. **DBAL middleware everywhere.** The bundle's `doctrine.middleware` (on the connection of `doctrine.entity_manager`
+   only) is now registered with every store, not only `files.store: filesystem`. Code that built
+   `FileStoreTransactionMiddleware` / `…Driver` / `…Connection` by hand keeps working (the store is now one of
+   `TransactionObserverInterface ...$observers`).
+3. **Optional: DTO reads.** Inject `SettingRowReaderInterface` instead of `SettingValueRepositoryInterface` when your
+   code only reads stored rows; it returns `StoredSettingRow` DTOs. Nothing to change otherwise.
 
 ## To 1.9.0
 

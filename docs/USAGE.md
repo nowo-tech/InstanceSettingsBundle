@@ -227,6 +227,8 @@ final class ConfiguredMailerDsn
 
 `Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent` is dispatched after a save that changed something (admin form, import, or code). It carries `section`, `changedFields`, `secretFields` and `origin` (`form`, `import`, `api`) — never values.
 
+Since 1.10 it is dispatched only once the write is **committed**: right after the save when no transaction is open (as before), or after the outermost commit of a transaction you opened around `save()` (or of an import / a seed run inside one) on the bundle's connection. A rollback, of the transaction or of a savepoint that encloses the call, drops it. A listener that throws during such a deferred dispatch is logged (`error`, event and exception class) instead of failing the commit that already happened; an immediate dispatch still propagates the exception.
+
 ```php
 #[AsEventListener]
 public function onSettingsChanged(SettingsChangedEvent $event): void
@@ -918,8 +920,15 @@ final readonly class InstanceMailerSettings implements MailerSettings
 **Reacting to changes.** Listen to `Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent` (PSR-14) in an
 infrastructure listener and translate it into your own event or cache reset. It carries `section`, `changedFields`,
 `secretFields`, `origin` (`form`, `import`, `api`, `seed`) and `fileChanges` (hashes), never values: read the new
-values through `InstanceSettingsInterface`. It is dispatched right after the bundle's flush, so inside a transaction
-you opened yourself it fires before your commit.
+values through `InstanceSettingsInterface`. Since 1.10 it is dispatched after the commit: inside a transaction you
+opened yourself it waits for your outermost commit and is dropped on rollback, so a listener never acts on a change
+that did not persist.
+
+**Reading the raw store without the entity.** `Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface`
+(1.10, `findAllRows()`, `findRowsBySection()`) returns `StoredSettingRow` read-only DTOs (`section`, `name`, `value`,
+`isSecret`, `secret`, `updatedAt`, `key()`) mapped from whichever `SettingValueRepositoryInterface` is aliased; use it
+for reports, audits or migrations instead of the Doctrine entity `SettingValue`. Single values still go through
+`InstanceSettingsInterface` (defaults, overrides, type checks).
 
 **Other ports you can implement**
 
@@ -939,9 +948,11 @@ For image fields written from application code, pass `ImageUpload::fromBytes()` 
 
 **Known limitations**
 
-- `SettingValueRepositoryInterface` works with the Doctrine entity `SettingValue`, and the ORM mapping is always
-  registered: replacing the storage with a non-Doctrine backend means building those entities and handling secret
-  encryption yourself.
-- `SettingsChangedEvent` carries field names only, not values.
+- The write side of `SettingValueRepositoryInterface` (`apply()`, and the `findAll()` / `findBySection()` the bundle
+  uses itself) still works with the Doctrine entity `SettingValue`, and the ORM mapping is always registered: replacing
+  the storage with a non-Doctrine backend means building those entities and handling secret encryption yourself. Reads
+  for your own code have the DTO port above.
+- `SettingsChangedEvent` carries field names only, not values. With a non-Doctrine store the after-commit dispatch
+  only follows transactions on the bundle's Doctrine connection.
 - Keys are `section.field` strings; map them to typed values in your adapter.
 - Seeding (`FallbackSeeder`) checks the Doctrine connection directly, even with a custom repository.

@@ -22,6 +22,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.10.0. DDD / hexagonal P2 fixes (audit 2026-11-09).
+
+### Added
+
+- `Repository\SettingRowReaderInterface` (`findAllRows()`, `findRowsBySection()`) returning the read-only DTO
+  `Repository\StoredSettingRow` (`section`, `name`, `value`, `isSecret`, `secret`, `updatedAt`, `key()`; the secret is
+  left out of dumps). The default `RepositorySettingRowReader` maps the rows of the aliased
+  `SettingValueRepositoryInterface`; the alias is public. The entity-based port is unchanged.
+- `Event\AfterCommitEventDispatcher` and `Doctrine\TransactionObserverInterface`: the bundle's events go through a
+  dispatcher that follows the real transactions of the bundle's connection.
+
+### Changed
+
+- `SettingsChangedEvent` (from `save()`, imports and both seeders) is dispatched **after the outermost commit** of the
+  bundle's connection and dropped when the transaction, or a savepoint enclosing the write, rolls back. Without an open
+  transaction it is dispatched at once, as before. Same event class and payload. A listener exception during a deferred
+  dispatch is logged (`error`) instead of being thrown out of the commit.
+- The DBAL middleware `FileStoreTransactionMiddleware` is registered with every file store (and without image files),
+  not only with `files.store: filesystem`; its constructor (and the driver / connection ones) take any number of
+  `TransactionObserverInterface` (the filesystem store implements it).
+
 ## [1.9.0] - 2026-11-10
 
 Target 1.9.0. Request from Symfony Beacon (spec 222 "provider-dependent fields", owner answer Q4 = b).

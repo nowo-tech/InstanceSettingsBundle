@@ -7,22 +7,27 @@ namespace Nowo\InstanceSettingsBundle\Doctrine;
 use Doctrine\DBAL\Driver;
 use Doctrine\DBAL\Driver\Connection;
 use Doctrine\DBAL\Driver\Middleware\AbstractDriverMiddleware;
-use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
+
+use function array_values;
 
 /**
  * Driver of {@see FileStoreTransactionMiddleware}: wraps each connection in a {@see FileStoreTransactionConnection}.
  */
 final class FileStoreTransactionDriver extends AbstractDriverMiddleware
 {
+    /** @var list<TransactionObserverInterface> */
+    private readonly array $observers;
+
     /**
      * @param Driver $driver wrapped driver
-     * @param FilesystemSettingFileStore $store store told about the transactions
+     * @param TransactionObserverInterface ...$observers told about the transactions, in this order
      */
     public function __construct(
         Driver $driver,
-        private readonly FilesystemSettingFileStore $store,
+        TransactionObserverInterface ...$observers,
     ) {
         parent::__construct($driver);
+        $this->observers = array_values($observers);
     }
 
     /**
@@ -30,6 +35,6 @@ final class FileStoreTransactionDriver extends AbstractDriverMiddleware
      */
     public function connect(array $params): Connection
     {
-        return new FileStoreTransactionConnection(parent::connect($params), $this->store);
+        return new FileStoreTransactionConnection(parent::connect($params), ...$this->observers);
     }
 }
