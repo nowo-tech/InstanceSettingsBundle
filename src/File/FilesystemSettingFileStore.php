@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\File;
 
 use DateTimeImmutable;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
+use Nowo\InstanceSettingsBundle\Doctrine\TransactionObserverInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use RuntimeException;
 use Symfony\Contracts\Service\ResetInterface;
@@ -96,7 +97,7 @@ use const DIRECTORY_SEPARATOR;
  *
  * Holds the staged changes of the open units and transactions only; {@see self::reset()} discards them (worker-safe).
  */
-final class FilesystemSettingFileStore implements StagedSettingFileStoreInterface, ResetInterface
+final class FilesystemSettingFileStore implements StagedSettingFileStoreInterface, TransactionObserverInterface, ResetInterface
 {
     /** Sub-directory of the variants inside a section directory. */
     public const VARIANTS_DIR = '.variants';

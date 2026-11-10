@@ -11,6 +11,7 @@ use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
+use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
@@ -20,6 +21,9 @@ use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
+use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowReader;
+use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
+use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
@@ -27,6 +31,7 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
+use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use PHPUnit\Framework\TestCase;
@@ -35,6 +40,8 @@ use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\Filesystem\Filesystem;
+
+use function array_map;
 
 final class NowoInstanceSettingsExtensionTest extends TestCase
 {
@@ -59,6 +66,27 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $definition = new ChildDefinition('');
         $container->getAttributeAutoconfigurators()[AsSettingsSection::class][0]($definition, new AsSettingsSection(5));
         self::assertSame([['priority' => 5]], $definition->getTag(NowoInstanceSettingsBundle::SECTION_TAG));
+    }
+
+    public function testEventsGoThroughTheAfterCommitDispatcherAndTheRowReaderIsAliased(): void
+    {
+        $container = $this->load([], withSecurity: true);
+
+        $dispatcher = $container->getDefinition(AfterCommitEventDispatcher::class);
+        self::assertTrue($dispatcher->hasTag('kernel.reset'));
+        self::assertSame('event_dispatcher', (string) $dispatcher->getArgument(0));
+        $middleware = $container->getDefinition(FileStoreTransactionMiddleware::class);
+        self::assertTrue($middleware->hasTag('doctrine.middleware'), 'always registered since 1.10');
+        self::assertSame([AfterCommitEventDispatcher::class], array_map('strval', $middleware->getArguments()));
+        foreach ([InstanceSettings::class => 3, FallbackSeeder::class => 6, SeedFileSeeder::class => 10] as $service => $index) {
+            self::assertSame(AfterCommitEventDispatcher::class, (string) $container->getDefinition($service)->getArgument($index), $service);
+        }
+
+        self::assertSame(RepositorySettingRowReader::class, (string) $container->getAlias(SettingRowReaderInterface::class));
+        self::assertSame(SettingValueRepositoryInterface::class, (string) $container->getDefinition(RepositorySettingRowReader::class)->getArgument(0));
+
+        $filesystem = $this->load(['brand' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '/srv/files']], withSecurity: true);
+        self::assertSame([FilesystemSettingFileStore::class, AfterCommitEventDispatcher::class], array_map('strval', $filesystem->getDefinition(FileStoreTransactionMiddleware::class)->getArguments()));
     }
 
     public function testCustomCheckerAreaRolesAndDemoSwitch(): void

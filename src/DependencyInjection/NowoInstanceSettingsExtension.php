@@ -31,6 +31,7 @@ use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddleware
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
+use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
@@ -50,6 +51,8 @@ use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
 use Nowo\InstanceSettingsBundle\Repository\DoctrineSettingValueRepository;
+use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowReader;
+use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
 use Nowo\InstanceSettingsBundle\Secret\DoctrineEncryptSecretSealer;
@@ -390,11 +393,26 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('validator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]));
 
+        // 1.10 (DDD P2): SettingsChangedEvent is dispatched after the outermost commit of the bundle's connection,
+        // dropped on rollback; the middleware reports the real transactions (the file store joins it, JG-M1).
+        $container->setDefinition(AfterCommitEventDispatcher::class, (new Definition(AfterCommitEventDispatcher::class, [
+            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->addTag('kernel.reset', ['method' => 'reset']));
+        $container->setDefinition(FileStoreTransactionMiddleware::class, (new Definition(FileStoreTransactionMiddleware::class, [new Reference(AfterCommitEventDispatcher::class)]))
+            ->addTag('doctrine.middleware'));
+
+        // 1.10 (DDD P2): persistence-neutral read view of the stored rows, over whichever repository is aliased.
+        $container->setDefinition(RepositorySettingRowReader::class, new Definition(RepositorySettingRowReader::class, [
+            new Reference(SettingValueRepositoryInterface::class),
+        ]));
+        $container->setAlias(SettingRowReaderInterface::class, RepositorySettingRowReader::class)->setPublic(true);
+
         $container->setDefinition(InstanceSettings::class, (new Definition(InstanceSettings::class, [
             new Reference(SettingValueRepositoryInterface::class),
             new Reference(SettingsSectionRegistry::class),
             new Reference(ValueNormalizer::class),
-            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(AfterCommitEventDispatcher::class),
             new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
@@ -417,7 +435,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(ValueNormalizer::class),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference(TransactionStateGuard::class),
-            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(AfterCommitEventDispatcher::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->setPublic(true));
 
@@ -437,7 +455,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(ValueNormalizer::class),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference(TransactionStateGuard::class),
-            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(AfterCommitEventDispatcher::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->setPublic(true));
 
@@ -479,8 +497,10 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $container->setDefinition(FilesystemSettingFileStore::class, (new Definition(FilesystemSettingFileStore::class, [$files['directory'], ['%kernel.project_dir%/public', $files['public_dir']]]))
                 ->addTag('kernel.reset', ['method' => 'reset']));
             // Follows the real transactions (a host transaction around a bundle call) for the file changes (JG-M1).
-            $container->setDefinition(FileStoreTransactionMiddleware::class, (new Definition(FileStoreTransactionMiddleware::class, [new Reference(FilesystemSettingFileStore::class)]))
-                ->addTag('doctrine.middleware'));
+            $container->getDefinition(FileStoreTransactionMiddleware::class)->setArguments([
+                new Reference(FilesystemSettingFileStore::class),
+                new Reference(AfterCommitEventDispatcher::class),
+            ]);
             $container->setAlias(SettingFileStoreInterface::class, FilesystemSettingFileStore::class);
         } else {
             $container->setAlias(SettingFileStoreInterface::class, DoctrineSettingFileStore::class);

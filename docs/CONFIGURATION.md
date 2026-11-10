@@ -256,7 +256,8 @@ Behaviour:
   file (still served). Savepoints are followed when they go through the connection's `exec()`, as DBAL's nested
   transactions and `executeStatement('SAVEPOINT …')` do; a savepoint the host sends through `executeQuery()` or a
   prepared statement is not seen, so use DBAL's nesting (audit JG-I15). Do not attach the middleware to other
-  connections by hand (audit JG-I17).
+  connections by hand (audit JG-I17). Since 1.10 the same middleware is registered with every store, because
+  `SettingsChangedEvent` follows the same transactions (dispatched after the outermost commit, dropped on rollback).
 - **The file on disk is authoritative.** The setting row says the field is set; the URL carries the first 12 hex
   characters of the current file's SHA-256 (cache busting: a logo replaced under the same name gets a new URL, the old
   URL answers 404, and the strong `ETag` is the hash). A `git pull` that changed a committed logo is served at once.
