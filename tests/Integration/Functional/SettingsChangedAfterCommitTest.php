@@ -94,7 +94,7 @@ final class SettingsChangedAfterCommitTest extends KernelTestCase
         $rows = $reader->findRowsBySection('mailer');
 
         self::assertSame(['mailer.dsn', 'mailer.from_name'], array_map(static fn (StoredSettingRow $row): string => $row->key(), $rows));
-        self::assertSame([true, 'smtp://user:pass@mail.example.test:587', null], [$rows[0]->isSecret, $rows[0]->secret, $rows[0]->value]);
+        self::assertSame([true, 'smtp://user:pass@mail.example.test:587', null], [$rows[0]->isSecret, $rows[0]->secret(), $rows[0]->value]);
         self::assertSame([false, 'Ops'], [$rows[1]->isSecret, $rows[1]->value]);
         self::assertCount(2, $reader->findAllRows());
     }

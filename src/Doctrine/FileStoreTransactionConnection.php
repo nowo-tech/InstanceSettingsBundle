@@ -46,9 +46,7 @@ final class FileStoreTransactionConnection extends AbstractConnectionMiddleware
     public function beginTransaction(): void
     {
         parent::beginTransaction();
-        foreach ($this->observers as $observer) {
-            $observer->transactionStarted($this);
-        }
+        $this->notify(static fn (TransactionObserverInterface $observer, self $connection) => $observer->transactionStarted($connection));
     }
 
     /**
@@ -59,9 +57,12 @@ final class FileStoreTransactionConnection extends AbstractConnectionMiddleware
         try {
             parent::commit();
         } catch (Throwable $e) {
-            $this->ended(false);
-
-            throw $e;
+            try {
+                $this->ended(false);
+            } finally {
+                // The commit failure wins over an observer failure.
+                throw $e;
+            }
         }
         $this->ended(true);
     }
@@ -86,13 +87,12 @@ final class FileStoreTransactionConnection extends AbstractConnectionMiddleware
         $result = parent::exec($sql);
         if (preg_match(self::SAVEPOINT_PATTERN, $sql, $match) === 1) {
             $verb = strtoupper($match[1]);
-            foreach ($this->observers as $observer) {
-                match (true) {
-                    str_starts_with($verb, 'RELEASE')  => $observer->savepointReleased($this, $match[2]),
-                    str_starts_with($verb, 'ROLLBACK') => $observer->savepointRolledBack($this, $match[2]),
-                    default                            => $observer->savepointCreated($this, $match[2]),
-                };
-            }
+            $name = $match[2];
+            $this->notify(static fn (TransactionObserverInterface $observer, self $connection) => match (true) {
+                str_starts_with($verb, 'RELEASE')  => $observer->savepointReleased($connection, $name),
+                str_starts_with($verb, 'ROLLBACK') => $observer->savepointRolledBack($connection, $name),
+                default                            => $observer->savepointCreated($connection, $name),
+            });
         }
 
         return $result;
@@ -100,8 +100,27 @@ final class FileStoreTransactionConnection extends AbstractConnectionMiddleware
 
     private function ended(bool $committed): void
     {
+        $this->notify(static fn (TransactionObserverInterface $observer, self $connection) => $observer->transactionEnded($connection, $committed));
+    }
+
+    /**
+     * Tells every observer, each in isolation (audit KI-I-L2): one that throws (a file write after the commit) does
+     * not keep the others from being told; the first exception is rethrown once all were notified.
+     *
+     * @param callable(TransactionObserverInterface, self): mixed $notification
+     */
+    private function notify(callable $notification): void
+    {
+        $failure = null;
         foreach ($this->observers as $observer) {
-            $observer->transactionEnded($this, $committed);
+            try {
+                $notification($observer, $this);
+            } catch (Throwable $e) {
+                $failure ??= $e;
+            }
+        }
+        if ($failure instanceof Throwable) {
+            throw $failure;
         }
     }
 }

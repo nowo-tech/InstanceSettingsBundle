@@ -27,8 +27,9 @@ Target 1.10.0. DDD / hexagonal P2 fixes (audit 2026-11-09).
 ### Added
 
 - `Repository\SettingRowReaderInterface` (`findAllRows()`, `findRowsBySection()`) returning the read-only DTO
-  `Repository\StoredSettingRow` (`section`, `name`, `value`, `isSecret`, `secret`, `updatedAt`, `key()`; the secret is
-  left out of dumps). The default `RepositorySettingRowReader` maps the rows of the aliased
+  `Repository\StoredSettingRow` (`section`, `name`, `value`, `isSecret`, `updatedAt`, `key()`, `secret()`). The
+  decrypted secret is kept outside the object's properties (audit KI-I-M1): no dump, cast, `var_export()`,
+  VarDumper or Serializer shows it, `json_encode()` / `serialize()` mask it as `***`, and rows cannot be cloned. The default `RepositorySettingRowReader` maps the rows of the aliased
   `SettingValueRepositoryInterface`; the alias is public. The entity-based port is unchanged.
 - `Event\AfterCommitEventDispatcher` and `Doctrine\TransactionObserverInterface`: the bundle's events go through a
   dispatcher that follows the real transactions of the bundle's connection.
@@ -41,7 +42,10 @@ Target 1.10.0. DDD / hexagonal P2 fixes (audit 2026-11-09).
   dispatch is logged (`error`) instead of being thrown out of the commit.
 - The DBAL middleware `FileStoreTransactionMiddleware` is registered with every file store (and without image files),
   not only with `files.store: filesystem`; its constructor (and the driver / connection ones) take any number of
-  `TransactionObserverInterface` (the filesystem store implements it).
+  `TransactionObserverInterface` (the filesystem store implements it). Each observer is notified in isolation: one
+  that throws no longer keeps the others from being told; the first exception is rethrown afterwards (audit KI-I-L2).
+- The after-commit dispatcher keys its state weakly by connection: a connection closed mid-transaction no longer
+  holds every later dispatch (audit KI-I-L1).
 
 ## [1.9.0] - 2026-11-10
 

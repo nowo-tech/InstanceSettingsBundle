@@ -40,7 +40,13 @@ composer update nowo-tech/instance-settings-bundle
    the bundle's flush, and **not at all** after a rollback (also of a savepoint enclosing the save). A listener that
    wrote into that same transaction now runs after it, outside of it: open its own transaction if it needs one. A
    listener that throws during a deferred dispatch no longer fails your commit (which already happened); the error is
-   logged. Event name and payload are unchanged.
+   logged. Event name and payload are unchanged. Caches that listen to this event (MailKit's transport, SmsKit's
+   resolver, your own) therefore refresh after your commit: a send inside the same transaction still uses the old
+   values.
+   **MySQL / MariaDB and migrations with DDL:** a DDL statement commits implicitly, so a seed run inside a transactional
+   migration that also changes the schema sends no `SettingsChangedEvent` (the transaction DBAL tracks never commits
+   cleanly). Run the seed in its own migration, or in a non-transactional one (`isTransactional(): false`), which the
+   seeder already recommends.
 2. **DBAL middleware everywhere.** The bundle's `doctrine.middleware` (on the connection of `doctrine.entity_manager`
    only) is now registered with every store, not only `files.store: filesystem`. Code that built
    `FileStoreTransactionMiddleware` / `…Driver` / `…Connection` by hand keeps working (the store is now one of

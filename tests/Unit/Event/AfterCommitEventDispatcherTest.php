@@ -8,6 +8,7 @@ use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\DBAL\DriverManager;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
+use Nowo\InstanceSettingsBundle\Doctrine\TransactionObserverInterface;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use PHPUnit\Framework\TestCase;
@@ -15,6 +16,8 @@ use Psr\Log\AbstractLogger;
 use RuntimeException;
 use Stringable;
 use Symfony\Component\EventDispatcher\EventDispatcher;
+
+use function gc_collect_cycles;
 
 /**
  * 1.10 (DDD P2, pattern 4): SettingsChangedEvent after the outermost commit, dropped on rollback.
@@ -94,6 +97,71 @@ final class AfterCommitEventDispatcherTest extends TestCase
         self::assertSame([], $this->seen, 'a savepoint is not the real commit');
         $connection->commit();
         self::assertSame(['inner'], $this->seen);
+    }
+
+    /**
+     * Audit KI-I-L1: a connection closed in the middle of a transaction (no rollback) does not hold later dispatches.
+     */
+    public function testAConnectionClosedMidTransactionDoesNotHoldLaterEvents(): void
+    {
+        $connection = $this->connection();
+
+        $connection->beginTransaction();
+        $this->dispatcher->dispatch(new SettingsChangedEvent('lost', ['a']));
+        $connection->close();
+        gc_collect_cycles();
+
+        $this->dispatcher->dispatch(new SettingsChangedEvent('after_close', ['a']));
+        self::assertSame(['after_close'], $this->seen, 'immediate: the closed transaction is gone');
+
+        $connection->beginTransaction();
+        $this->dispatcher->dispatch(new SettingsChangedEvent('reconnected', ['a']));
+        $connection->commit();
+        self::assertSame(['after_close', 'reconnected'], $this->seen);
+    }
+
+    /**
+     * Audit KI-I-L2: an observer that throws does not keep the dispatcher from being told about the commit.
+     */
+    public function testAThrowingObserverDoesNotStopTheOthers(): void
+    {
+        $failing = new class implements TransactionObserverInterface {
+            public function transactionStarted(object $connection): void
+            {
+            }
+
+            public function transactionEnded(object $connection, bool $committed): void
+            {
+                throw new RuntimeException('file write failed after the commit');
+            }
+
+            public function savepointCreated(object $connection, string $name): void
+            {
+                throw new RuntimeException('savepoint observer failed');
+            }
+
+            public function savepointReleased(object $connection, string $name): void
+            {
+            }
+
+            public function savepointRolledBack(object $connection, string $name): void
+            {
+            }
+        };
+        $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], (new Configuration())->setMiddlewares([new FileStoreTransactionMiddleware($failing, $this->dispatcher)]));
+
+        $connection->beginTransaction();
+        $this->dispatcher->dispatch(new SettingsChangedEvent('general', ['a']));
+        try {
+            $connection->commit();
+            self::fail('Expected the observer failure.');
+        } catch (RuntimeException $e) {
+            self::assertSame('file write failed after the commit', $e->getMessage());
+        }
+        self::assertSame(['general'], $this->seen, 'the dispatcher was told although the first observer threw');
+
+        $this->dispatcher->dispatch(new SettingsChangedEvent('after', ['a']));
+        self::assertSame(['general', 'after'], $this->seen, 'no stale transaction left');
     }
 
     public function testSavepointNotificationsWithoutATransactionAreIgnored(): void

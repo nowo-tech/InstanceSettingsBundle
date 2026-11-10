@@ -926,8 +926,11 @@ that did not persist.
 
 **Reading the raw store without the entity.** `Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface`
 (1.10, `findAllRows()`, `findRowsBySection()`) returns `StoredSettingRow` read-only DTOs (`section`, `name`, `value`,
-`isSecret`, `secret`, `updatedAt`, `key()`) mapped from whichever `SettingValueRepositoryInterface` is aliased; use it
-for reports, audits or migrations instead of the Doctrine entity `SettingValue`. Single values still go through
+`isSecret`, `updatedAt`, `key()`, and `secret()` for the decrypted secret) mapped from whichever
+`SettingValueRepositoryInterface` is aliased; use it for reports, audits or migrations instead of the Doctrine entity
+`SettingValue`. The decrypted secret is not a property: dumps (`var_dump`, `var_export`, Symfony `dump()`), casts,
+`json_encode()`, `serialize()` and the Symfony Serializer never show it (`***` in JSON / serialized form, and an
+unserialized row has no secret). Call `secret()` only where you really need the value. Single values still go through
 `InstanceSettingsInterface` (defaults, overrides, type checks).
 
 **Other ports you can implement**
