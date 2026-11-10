@@ -19,7 +19,7 @@ final class ConfigurationTest extends TestCase
         $config = $this->process([]);
 
         self::assertSame(['table_prefix' => '', 'entity_manager' => null], $config['doctrine']);
-        self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'templates' => []], $config['web_ui']);
+        self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'hidden_secrets' => 'drop', 'hidden_secrets_notice' => false, 'templates' => []], $config['web_ui']);
         self::assertSame(['access_roles' => ['ROLE_ADMIN'], 'area_roles' => [], 'access_checker' => null, 'allow_unauthenticated' => false], $config['security']);
         self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true, 'max_file_bytes' => 8_388_608], $config['portability']);
         self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files', 'crop' => ['enabled' => false, 'shape' => null, 'quality' => null, 'labels' => []]], $config['files']);
@@ -95,6 +95,15 @@ final class ConfigurationTest extends TestCase
         self::assertSame(['mailer' => ['ROLE_SUPER_ADMIN']], $config['security']['area_roles']);
         self::assertSame('acme-config', $config['portability']['schema']);
         self::assertSame([], $this->process(['security' => ['access_roles' => [], 'allow_unauthenticated' => true]])['security']['access_roles']);
+        $webUi = $this->process(['web_ui' => ['hidden_secrets' => 'keep_typed', 'hidden_secrets_notice' => true]])['web_ui'];
+        self::assertSame('keep_typed', $webUi['hidden_secrets']);
+        self::assertTrue($webUi['hidden_secrets_notice']);
+    }
+
+    public function testHiddenSecretsRefusesUnknownModes(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->process(['web_ui' => ['hidden_secrets' => 'keep']]);
     }
 
     /**

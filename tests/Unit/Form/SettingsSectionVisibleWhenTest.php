@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\Form;
 
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
+use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\GeneralFixtureSection;
@@ -17,6 +18,7 @@ use Symfony\Component\Form\CallbackTransformer;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\FormEvent;
 use Symfony\Component\Form\FormInterface;
+use Symfony\Component\OptionsResolver\Exception\InvalidOptionsException;
 
 /**
  * 1.3 provider-dependent rows: UiKit `visible-when` row attributes and hidden fields kept on submit.
@@ -177,6 +179,25 @@ final class SettingsSectionVisibleWhenTest extends TestCase
         self::assertSame('h.example.test', $form->getData()['host'], 'empty provider resolves to empty_data smtp: host visible');
     }
 
+    public function testKeepTypedLeavesAHiddenSecretAsSubmitted(): void
+    {
+        foreach ([HiddenSecrets::KeepTyped, 'keep_typed'] as $mode) {
+            $form = $this->form(['provider' => 'smtp'], true, $mode);
+            $form->submit(['_token' => 'token-nowo_instance_settings_section', 'provider' => 'smtp', 'smtp_host' => 'h', 'api_key' => ['value' => 'REDACTED-NEW'], 'api_region' => 'typed']);
+            self::assertTrue($form->isValid());
+            self::assertSame(['value' => 'REDACTED-NEW', 'clear' => false], $form->get('api_key')->getData(), 'typed secret kept');
+            self::assertNull($form->get('api_region')->getData(), 'hidden plain field still restored');
+        }
+        $form = $this->form(['provider' => 'smtp'], true, 'drop');
+        self::assertSame(HiddenSecrets::Drop, $form->getConfig()->getOption('hidden_secrets'));
+    }
+
+    public function testHiddenSecretsOptionRefusesUnknownModes(): void
+    {
+        $this->expectException(InvalidOptionsException::class);
+        $this->form([], true, 'keep');
+    }
+
     public function testKeepHiddenFieldsIgnoresNonArrayDataAndMissingChildren(): void
     {
         $form  = $this->form([]);
@@ -194,7 +215,7 @@ final class SettingsSectionVisibleWhenTest extends TestCase
      *
      * @return FormInterface<mixed>
      */
-    private function form(array $data, bool $storedKey = true): FormInterface
+    private function form(array $data, bool $storedKey = true, HiddenSecrets|string $hiddenSecrets = HiddenSecrets::Drop): FormInterface
     {
         $registry = new SettingsSectionRegistry([new ProviderFixtureSection()]);
 
@@ -202,6 +223,7 @@ final class SettingsSectionVisibleWhenTest extends TestCase
             'section'        => $registry->get('transport'),
             'fields'         => $registry->fields('transport'),
             'stored_secrets' => ['api_key' => $storedKey],
+            'hidden_secrets' => $hiddenSecrets,
         ]);
     }
 }

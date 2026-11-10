@@ -173,6 +173,35 @@ yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true
   is never written), to remove an inactive provider's credential without activating it. The controlling value is
   normalized like the form type does (trim, then its transformers: checkbox → bool, integer → int) on both sides.
   Without JavaScript, edit a provider's fields after selecting it.
+- Secrets typed into a hidden row (1.9): `web_ui.hidden_secrets: keep_typed` saves a secret typed for a provider that
+  is not selected (typed without JavaScript, or before switching the provider in the form), so all the credentials can
+  be entered in one pass. The hidden secret is still never `required`; its own constraints run; blank keeps and
+  "clear" deletes as on a visible row. Hidden plain fields are unchanged (kept, never written). Default `drop` keeps
+  the 1.3 behaviour. One section can override the bundle-wide value by implementing
+  `SettingsSectionHiddenSecretsInterface`:
+
+  ```php
+  final class StorageSection extends AbstractSettingsSection implements SettingsSectionHiddenSecretsInterface
+  {
+      public function getHiddenSecrets(): HiddenSecrets
+      {
+          return HiddenSecrets::KeepTyped;
+      }
+  }
+  ```
+
+  Only the admin form (bundle page and embeds) is concerned; `InstanceSettingsInterface::save()` (API, import) writes
+  what it is given, as before. If such a hidden secret fails its constraints, the whole section is refused (as for any
+  invalid field) and, since its row is hidden, a notice above the form names it (`notice.hidden_secret_invalid`, with
+  `%field%` = its label and `%message%` = the error). Host code should read a provider's secret only while that
+  provider is selected: with `keep_typed`, secrets of non-selected providers are stored too (sealed on export, named
+  but never valued in `SettingsChangedEvent`).
+- Notice while dropped (1.9): `web_ui.hidden_secrets_notice: true` adds a notice above the form of every section that
+  has a provider-dependent secret and drops hidden secrets ("Secrets typed for a provider that is not selected are not
+  saved…", key `notice.hidden_secrets_dropped` of the `NowoInstanceSettingsBundle` domain; override the text in your
+  translations, e.g. `translations/NowoInstanceSettingsBundle.en.yaml`). It renders like the section notices
+  (`data-testid="instance-settings-notice"`), after them; no template override. A section-specific text can still
+  come from `SettingsSectionNoticesInterface::getNotices()`.
 - Notices: compute required-field notices for the active provider only (`SettingField::isVisibleFor()` with the
   stored values).
 - `InstanceSettings::save()` (API), imports, exports and the seed store every given field; `required` is not enforced

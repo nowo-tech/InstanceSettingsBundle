@@ -8,6 +8,9 @@ settings:
 flash:
   saved: Ajustes guardados.
   unchanged: No ha cambiado nada.
+notice:
+  hidden_secret_invalid: "Los ajustes no se han guardado. El secreto escrito para «%field%» no es válido: %message% Su proveedor no está seleccionado, así que el campo está oculto: selecciona ese proveedor para corregirlo o déjalo en blanco."
+  hidden_secrets_dropped: "Los secretos escritos para un proveedor que no está seleccionado no se guardan: selecciona primero el proveedor y después escribe su secreto."
 portability:
   title: Importar / exportar
   intro: Copia la configuración de la instancia entre entornos como un archivo JSON versionado.

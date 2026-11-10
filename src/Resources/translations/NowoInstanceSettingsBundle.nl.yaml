@@ -8,6 +8,9 @@ settings:
 flash:
   saved: Instellingen opgeslagen.
   unchanged: Er is niets gewijzigd.
+notice:
+  hidden_secret_invalid: "De instellingen zijn niet opgeslagen. Het geheim dat is ingevoerd voor “%field%” is ongeldig: %message% De provider is niet geselecteerd, dus het veld is verborgen: selecteer die provider om het te corrigeren, of laat het leeg."
+  hidden_secrets_dropped: "Geheimen die zijn ingevoerd voor een provider die niet is geselecteerd, worden niet opgeslagen: selecteer eerst de provider en voer daarna het geheim in."
 portability:
   title: Importeren / exporteren
   intro: Kopieer de configuratie van de instantie tussen omgevingen als een JSON-bestand met versie.
