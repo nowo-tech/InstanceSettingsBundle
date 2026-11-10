@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.9.0] - 2026-11-10](#190---2026-11-10)
 - [[1.8.0] - 2026-11-09](#180---2026-11-09)
 - [[1.7.1] - 2026-11-09](#171---2026-11-09)
 - [[1.7.0] - 2026-11-09](#170---2026-11-09)
@@ -20,6 +21,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.9.0] - 2026-11-10
 
 Target 1.9.0. Request from Symfony Beacon (spec 222 "provider-dependent fields", owner answer Q4 = b).
 
