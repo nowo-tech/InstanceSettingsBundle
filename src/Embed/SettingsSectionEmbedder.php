@@ -13,10 +13,13 @@ use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
+use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionActionsInterface;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionHiddenSecretsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
@@ -26,6 +29,7 @@ use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Ui\ImagePreview;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
+use Nowo\UiKitBundle\View\Label;
 use Symfony\Component\Form\FormError;
 use Symfony\Component\Form\FormFactoryInterface;
 use Symfony\Component\Form\FormInterface;
@@ -61,11 +65,17 @@ use function str_starts_with;
  */
 final readonly class SettingsSectionEmbedder
 {
+    /** Translation key (bundle domain) of the 1.9 notice shown while hidden secrets are dropped; override its text in the host translations. */
+    public const HIDDEN_SECRETS_NOTICE = 'notice.hidden_secrets_dropped';
+
     /** Token id prefix of the section forms (one id per section; shared by the bundle page and the embed). */
     public const CSRF_TOKEN_PREFIX = 'nowo_instance_settings_section_';
 
     /**
      * @param bool $portabilityEnabled `portability.web_ui` (the "Import / export" link of the bundle page)
+     * @param HiddenSecrets $hiddenSecrets `web_ui.hidden_secrets` (1.9): a secret typed into a hidden row is dropped or saved
+     * @param bool $hiddenSecretsNotice `web_ui.hidden_secrets_notice` (1.9): a notice above the form of a section with
+     *                                  provider-dependent secrets while they are dropped
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -78,6 +88,8 @@ final readonly class SettingsSectionEmbedder
         private ?RequestStack $requestStack = null,
         private bool $portabilityEnabled = true,
         private ?TranslatorInterface $translator = null,
+        private HiddenSecrets $hiddenSecrets = HiddenSecrets::Drop,
+        private bool $hiddenSecretsNotice = false,
     ) {
     }
 
@@ -152,11 +164,12 @@ final readonly class SettingsSectionEmbedder
             $this->guard->deny('Access denied to this settings section.');
         }
 
-        $definition = $this->registry->get($section);
-        $fields     = $this->registry->fields($section);
-        $stored     = [];
-        $images     = [];
-        $previews   = [];
+        $definition    = $this->registry->get($section);
+        $fields        = $this->registry->fields($section);
+        $hiddenSecrets = $definition instanceof SettingsSectionHiddenSecretsInterface ? $definition->getHiddenSecrets() : $this->hiddenSecrets;
+        $stored        = [];
+        $images        = [];
+        $previews      = [];
         foreach ($fields as $name => $field) {
             if ($field->secret) {
                 $stored[$name] = $this->settings->hasSecret($section . '.' . $name);
@@ -178,12 +191,13 @@ final readonly class SettingsSectionEmbedder
             'stored_secrets' => $stored,
             'stored_images'  => $images,
             'csrf_token_id'  => self::CSRF_TOKEN_PREFIX . $section,
+            'hidden_secrets' => $hiddenSecrets,
         ]);
         $form->handleRequest($request);
 
         if ($form->isSubmitted() && $form->isValid()) {
             try {
-                $changed = $this->settings->save($section, $this->submittedValues($form, $fields), SettingsChangedEvent::ORIGIN_FORM);
+                $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets), SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
 
                 return new RedirectResponse($options instanceof SectionEmbedOptions ? $hostUrls[$section] : $this->urlGenerator->generate(InstanceSettingsRoutes::SECTION, ['section' => $section]));
@@ -199,6 +213,10 @@ final readonly class SettingsSectionEmbedder
         $context = new SectionActionContext($section, $request, $this->guard->user());
         $actions = $definition instanceof SettingsSectionActionsInterface ? $definition->getActions($context) : [];
         $notices = $definition instanceof SettingsSectionNoticesInterface ? $this->pages->notices($definition->getNotices($context), $definition->getTranslationDomain()) : [];
+        if ($this->hiddenSecretsNotice && $hiddenSecrets === HiddenSecrets::Drop && $this->hasHiddenSecrets($fields)) {
+            // 1.9 (Beacon spec 222): say that a secret typed for a provider that is not selected is not saved.
+            $notices[] = new Label(self::HIDDEN_SECRETS_NOTICE, NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
+        }
 
         if ($options instanceof SectionEmbedOptions) {
             $tabs = [];
@@ -257,20 +275,21 @@ final readonly class SettingsSectionEmbedder
     /**
      * Values to save: every field visible for the submitted values (provider-dependent fields hidden for the submitted
      * controlling value are left out, so "empty = delete" and validation only apply to visible fields), plus a null
-     * for a hidden secret whose "clear" box was checked.
+     * for a hidden secret whose "clear" box was checked (with {@see HiddenSecrets::KeepTyped}, 1.9: a hidden secret is
+     * handled as a visible one: a typed value is written too, blank keeps).
      *
      * @param FormInterface<mixed> $form
      * @param array<string, SettingField> $fields
      *
      * @return array<string, mixed>
      */
-    private function submittedValues(FormInterface $form, array $fields): array
+    private function submittedValues(FormInterface $form, array $fields, HiddenSecrets $hiddenSecrets): array
     {
         /** @var array<string, mixed> $data */
         $data   = (array) $form->getData();
         $values = [];
         foreach ($fields as $name => $field) {
-            if (!$field->isVisibleFor($data)) {
+            if (!$field->isVisibleFor($data) && (!$field->secret || $hiddenSecrets !== HiddenSecrets::KeepTyped)) {
                 // Hidden for the submitted provider (1.3): neither validated nor written; its stored row is kept,
                 // except an explicit "clear" on a secret, which deletes it (never writes a value).
                 if ($field->secret) {
@@ -306,6 +325,22 @@ final readonly class SettingsSectionEmbedder
         }
 
         return $values;
+    }
+
+    /**
+     * Whether a section has a provider-dependent secret (a row that may be hidden while a secret is typed into it).
+     *
+     * @param array<string, SettingField> $fields
+     */
+    private function hasHiddenSecrets(array $fields): bool
+    {
+        foreach ($fields as $field) {
+            if ($field->secret && $field->visibleWhen !== null) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function canUsePortability(): bool

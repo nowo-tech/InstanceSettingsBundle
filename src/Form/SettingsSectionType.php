@@ -10,6 +10,7 @@ use Nowo\DoctrineEncryptBundle\Form\Type\SecretType;
 use Nowo\FormKitBundle\Attribute\FormKitConfig;
 use Nowo\FormKitBundle\Form\FormOptionsTrait;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
+use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
@@ -32,12 +33,15 @@ use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormTypeInterface;
 use Symfony\Component\Form\Util\FormUtil;
 use Symfony\Component\Form\Util\StringUtil;
+use Symfony\Component\OptionsResolver\Exception\InvalidOptionsException;
+use Symfony\Component\OptionsResolver\Options;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
 use function array_replace_recursive;
 use function array_reverse;
 use function is_array;
 use function is_string;
+use function sprintf;
 
 /**
  * Admin form of one settings section, built from its {@see SettingField}s (REQ-TWIG-005 rule 11: FormKit type).
@@ -51,7 +55,8 @@ use function is_string;
  * Provider-dependent fields (1.3, {@see SettingField::withVisibleWhen()}) carry the UiKit `visible-when` row
  * attributes (`row_attr`), so the peer hides them without disabling or clearing them. On submit, a field hidden for the
  * submitted controlling value is reset to its current value before validation (no error on a row the user cannot
- * see; the controller does not save it); a hidden secret keeps only an explicit "clear" (deletes its stored row).
+ * see; the controller does not save it); a hidden secret keeps only an explicit "clear" (deletes its stored row),
+ * unless the `hidden_secrets` option is `keep_typed` (1.9): then a typed value is saved too.
  *
  * @extends AbstractType<array<string, mixed>>
  */
@@ -69,7 +74,7 @@ final class SettingsSectionType extends AbstractType
     /**
      * Adds one form field per setting field.
      *
-     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>} $options
+     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, hidden_secrets: HiddenSecrets} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -140,8 +145,9 @@ final class SettingsSectionType extends AbstractType
         }
 
         if ($dependent !== []) {
-            $builder->addEventListener(FormEvents::PRE_SUBMIT, static function (FormEvent $event) use ($dependent): void {
-                self::keepHiddenFields($event, $dependent);
+            $keepTyped = $options['hidden_secrets'] === HiddenSecrets::KeepTyped;
+            $builder->addEventListener(FormEvents::PRE_SUBMIT, static function (FormEvent $event) use ($dependent, $keepTyped): void {
+                self::keepHiddenFields($event, $dependent, $keepTyped);
             });
         }
     }
@@ -149,11 +155,12 @@ final class SettingsSectionType extends AbstractType
     /**
      * Replaces the submitted value of every field hidden for the submitted controlling value with its current view
      * value (a secret with "blank = keep"), so a hidden row never fails validation and re-renders with its stored
-     * value.
+     * value. With `$keepTypedSecrets` (1.9, {@see HiddenSecrets::KeepTyped}) a hidden secret is left as submitted, so a
+     * typed value is saved (its own constraints run; it is never `required`).
      *
      * @param list<SettingField> $dependent provider-dependent fields
      */
-    public static function keepHiddenFields(FormEvent $event, array $dependent): void
+    public static function keepHiddenFields(FormEvent $event, array $dependent, bool $keepTypedSecrets = false): void
     {
         $data = $event->getData();
         if (!is_array($data)) {
@@ -172,6 +179,9 @@ final class SettingsSectionType extends AbstractType
 
         foreach ($dependent as $field) {
             if ($field->isVisibleFor($controllers) || !$form->has($field->name)) {
+                continue;
+            }
+            if ($field->secret && $keepTypedSecrets) {
                 continue;
             }
             if ($field->secret) {
@@ -223,7 +233,8 @@ final class SettingsSectionType extends AbstractType
     }
 
     /**
-     * Options: `section` and `fields` (required), `stored_secrets` and `stored_images` (field => bool).
+     * Options: `section` and `fields` (required), `stored_secrets` and `stored_images` (field => bool),
+     * `hidden_secrets` (1.9: {@see HiddenSecrets} or its value, default `drop`).
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -242,6 +253,15 @@ final class SettingsSectionType extends AbstractType
         $resolver->setAllowedTypes('stored_secrets', 'array');
         $resolver->setAllowedTypes('stored_images', 'array');
         $resolver->setAllowedTypes('csrf_token_id', 'string');
+        $resolver->setDefault('hidden_secrets', HiddenSecrets::Drop);
+        $resolver->setAllowedTypes('hidden_secrets', [HiddenSecrets::class, 'string']);
+        $resolver->setNormalizer('hidden_secrets', static function (Options $options, HiddenSecrets|string $value): HiddenSecrets {
+            if ($value instanceof HiddenSecrets) {
+                return $value;
+            }
+
+            return HiddenSecrets::tryFrom($value) ?? throw new InvalidOptionsException(sprintf('The "hidden_secrets" option is "drop" or "keep_typed", got "%s".', $value));
+        });
     }
 
     /**

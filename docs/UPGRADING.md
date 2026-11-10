@@ -24,6 +24,25 @@
 
 ## Unreleased
 
+Target **1.9.0**, from **1.8.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+1. **Nothing changes by default.** `web_ui.hidden_secrets` is `drop` and `web_ui.hidden_secrets_notice` is `false`:
+   a secret typed into a hidden provider row is still ignored and no notice is shown.
+2. **Opt in** to save such secrets with `web_ui.hidden_secrets: keep_typed`, or per section by implementing
+   `SettingsSectionHiddenSecretsInterface`. Review the sections first: with `keep_typed`, a credential typed for an
+   inactive provider is written (and announced by `SettingsChangedEvent`) even though that provider stays unselected.
+3. **Notice:** `web_ui.hidden_secrets_notice: true` tells users, while hidden secrets are dropped, that they are not
+   saved. Override `notice.hidden_secrets_dropped` (domain `NowoInstanceSettingsBundle`) for your own wording.
+4. **Code that builds `SettingsSectionEmbedder` by hand** keeps working (two new optional constructor arguments at
+   the end, defaults `HiddenSecrets::Drop` and `false`). The fallback embedder of a `SettingsController` built with
+   the 1.5 signature always drops.
+5. New translation key `notice.hidden_secrets_dropped` in all 7 locales: hosts that check key parity of their
+   overrides may need it.
+
 ## To 1.8.0
 
 From **1.7.1**:

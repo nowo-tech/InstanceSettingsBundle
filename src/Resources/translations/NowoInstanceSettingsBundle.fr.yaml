@@ -8,6 +8,8 @@ settings:
 flash:
   saved: Paramètres enregistrés.
   unchanged: Rien n'a changé.
+notice:
+  hidden_secrets_dropped: "Les secrets saisis pour un fournisseur non sélectionné ne sont pas enregistrés : sélectionnez d’abord le fournisseur, puis saisissez son secret."
 portability:
   title: Import / export
   intro: Copiez la configuration de l'instance entre environnements sous forme de fichier JSON versionné.

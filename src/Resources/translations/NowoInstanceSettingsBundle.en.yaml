@@ -8,6 +8,8 @@ settings:
 flash:
   saved: Settings saved.
   unchanged: Nothing changed.
+notice:
+  hidden_secrets_dropped: "Secrets typed for a provider that is not selected are not saved: select the provider first, then type its secret."
 portability:
   title: Import / export
   intro: Copy the instance configuration between environments as a versioned JSON file.

@@ -21,6 +21,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.9.0. Request from Symfony Beacon (spec 222 "provider-dependent fields", owner answer Q4 = b).
+
+### Added
+
+- **`web_ui.hidden_secrets: drop|keep_typed`** (default `drop`, unchanged behaviour): with `keep_typed` the admin form
+  saves a secret typed into a provider-dependent row hidden for the submitted provider (typed without JavaScript or
+  before switching back). It is never `required`; its own constraints run; blank keeps and "clear" deletes. Hidden
+  plain fields are still neither validated nor written. Per section: `SettingsSectionHiddenSecretsInterface`
+  (`getHiddenSecrets(): HiddenSecrets`). New enum `Section\HiddenSecrets`; new `SettingsSectionType` option
+  `hidden_secrets`; `SettingsSectionType::keepHiddenFields()` takes an optional third argument `$keepTypedSecrets`.
+- **`web_ui.hidden_secrets_notice`** (default `false`): while hidden secrets are dropped, a section with a
+  provider-dependent secret shows a notice above its form (translation key `notice.hidden_secrets_dropped`, 7
+  locales; overridable in the host translations, no template override).
+
 ### Documentation
 
 - USAGE: new section "Using it from a DDD / hexagonal application" (where the bundle sits in a hexagonal host, the ports, events and DTOs to build an anti-corruption layer on, and the known limitations).

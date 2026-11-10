@@ -8,6 +8,8 @@ settings:
 flash:
   saved: Instellingen opgeslagen.
   unchanged: Er is niets gewijzigd.
+notice:
+  hidden_secrets_dropped: "Geheimen die zijn ingevoerd voor een provider die niet is geselecteerd, worden niet opgeslagen: selecteer eerst de provider en voer daarna het geheim in."
 portability:
   title: Importeren / exporteren
   intro: Kopieer de configuratie van de instantie tussen omgevingen als een JSON-bestand met versie.

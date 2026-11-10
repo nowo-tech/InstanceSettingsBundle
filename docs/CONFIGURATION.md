@@ -35,6 +35,8 @@ nowo_instance_settings:
         enabled: true                  # false = no admin UI (no routes, no controller); PHP / Twig / CLI stay
         path_prefix: /admin/settings   # absolute path; protect it with security.access_control
         layout_template: null          # null = nowo_ui_kit.layouts.admin
+        hidden_secrets: drop           # 1.9: drop | keep_typed (save a secret typed into a hidden provider row)
+        hidden_secrets_notice: false   # 1.9: notice above sections with provider-dependent secrets while dropped
         templates: {}                  # page id => template: section, portability
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
@@ -91,6 +93,8 @@ Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_
 | `enabled` | `true` | Registers the controller, the access listener and the routes of the `nowo_instance_settings` loader. With `false` the bundle needs neither SecurityBundle nor form CSRF. |
 | `path_prefix` | `/admin/settings` | URL prefix of every admin route. |
 | `layout_template` | `null` | Layout the pages extend; `null` uses `nowo_ui_kit.layouts.admin` (REQ-UI-003). Must render the UiKit canonical blocks (`nowo_ui_page_header`, `nowo_ui_flashes`, `nowo_ui_content`, `nowo_ui_modals`, `nowo_ui_styles`, `nowo_ui_scripts`) — extend `@NowoUiKit/layout/admin.html.twig` or use the UiKit `_bridge.html.twig`. |
+| `hidden_secrets` | `drop` | 1.9: a secret typed into a provider-dependent row hidden for the submitted provider. `drop`: ignored (only an explicit "clear" deletes the stored secret). `keep_typed`: saved whichever provider is selected (never `required`, its own constraints run; blank keeps). A section implementing `SettingsSectionHiddenSecretsInterface` overrides it. See [USAGE](USAGE.md#provider-dependent-fields-visible_when). |
+| `hidden_secrets_notice` | `false` | 1.9: while a section drops hidden secrets and has a provider-dependent secret, show a notice above its form (key `notice.hidden_secrets_dropped`, `NowoInstanceSettingsBundle` domain; override the text in the host translations). |
 | `templates` | `{}` | Per-page overrides: `section`, `portability`. Point at a template that extends `@!NowoInstanceSettingsBundle/settings/<page>.html.twig` and overrides one block (see [TEMPLATES](TEMPLATES.md)). |
 
 ### Layout and CSS stack (UiKit)
@@ -516,7 +520,8 @@ registered and use `doctrine.entity_manager`. Sections opt in with `SectionFallb
 
 ## Provider-dependent fields
 
-No configuration key: `visible_when` is declared per field in code (`SettingField::withVisibleWhen()`) and needs
+`visible_when` is declared per field in code (`SettingField::withVisibleWhen()`); since 1.9 `web_ui.hidden_secrets`
+and `web_ui.hidden_secrets_notice` (above) decide what happens to a secret typed into a hidden row. It needs
 `nowo-tech/ui-kit-bundle` ^2.23 plus the UiKit `visible-when` Stimulus peer in the host. See
 [USAGE](USAGE.md#provider-dependent-fields-visible_when).
 

@@ -8,6 +8,8 @@ settings:
 flash:
   saved: Impostazioni salvate.
   unchanged: Nessuna modifica.
+notice:
+  hidden_secrets_dropped: "I segreti inseriti per un provider non selezionato non vengono salvati: seleziona prima il provider, poi inserisci il suo segreto."
 portability:
   title: Importa / esporta
   intro: Copia la configurazione dell'istanza tra ambienti come file JSON con versione.

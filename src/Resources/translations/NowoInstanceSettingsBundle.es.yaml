@@ -8,6 +8,8 @@ settings:
 flash:
   saved: Ajustes guardados.
   unchanged: No ha cambiado nada.
+notice:
+  hidden_secrets_dropped: "Los secretos escritos para un proveedor que no está seleccionado no se guardan: selecciona primero el proveedor y después escribe su secreto."
 portability:
   title: Importar / exportar
   intro: Copia la configuración de la instancia entre entornos como un archivo JSON versionado.

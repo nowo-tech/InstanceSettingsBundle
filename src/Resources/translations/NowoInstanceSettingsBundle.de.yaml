@@ -8,6 +8,8 @@ settings:
 flash:
   saved: Einstellungen gespeichert.
   unchanged: Nichts geändert.
+notice:
+  hidden_secrets_dropped: "Geheimnisse, die für einen nicht ausgewählten Anbieter eingegeben werden, werden nicht gespeichert: Wählen Sie zuerst den Anbieter und geben Sie dann sein Geheimnis ein."
 portability:
   title: Import / Export
   intro: Kopieren Sie die Instanzkonfiguration als versionierte JSON-Datei zwischen Umgebungen.
