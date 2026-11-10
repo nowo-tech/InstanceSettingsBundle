@@ -191,7 +191,11 @@ yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true
   ```
 
   Only the admin form (bundle page and embeds) is concerned; `InstanceSettingsInterface::save()` (API, import) writes
-  what it is given, as before.
+  what it is given, as before. If such a hidden secret fails its constraints, the whole section is refused (as for any
+  invalid field) and, since its row is hidden, a notice above the form names it (`notice.hidden_secret_invalid`, with
+  `%field%` = its label and `%message%` = the error). Host code should read a provider's secret only while that
+  provider is selected: with `keep_typed`, secrets of non-selected providers are stored too (sealed on export, named
+  but never valued in `SettingsChangedEvent`).
 - Notice while dropped (1.9): `web_ui.hidden_secrets_notice: true` adds a notice above the form of every section that
   has a provider-dependent secret and drops hidden secrets ("Secrets typed for a provider that is not selected are not
   saved…", key `notice.hidden_secrets_dropped` of the `NowoInstanceSettingsBundle` domain; override the text in your

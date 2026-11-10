@@ -9,6 +9,7 @@ flash:
   saved: Impostazioni salvate.
   unchanged: Nessuna modifica.
 notice:
+  hidden_secret_invalid: "Le impostazioni non sono state salvate. Il segreto inserito per «%field%» non è valido: %message% Il suo provider non è selezionato, quindi il campo è nascosto: seleziona quel provider per correggerlo, oppure lascialo vuoto."
   hidden_secrets_dropped: "I segreti inseriti per un provider non selezionato non vengono salvati: seleziona prima il provider, poi inserisci il suo segreto."
 portability:
   title: Importa / esporta

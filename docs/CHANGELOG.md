@@ -28,7 +28,9 @@ Target 1.9.0. Request from Symfony Beacon (spec 222 "provider-dependent fields",
 - **`web_ui.hidden_secrets: drop|keep_typed`** (default `drop`, unchanged behaviour): with `keep_typed` the admin form
   saves a secret typed into a provider-dependent row hidden for the submitted provider (typed without JavaScript or
   before switching back). It is never `required`; its own constraints run; blank keeps and "clear" deletes. Hidden
-  plain fields are still neither validated nor written. Per section: `SettingsSectionHiddenSecretsInterface`
+  plain fields are still neither validated nor written. A hidden secret that fails its constraints refuses the save
+  like any invalid field and is named in a notice above the form (`notice.hidden_secret_invalid`), as its row is
+  hidden. Per section: `SettingsSectionHiddenSecretsInterface`
   (`getHiddenSecrets(): HiddenSecrets`). New enum `Section\HiddenSecrets`; new `SettingsSectionType` option
   `hidden_secrets`; `SettingsSectionType::keepHiddenFields()` takes an optional third argument `$keepTypedSecrets`.
 - **`web_ui.hidden_secrets_notice`** (default `false`): while hidden secrets are dropped, a section with a

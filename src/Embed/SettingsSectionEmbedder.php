@@ -45,6 +45,7 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
 
+use function array_push;
 use function sprintf;
 use function str_starts_with;
 
@@ -67,6 +68,9 @@ final readonly class SettingsSectionEmbedder
 {
     /** Translation key (bundle domain) of the 1.9 notice shown while hidden secrets are dropped; override its text in the host translations. */
     public const HIDDEN_SECRETS_NOTICE = 'notice.hidden_secrets_dropped';
+
+    /** Translation key (bundle domain) of the notice naming an invalid secret typed into a hidden row (1.9, keep_typed). */
+    public const HIDDEN_SECRET_INVALID_NOTICE = 'notice.hidden_secret_invalid';
 
     /** Token id prefix of the section forms (one id per section; shared by the bundle page and the embed). */
     public const CSRF_TOKEN_PREFIX = 'nowo_instance_settings_section_';
@@ -217,6 +221,11 @@ final readonly class SettingsSectionEmbedder
             // 1.9 (Beacon spec 222): say that a secret typed for a provider that is not selected is not saved.
             $notices[] = new Label(self::HIDDEN_SECRETS_NOTICE, NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
         }
+        if ($form->isSubmitted() && $hiddenSecrets === HiddenSecrets::KeepTyped) {
+            // 1.9 (audit KB-I-L1): an invalid secret typed into a hidden row refuses the save with an error the user
+            // cannot see; name it above the form.
+            array_push($notices, ...$this->hiddenSecretErrors($form, $fields, $definition->getTranslationDomain()));
+        }
 
         if ($options instanceof SectionEmbedOptions) {
             $tabs = [];
@@ -328,6 +337,38 @@ final readonly class SettingsSectionEmbedder
     }
 
     /**
+     * One notice per provider-dependent secret hidden for the submitted values that carries an error (keep_typed: the
+     * typed value was validated but its row is hidden): `%field%` is its translated label, `%message%` its first error.
+     *
+     * @param FormInterface<mixed> $form
+     * @param array<string, SettingField> $fields
+     *
+     * @return list<Label>
+     */
+    private function hiddenSecretErrors(FormInterface $form, array $fields, string $domain): array
+    {
+        /** @var array<string, mixed> $data */
+        $data    = (array) $form->getData();
+        $notices = [];
+        foreach ($fields as $name => $field) {
+            if (!$field->secret || $field->visibleWhen === null || $field->isVisibleFor($data)) {
+                continue;
+            }
+            foreach ($form->get($name)->getErrors(true) as $error) {
+                // The first error only: one notice per field.
+                $notices[] = new Label(self::HIDDEN_SECRET_INVALID_NOTICE, NowoInstanceSettingsBundle::TRANSLATION_DOMAIN, [
+                    '%field%'   => $this->trans($field->labelKey(), [], $domain),
+                    '%message%' => $error->getMessage(),
+                ]);
+
+                break;
+            }
+        }
+
+        return $notices;
+    }
+
+    /**
      * Whether a section has a provider-dependent secret (a row that may be hidden while a secret is typed into it).
      *
      * @param array<string, SettingField> $fields
@@ -363,8 +404,8 @@ final readonly class SettingsSectionEmbedder
     /**
      * @param array<string, int|string> $params
      */
-    private function trans(string $key, array $params = []): string
+    private function trans(string $key, array $params = [], string $domain = SettingsPages::DOMAIN): string
     {
-        return $this->translator instanceof TranslatorInterface ? $this->translator->trans($key, $params, SettingsPages::DOMAIN) : $key;
+        return $this->translator instanceof TranslatorInterface ? $this->translator->trans($key, $params, $domain) : $key;
     }
 }

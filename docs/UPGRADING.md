@@ -38,9 +38,11 @@ composer update nowo-tech/instance-settings-bundle
 3. **Notice:** `web_ui.hidden_secrets_notice: true` tells users, while hidden secrets are dropped, that they are not
    saved. Override `notice.hidden_secrets_dropped` (domain `NowoInstanceSettingsBundle`) for your own wording.
 4. **Code that builds `SettingsSectionEmbedder` by hand** keeps working (two new optional constructor arguments at
-   the end, defaults `HiddenSecrets::Drop` and `false`). The fallback embedder of a `SettingsController` built with
-   the 1.5 signature always drops.
-5. New translation key `notice.hidden_secrets_dropped` in all 7 locales: hosts that check key parity of their
+   the end, defaults `HiddenSecrets::Drop` and `false`). A `SettingsController` built with the 1.5 signature (no embedder
+   service, so it builds its own fallback embedder) ignores the bundle-wide `web_ui.hidden_secrets` and
+   `web_ui.hidden_secrets_notice` (it drops, without notice); a section implementing
+   `SettingsSectionHiddenSecretsInterface` still gets its own mode there.
+5. New translation keys `notice.hidden_secrets_dropped` and `notice.hidden_secret_invalid` in all 7 locales: hosts that check key parity of their
    overrides may need it.
 
 ## To 1.8.0
