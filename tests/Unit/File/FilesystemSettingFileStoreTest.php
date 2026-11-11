@@ -23,6 +23,7 @@ use function file_get_contents;
 use function file_put_contents;
 use function fileinode;
 use function fileperms;
+use function gc_collect_cycles;
 use function glob;
 use function hash;
 use function json_decode;
@@ -302,6 +303,39 @@ final class FilesystemSettingFileStoreTest extends TestCase
         self::assertFileExists($root . '/brand/logo.png');
         self::assertFileDoesNotExist($root . '/brand/mark.png');
         self::assertSame([], glob($root . '/brand/.tmp-*'));
+    }
+
+    public function testAConnectionClosedMidTransactionDoesNotStrandLaterChanges(): void
+    {
+        $old = $this->image(ImageFactory::png(64, 64));
+        $this->store->save('brand', 'logo', $old, $this->now);
+        $root  = $this->root();
+        $new   = $this->image(ImageFactory::png(64, 64, 10));
+        $other = new stdClass();
+        $dead  = new stdClass();
+
+        // Audit MH-I-L1: Connection::close() in the middle of a transaction drops the driver connection without
+        // reporting an end. Its staged change goes with it; a change made afterwards is no longer held.
+        $this->store->transactionStarted($other);
+        $this->store->transactionEnded($other, true);
+        $this->store->transactionStarted($dead);
+        $this->store->savepointCreated($dead, 'DOCTRINE_2');
+        $this->store->save('brand', 'logo', $new, $this->now);
+        self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'));
+        unset($dead);
+        gc_collect_cycles();
+
+        $this->store->save('brand', 'mark', $old, $this->now);
+        self::assertFileExists($root . '/brand/mark.png', 'applied at once: no live transaction');
+        self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'), 'the closed transaction never applies');
+
+        // A new transaction on a fresh connection holds and applies its own changes as usual.
+        $fresh = new stdClass();
+        $this->store->transactionStarted($fresh);
+        $this->store->save('brand', 'logo', $new, $this->now);
+        self::assertSame($old->original->bytes, file_get_contents($root . '/brand/logo.png'));
+        $this->store->transactionEnded($fresh, true);
+        self::assertSame($new->original->bytes, file_get_contents($root . '/brand/logo.png'));
     }
 
     public function testASavepointRollbackDropsTheChangesQueuedInside(): void

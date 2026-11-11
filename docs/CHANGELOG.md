@@ -65,6 +65,20 @@ Target: 1.14.0 (minor). Opt-in subtabs for long settings sections (Beacon brand 
   empty); `appearance` — Theme (presets), Light colours, Dark colours, Shape (corners, borders, footer). Group labels
   in the 7 catalogues (`brand.group.*`, `appearance.group.*`, `group.other`, `tabs.label`, `tabs.errors`).
 
+### Fixed
+
+- **Audit MH-I-L1 (Low, since 1.7.0): a connection closed mid-transaction stranded later file changes.** The
+  filesystem store keyed its open transactions by `spl_object_id()` of the driver connection and forgot them only at
+  their end or on `kernel.reset`. `Connection::close()` inside a transaction reports no end, so in a worker without the
+  services resetter every later image change of the process was staged into that dead transaction and never written.
+  The transactions are now a `WeakMap` keyed by the driver connection, as in `AfterCommitEventDispatcher` (audit
+  KI-I-L1): a dropped connection takes its staged changes with it (their temporary files are removed by
+  `purge-files`). The boundary listener still does not reset the store: a nested command would drop the outer
+  transaction's files.
+- Tests: a connection closed mid-transaction (`FilesystemSettingFileStoreTest`); in `WorkerBoundaryResetTest` an
+  encrypted secret rotated by another process and read decrypted on the next message (MH-I-I1), and a nested console
+  command inside an outer command's transaction that keeps the outer image change (MH-I-I2).
+
 ### Unchanged
 
 - The default `stacked` layout renders byte-identical markup (golden tests); the 1.5 row attribute
