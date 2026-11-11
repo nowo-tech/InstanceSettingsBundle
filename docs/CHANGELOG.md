@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.12.0] - 2026-11-11](#1120---2026-11-11)
 - [[1.11.1] - 2026-11-11](#1111---2026-11-11)
 - [[1.11.0] - 2026-11-11](#1110---2026-11-11)
 - [[1.10.0] - 2026-11-10](#1100---2026-11-10)
@@ -24,6 +25,10 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.12.0] - 2026-11-11
+
+Colour setting field (SettingType::Color, preset-following) and one card per image field on UiKit 2.47's image input. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.12.0/docs/UPGRADING.md#to-1120).
 
 Colour setting field and the image input box for image fields. See [UPGRADING](UPGRADING.md#to-1120).
 
