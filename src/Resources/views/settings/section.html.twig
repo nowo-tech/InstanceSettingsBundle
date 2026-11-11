@@ -8,8 +8,10 @@
   SettingsSectionNoticesInterface warnings), rendered as UiKit `flash_warning` alerts above the current section form.
   Optional (1.5): image_previews (list of Ui\ImagePreview), still passed for host templates; since 1.12 the bundle
   template does not render it: each image field shows its stored image in its own UiKit image input box.
-  Optional (1.12): image_input (true when the form has an image field): loads UiKit's image-input script and the
-  bundle stylesheet (one card per image field, two per line).
+  Optional (1.12): image_input (true when the form has an image field in UiKit's image input box; 1.13: false when
+  every image field sets image_input: false): loads UiKit's image-input script and the bundle stylesheet (one card per
+  image field, two per line).
+  Optional (1.13): unlayered_styles (web_ui.unlayered_styles): the bundle partials link the unlayered stylesheet.
   Optional (1.8): image_crop (true when an image field has the crop step): loads UiKit's image-crop script (nonce from
   the csp_nonce request attribute; the runtime binds once even when the host layout loads it too).
   Optional (1.12): color_picker (true when a colour field is on the form): loads the bundle's colour script and

@@ -115,6 +115,10 @@ final class Configuration implements ConfigurationInterface
                             ->info('1.9: while hidden secrets are dropped, a section with provider-dependent secrets shows a notice above its form (translation key notice.hidden_secrets_dropped, NowoInstanceSettingsBundle domain).')
                             ->defaultFalse()
                         ->end()
+                        ->booleanNode('unlayered_styles')
+                            ->info('1.13: the bundle stylesheet (colour input, image cards) sits in UiKit\'s cascade layer nowo-ui (default false: nowo-instance-settings.css, so host utilities and unlayered host CSS win). true links nowo-instance-settings.unlayered.css instead, for hosts that link UiKit\'s nowo-ui.unlayered.css.')
+                            ->defaultFalse()
+                        ->end()
                         ->arrayNode('templates')
                             ->info('Per-page template overrides (page id => template): section, portability. Extend @!NowoInstanceSettingsBundle/settings/... and override a block.')
                             ->useAttributeAsKey('page')
@@ -390,6 +394,30 @@ final class Configuration implements ConfigurationInterface
             ->validate()
                 ->ifTrue(static fn (array $v): bool => ($v['enabled'] ?? false) === true && ($v['defaults']['name'] ?? null) === null)
                 ->thenInvalid('nowo_instance_settings.brand.defaults.name is required when brand.enabled is true (the brand name while none is stored).')
+            ->end();
+        $node->append($this->errorIllustrationsNode());
+
+        return $node;
+    }
+
+    /**
+     * `brand.error_illustrations` (1.13): the UiKit error page illustrations from the uploaded brand extra images.
+     */
+    private function errorIllustrationsNode(): ArrayNodeDefinition
+    {
+        $node = (new TreeBuilder('error_illustrations'))->getRootNode();
+        $node
+            ->info('1.13: UiKit error page illustrations from the uploaded brand extra images (service nowo_instance_settings.brand.error_illustration_provider, set it as nowo_ui_kit.error_pages.illustration_provider). For status N: the uploaded extra image error_<N>, else the uploaded base extra image, else UiKit\'s error_pages.illustrations map. Configured defaults never count. Needs files.store: filesystem.')
+            ->addDefaultsIfNotSet()
+            ->children()
+                ->scalarNode('base')
+                    ->info('Id of the extra image used for every status without its own uploaded error_<N> image (e.g. mascot). Null = none.')
+                    ->defaultNull()
+                ->end()
+                ->booleanNode('per_code')
+                    ->info('Use the uploaded extra images error_<N> (N = 400 to 599) for their status.')
+                    ->defaultTrue()
+                ->end()
             ->end();
 
         return $node;

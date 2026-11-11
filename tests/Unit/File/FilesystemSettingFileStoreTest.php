@@ -11,8 +11,10 @@ use Nowo\InstanceSettingsBundle\File\ProcessedImage;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Tests\Support\ImageFactory;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\AbstractLogger;
 use RuntimeException;
 use stdClass;
+use Stringable;
 use Symfony\Component\Filesystem\Filesystem;
 
 use function bin2hex;
@@ -28,6 +30,7 @@ use function json_encode;
 use function mkdir;
 use function random_bytes;
 use function realpath;
+use function rename;
 use function str_repeat;
 use function substr;
 use function symlink;
@@ -114,6 +117,66 @@ final class FilesystemSettingFileStoreTest extends TestCase
         }
         file_put_contents($metaPath, 'not json');
         self::assertSame($image->sha256(), $this->store->findImage('brand', 'logo', '')[0]->sha256);
+    }
+
+    public function testAColdReadWritesTheMetadataSoTheNextLookupIsWarm(): void
+    {
+        // 1.13 (audit LS-L1): a committed original without its git-ignored .variants (fresh checkout / deployment copy).
+        $bytes = ImageFactory::png(48, 24);
+        mkdir($this->dir . '/files/brand', 0o755, true);
+        file_put_contents($this->dir . '/files/brand/extra_mascot.png', $bytes);
+        $metaPath = $this->root() . '/brand/.variants/extra_mascot.meta';
+
+        $cold = $this->store->storedRecord('brand', 'extra_mascot');
+        self::assertSame([hash('sha256', $bytes), 'image/png', 48, 24], [$cold?->sha256, $cold?->mimeType, $cold?->width, $cold?->height]);
+        self::assertFileExists($metaPath, 'written after the cold read');
+        self::assertFileExists($this->root() . '/brand/.variants/' . FilesystemSettingFileStore::GITIGNORE);
+        self::assertSame([], $this->temps($this->root() . '/brand'));
+
+        // The second lookup trusts the metadata: a planted hash proves the file is not read again.
+        $meta = (array) json_decode((string) file_get_contents($metaPath), true);
+        file_put_contents($metaPath, (string) json_encode(['sha256' => str_repeat('b', 64)] + $meta));
+        self::assertSame(str_repeat('b', 64), $this->store->storedRecord('brand', 'extra_mascot')?->sha256);
+
+        // A copied file (another inode) is read again and its metadata rewritten.
+        $copy = $this->root() . '/brand/copy.png';
+        file_put_contents($copy, $bytes);
+        rename($copy, $this->root() . '/brand/extra_mascot.png');
+        self::assertSame(hash('sha256', $bytes), $this->store->storedRecord('brand', 'extra_mascot')->sha256);
+        self::assertSame(hash('sha256', $bytes), json_decode((string) file_get_contents($metaPath), true)['sha256'] ?? null);
+    }
+
+    public function testAColdReadOnAnUnwritableDirectoryStillAnswersAndLogs(): void
+    {
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $messages = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                $this->messages[] = $level . ' ' . $context['section'] . '.' . $context['field'];
+            }
+        };
+        $store = new FilesystemSettingFileStore($this->dir . '/files', [], $logger);
+        $bytes = ImageFactory::png(16, 16);
+        mkdir($this->dir . '/files/brand', 0o755, true);
+        file_put_contents($this->dir . '/files/brand/logo.png', $bytes);
+        // The variants directory cannot be created (a file is in the way): as on a read-only volume.
+        file_put_contents($this->dir . '/files/brand/' . FilesystemSettingFileStore::VARIANTS_DIR, 'not a directory');
+
+        for ($i = 0; $i < 2; ++$i) {
+            self::assertSame(hash('sha256', $bytes), $store->storedRecord('brand', 'logo')?->sha256);
+        }
+        self::assertSame(['debug brand.logo', 'debug brand.logo'], $logger->messages);
+
+        // A metadata path that cannot be written (a directory) is logged the same way.
+        unlink($this->dir . '/files/brand/' . FilesystemSettingFileStore::VARIANTS_DIR);
+        mkdir($this->dir . '/files/brand/.variants/logo.meta', 0o755, true);
+        self::assertSame(hash('sha256', $bytes), $store->storedRecord('brand', 'logo')->sha256);
+        self::assertCount(3, $logger->messages);
+
+        // Without a logger nothing is reported, and the lookup still answers.
+        self::assertSame(hash('sha256', $bytes), $this->store->storedRecord('brand', 'logo')?->sha256);
     }
 
     public function testSavingTheSameImageAgainDoesNotRewriteIt(): void

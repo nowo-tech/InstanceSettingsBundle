@@ -15,6 +15,7 @@
   - [Seed file format](#seed-file-format)
   - [Host-side importer API](#host-side-importer-api)
 - [brand](#brand)
+  - [Error page illustrations (1.13)](#error-page-illustrations-113)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
 - [Profiles](#profiles)
@@ -37,6 +38,7 @@ nowo_instance_settings:
         layout_template: null          # null = nowo_ui_kit.layouts.admin
         hidden_secrets: drop           # 1.9: drop | keep_typed (save a secret typed into a hidden provider row)
         hidden_secrets_notice: false   # 1.9: notice above sections with provider-dependent secrets while dropped
+        unlayered_styles: false        # 1.13: true = link the unlayered bundle stylesheet (hosts on UiKit's nowo-ui.unlayered.css)
         templates: {}                  # page id => template: section, portability
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
@@ -75,6 +77,9 @@ nowo_instance_settings:
             app_icon: null
             favicon: null
         extra_images: {}               # id => { label, help, max_width, max_height, max_bytes, square, default }
+        error_illustrations:           # 1.13: UiKit error page illustrations from uploaded extra images (files.store: filesystem)
+            base: null                 # extra image id used for every status without its own error_<N> upload (e.g. mascot)
+            per_code: true             # use the uploaded extra images error_<N> (400 … 599) for their status
 ```
 
 Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled` and `brand.enabled` must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
@@ -95,6 +100,7 @@ Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_
 | `layout_template` | `null` | Layout the pages extend; `null` uses `nowo_ui_kit.layouts.admin` (REQ-UI-003). Must render the UiKit canonical blocks (`nowo_ui_page_header`, `nowo_ui_flashes`, `nowo_ui_content`, `nowo_ui_modals`, `nowo_ui_styles`, `nowo_ui_scripts`) — extend `@NowoUiKit/layout/admin.html.twig` or use the UiKit `_bridge.html.twig`. |
 | `hidden_secrets` | `drop` | 1.9: a secret typed into a provider-dependent row hidden for the submitted provider. `drop`: ignored (only an explicit "clear" deletes the stored secret). `keep_typed`: saved whichever provider is selected (never `required`, its own constraints run; blank keeps). A section implementing `SettingsSectionHiddenSecretsInterface` overrides it. See [USAGE](USAGE.md#provider-dependent-fields-visible_when). |
 | `hidden_secrets_notice` | `false` | 1.9: while a section drops hidden secrets and has a provider-dependent secret, show a notice above its form (key `notice.hidden_secrets_dropped`, `NowoInstanceSettingsBundle` domain; override the text in the host translations). |
+| `unlayered_styles` | `false` | 1.13 (audit LM29-I1): the bundle stylesheet (colour input, image cards) is `nowo-instance-settings.css`, inside UiKit's cascade layer `nowo-ui` (it declares UiKit's layer order `theme, base, nowo-ui, components, utilities` when it is the first stylesheet naming them): host utilities and unlayered host CSS win, as over UiKit's own rules. `true` links `nowo-instance-settings.unlayered.css` (the same rules, outside any layer, as in 1.12) for hosts that link UiKit's `nowo-ui.unlayered.css`: a layered rule never wins over an unlayered one. Host templates that include `settings/_styles.html.twig` can pass `unlayered: true` instead. |
 | `templates` | `{}` | Per-page overrides: `section`, `portability`. Point at a template that extends `@!NowoInstanceSettingsBundle/settings/<page>.html.twig` and overrides one block (see [TEMPLATES](TEMPLATES.md)). |
 
 ### Layout and CSS stack (UiKit)
@@ -467,6 +473,47 @@ registered (no section, no service, no alias, no Twig function) and UiKit's appe
 | `defaults.<slot>` | `null` | `logo_light`, `logo_dark`, `mark`, `app_icon`, `favicon`: a path relative to `public_dir` (letters, digits, `.`, `_`, `-`, `/`; no `..`, no leading `/`, no symbolic link out of `public_dir`) of a PNG, JPEG, WebP, GIF, SVG or ICO file. Read when the container compiles (type from the extension, dimensions, SHA-256; a missing or unreadable file fails the build), trusted (`isInlineSafe()`), served at `/<path>?v=<12 hex of its SHA-256>` (root-relative: a request base path is not added), and replaced by an upload of the same slot. The container is rebuilt in debug when the file changes; in production, clear the cache after replacing a committed default. |
 | `extra_images.<id>` | — | Extra brand image (`[a-z][a-z0-9_]{0,57}`): field `extra_<id>`, slot `extra.<id>`, public. `label` / `help` (translation keys in the bundle domain; null = `brand.field.extra`), `max_width` / `max_height` (≤ 4096), `max_bytes` (≤ 5 MiB), `square`, `default` (as `defaults.<slot>`). |
 
+| `error_illustrations.base` | `null` | 1.13: id of a declared `extra_images` entry (e.g. `mascot`) whose **uploaded** image illustrates every error status without its own uploaded `error_<N>` image. Another id fails the build; a non-null value with `files.store: doctrine` fails the build too. |
+| `error_illustrations.per_code` | `true` | 1.13: the uploaded extra image `error_<N>` (declared as `extra_images.error_<N>`, N = 400 … 599) illustrates status N. |
+
+### Error page illustrations (1.13)
+
+With `brand.enabled`, `files.store: filesystem` and UiKit ≥ 2.47 (its `View\ErrorIllustrationProviderInterface`), the
+bundle registers `Brand\BrandErrorIllustrationProvider` under the public service id
+**`nowo_instance_settings.brand.error_illustration_provider`**. UiKit never depends on this bundle: point its error pages
+at the service (UiKit refuses a missing service id at build time):
+
+```yaml
+# config/packages/nowo_instance_settings.yaml
+nowo_instance_settings:
+    files:
+        store: filesystem
+    brand:
+        enabled: true
+        extra_images:
+            mascot:    { label: brand.mascot, default: brand/mascot.png }
+            error_404: { label: brand.error_404, default: illustrations/error-404.png }
+            error_503: { label: brand.error_503, default: illustrations/error-503.png }
+            # … one entry per status you want to illustrate (error_400 … error_599)
+        error_illustrations:
+            base: mascot     # the uploaded mascot for every status without its own upload
+            per_code: true   # default
+
+# config/packages/nowo_ui_kit.yaml
+nowo_ui_kit:
+    error_pages:
+        illustration_provider: nowo_instance_settings.brand.error_illustration_provider
+        illustration_provider_budget_ms: 20
+        illustrations:   # still used for every status the provider leaves to UiKit (null answer)
+            404: illustrations/error-404
+            default: illustrations/error-500
+```
+
+For status N the provider answers the **uploaded** `error_<N>` image, else the **uploaded** base image, else null (UiKit
+then uses `error_pages.illustrations`: the code, then `default`). Configured `default` assets never count: they stay
+with UiKit's map. See [USAGE](USAGE.md#error-page-illustrations-113). With `files.store: doctrine` the service is not
+registered (the images live in the database, and an error page must not need it).
+
 The brand images are always public (served anonymously by the file route): keep the `PUBLIC_ACCESS` line of
 [files](#files). Access to the two sections follows `security.area_roles.brand` / `.appearance` (default: the UI roles).
 
@@ -543,7 +590,9 @@ The container refuses to compile when:
 - `brand.enabled` is true and the host defines its own `BrandProviderInterface` service or alias (two brands, 1.5,
   audit IU-I2);
 - `brand.enabled` is true without `nowo-tech/brand-contracts`, without `brand.defaults.name`, or with a default asset
-  path that is unsafe, missing or not an image (1.5).
+  path that is unsafe, missing or not an image (1.5);
+- `brand.error_illustrations.base` is not a declared `brand.extra_images` id, or is set while `files.store` is
+  `doctrine` (1.13: an error page illustration is never read from the database).
 
 When the section definitions load (router warm-up, first request), a section declaring an image field throws a
 `LogicException` without `files.enabled: true` (the file table is not mapped) or without `ext-gd` with PNG, JPEG and

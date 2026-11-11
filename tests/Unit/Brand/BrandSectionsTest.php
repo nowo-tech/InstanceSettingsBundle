@@ -134,6 +134,29 @@ final class BrandSectionsTest extends TestCase
         self::assertSame(['dark_accent' => null, 'dark_ink' => null, 'light_paper' => 7], $fixture->appearanceSection->filterValues(['dark_accent' => null, 'dark_ink' => '#E0E7FF', 'light_paper' => 7], []));
     }
 
+    public function testAnUntouchedColourEqualToThePresetIsKept(): void
+    {
+        $fixture = new BrandFixture();
+        $ocean   = (new AppearancePresetRegistry())->get('ocean');
+        $slate   = (new AppearancePresetRegistry())->get('slate');
+        self::assertNotNull($ocean);
+        self::assertNotNull($slate);
+
+        // 1.13 (audit LM-L3): a custom colour stored under ocean that equals slate's accent...
+        self::assertSame(['preset', 'light_accent'], $fixture->settings->save('appearance', ['preset' => 'ocean', 'light_accent' => $slate->light->accent]));
+        // ...is kept when the preset switches to slate and the colour is re-submitted untouched (any case).
+        self::assertSame(['preset'], $fixture->settings->save('appearance', ['preset' => 'slate', 'light_accent' => strtoupper($slate->light->accent)]));
+        self::assertTrue($fixture->settings->isOverridden('appearance.light_accent'));
+        // A later untouched save keeps it too.
+        self::assertSame([], $fixture->settings->save('appearance', ['light_accent' => $slate->light->accent]));
+        self::assertSame($slate->light->accent, $fixture->settings->get('appearance.light_accent'));
+
+        // A colour that changes to the preset is still dropped: it follows the preset again.
+        self::assertSame(['dark_ink' => null], $fixture->appearanceSection->filterValues(['dark_ink' => '#E0E7FF'], ['dark_ink' => '#123456']));
+        self::assertSame(['dark_ink' => '#e0e7ff'], $fixture->appearanceSection->filterValues(['dark_ink' => '#E0E7FF'], ['dark_ink' => '#E0E7FF']));
+        self::assertSame(['light_accent' => null], $fixture->appearanceSection->filterValues(['light_accent' => $slate->light->accent], ['preset' => 'slate', 'light_accent' => 7]));
+    }
+
     public function testInvalidColourIsRefused(): void
     {
         $fixture = new BrandFixture();

@@ -14,6 +14,7 @@ use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
 use Symfony\Component\Form\Extension\Core\Type\FileType;
 use Symfony\Component\Form\FormBuilderInterface;
+use Symfony\Component\Form\FormInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Symfony\Component\Validator\Constraints\File;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -110,6 +111,23 @@ final class SettingImageType extends AbstractType
                 'mapped'             => false,
             ]);
         }
+    }
+
+    /**
+     * Whether a direct child of `$form` is an image field shown in UiKit's image input box (`image_input` true, 1.13,
+     * audit LM29-I3): the page then loads UiKit's image-input script and the bundle stylesheet (cards).
+     *
+     * @param FormInterface<mixed> $form
+     */
+    public static function inputInForm(FormInterface $form): bool
+    {
+        foreach ($form as $child) {
+            if ($child->getConfig()->getType()->getInnerType() instanceof self && $child->getConfig()->getOption('image_input') === true) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

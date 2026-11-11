@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\File;
 
 use DateTimeImmutable;
+use Nowo\InstanceSettingsBundle\Brand\BrandErrorIllustrationProvider;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Doctrine\TransactionObserverInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
+use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Contracts\Service\ResetInterface;
 use Throwable;
@@ -70,7 +72,9 @@ use const DIRECTORY_SEPARATOR;
  * - `<directory>/<section>/.variants/<field>-<hash12>-<size>.png`: the generated PNG variants, bound to the hash of the
  *   original they were made from (a stale variant is never served for a newer original);
  * - `<directory>/<section>/.variants/<field>.meta`: hash, type and dimensions of the original, trusted while its size,
- *   mtime, ctime and inode match, so a lookup (or a wrong-hash request) does not read and hash the file (audit JG-L1).
+ *   mtime, ctime and inode match, so a lookup (or a wrong-hash request) does not read and hash the file (audit JG-L1);
+ *   1.13 (audit LS-L1): a lookup that had to read the file (no metadata after a checkout, or a copied file) writes it,
+ *   best effort (a read-only directory only logs at debug level).
  *
  * **Transactional** ({@see StagedSettingFileStoreInterface}, audit JG-M1): inside a unit, a save writes its files as
  * temporary files next to their targets and a clear is only queued; the renames and deletes happen once the outermost
@@ -147,12 +151,14 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      *
      * @param string $directory base directory of the files (`files.directory`); created on the first write
      * @param list<string> $forbiddenRoots directories the base must not be in (the public web root, audit JG-L6)
+     * @param LoggerInterface|null $logger 1.13: debug line when the metadata cannot be written after a cold read
      *
      * @throws RuntimeException when the directory is not a local path or is under a forbidden root
      */
     public function __construct(
         private readonly string $directory,
         private readonly array $forbiddenRoots = [],
+        private readonly ?LoggerInterface $logger = null,
     ) {
         if (!PathGuard::isLocalPath($directory)) {
             throw new RuntimeException(sprintf('Instance settings file store: files.directory must be a local directory path, got "%s".', $directory));
@@ -170,6 +176,17 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
     public function storedPath(string $section, string $field): ?string
     {
         return $this->current($section, $field) instanceof SettingFileRecord ? ($this->existingOriginal($section, $field)[0] ?? null) : null;
+    }
+
+    /**
+     * Metadata of the field's current original (hash, type, width, height, size), or null when the field has no valid
+     * file (1.13). Read from the field's metadata file while it matches the file (one `stat()`), else from the file
+     * itself. Filesystem only: no setting row is read, so it also answers while the database is down (the brand error
+     * illustrations, {@see BrandErrorIllustrationProvider}).
+     */
+    public function storedRecord(string $section, string $field): ?SettingFileRecord
+    {
+        return $this->current($section, $field);
     }
 
     /**
@@ -520,10 +537,14 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      * failure is ignored: without metadata the file is read and hashed on lookup.
      *
      * @param array<string, int|string> $image
+     * @param array<int|string, int>|null $stat stat the metadata is bound to (null = the target's current stat)
+     *
+     * @throws RuntimeException only for a cold-read heal (`$stat` given), which logs it; a save ignores every failure
      */
-    private function writeMeta(string $field, string $target, string $sha, array $image): void
+    private function writeMeta(string $field, string $target, string $sha, array $image, ?array $stat = null): void
     {
-        $stat = (array) @stat($target);
+        $heal = $stat !== null;
+        $stat ??= (array) @stat($target);
         $meta = (string) json_encode(['sha256' => $sha] + $image + ['size' => $stat['size'] ?? 0, 'mtime' => $stat['mtime'] ?? 0, 'ctime' => $stat['ctime'] ?? 0, 'ino' => $stat['ino'] ?? 0]);
         $path = dirname($target) . DIRECTORY_SEPARATOR . self::VARIANTS_DIR . DIRECTORY_SEPARATOR . $field . '.meta';
         try {
@@ -531,8 +552,11 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
             if (!@rename($temp, $path)) {
                 @unlink($temp);
             }
-        } catch (RuntimeException) {
+        } catch (RuntimeException $e) {
             // Metadata is an optimisation only.
+            if ($heal) {
+                throw $e;
+            }
         }
     }
 
@@ -655,14 +679,38 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
         if ($meta !== null) {
             return new SettingFileRecord(0, $section, $field, (string) $meta['sha256'], 0, (string) $meta['mime'], (int) $meta['width'], (int) $meta['height'], (int) $meta['size']);
         }
+        // Stat before the read: the metadata written below binds the hash to this stat, so a file replaced meanwhile
+        // never matches it (its stat differs) and is read again.
+        $stat  = $path === null ? false : @stat($path);
         $bytes = $path === null ? null : $this->readCapped($path);
         $mime  = $bytes === null ? null : ImageProcessor::sniff($bytes);
         $info  = $mime === null || SettingFileUrls::EXTENSIONS[$mime] !== $extension ? false : @getimagesizefromstring((string) $bytes);
-        if ($info === false) {
+        if ($info === false || !is_array($stat)) {
             return null;
         }
+        $record = new SettingFileRecord(0, $section, $field, hash('sha256', (string) $bytes), 0, (string) $mime, $info[0], $info[1], strlen((string) $bytes));
+        $this->healMeta($record, (string) $path, $stat);
 
-        return new SettingFileRecord(0, $section, $field, hash('sha256', (string) $bytes), 0, (string) $mime, $info[0], $info[1], strlen((string) $bytes));
+        return $record;
+    }
+
+    /**
+     * 1.13 (audit LS-L1): after a cold read (no metadata, or metadata of another file: a fresh checkout or a deployment
+     * copy), writes the metadata so the next lookup is one `stat()` instead of reading and hashing the file again. Best
+     * effort, with the rules of {@see self::writeMeta()} (a real, non-symlinked variants directory inside the base,
+     * a temporary file renamed into place): a read-only directory or any other failure is logged (debug) and ignored,
+     * and the lookup answers as before.
+     *
+     * @param array<int|string, int> $stat stat of the original taken before it was read
+     */
+    private function healMeta(SettingFileRecord $record, string $path, array $stat): void
+    {
+        try {
+            $this->directory($record->section, self::VARIANTS_DIR);
+            $this->writeMeta($record->field, $path, $record->sha256, ['mime' => $record->mimeType, 'width' => $record->width, 'height' => $record->height], $stat);
+        } catch (Throwable $e) {
+            $this->logger?->debug('Instance settings file store: could not write the image metadata of {section}.{field} after a cold read; it is read and hashed again on the next lookup.', ['section' => $record->section, 'field' => $record->field, 'exception' => $e]);
+        }
     }
 
     /**

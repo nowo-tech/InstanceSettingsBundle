@@ -9,6 +9,7 @@ use Nowo\Brand\Contract\BrandAssetReaderInterface;
 use Nowo\Brand\Contract\BrandProviderInterface;
 use Nowo\InstanceSettingsBundle\Brand\AppearanceSection;
 use Nowo\InstanceSettingsBundle\Brand\BrandDefaults;
+use Nowo\InstanceSettingsBundle\Brand\BrandErrorIllustrationProvider;
 use Nowo\InstanceSettingsBundle\Brand\BrandSection;
 use Nowo\InstanceSettingsBundle\Brand\BrandTwigExtension;
 use Nowo\InstanceSettingsBundle\Brand\InstanceBrandAssetReader;
@@ -191,15 +192,45 @@ final class BrandExtensionTest extends TestCase
         self::assertFalse($unmapped->getParameter('nowo_instance_settings.files.enabled'));
     }
 
+    public function testErrorIllustrationProviderWithUiKitAndTheFilesystemStore(): void
+    {
+        $brand = [
+            'enabled'             => true,
+            'public_dir'          => $this->dir,
+            'defaults'            => ['name' => 'Acme'],
+            'extra_images'        => ['mascot' => ['default' => 'brand/mascot.png'], 'error_404' => [], 'error_503' => [], 'error_hero' => []],
+            'error_illustrations' => ['base' => 'mascot'],
+        ];
+        $files = ['store' => 'filesystem', 'directory' => $this->dir . '-files'];
+
+        $container  = $this->load(['brand' => $brand, 'files' => $files]);
+        $definition = $container->getDefinition(BrandErrorIllustrationProvider::class);
+        self::assertSame([404 => 'extra_error_404', 503 => 'extra_error_503'], $definition->getArgument(2));
+        self::assertSame('extra_mascot', $definition->getArgument(3));
+        self::assertSame(BrandErrorIllustrationProvider::class, (string) $container->getAlias(BrandErrorIllustrationProvider::SERVICE_ID));
+        self::assertTrue($container->getAlias(BrandErrorIllustrationProvider::SERVICE_ID)->isPublic());
+
+        $perCodeOff = $this->load(['brand' => ['error_illustrations' => ['base' => null, 'per_code' => false]] + $brand, 'files' => $files]);
+        self::assertSame([[], null], [$perCodeOff->getDefinition(BrandErrorIllustrationProvider::class)->getArgument(2), $perCodeOff->getDefinition(BrandErrorIllustrationProvider::class)->getArgument(3)]);
+
+        // Without UiKit's SPI (UiKit < 2.47): nothing registered, and no refusal.
+        self::assertFalse($this->load(['brand' => $brand, 'files' => $files], false)->hasDefinition(BrandErrorIllustrationProvider::class));
+        self::assertFalse($this->load(['brand' => $brand], false)->hasDefinition(BrandErrorIllustrationProvider::class));
+        // The database store: nothing without a base, a refusal with one.
+        self::assertFalse($this->load(['brand' => ['error_illustrations' => []] + $brand])->hasDefinition(BrandErrorIllustrationProvider::class));
+        $this->expectException(LogicException::class);
+        $this->load(['brand' => $brand]);
+    }
+
     /**
      * @param array<string, mixed> $config
      */
-    private function load(array $config): ContainerBuilder
+    private function load(array $config, ?bool $uiKitErrorIllustrations = null): ContainerBuilder
     {
         $container = new ContainerBuilder();
         $container->setParameter('kernel.project_dir', $this->dir);
         $container->registerExtension($this->extension('security'));
-        (new NowoInstanceSettingsExtension())->load([$config], $container);
+        (new NowoInstanceSettingsExtension(null, $uiKitErrorIllustrations))->load([$config], $container);
 
         return $container;
     }

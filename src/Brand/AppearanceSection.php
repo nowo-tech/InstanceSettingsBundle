@@ -151,8 +151,13 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
     }
 
     /**
-     * Lower-cases the submitted colours and drops (null = not stored) every colour equal to the preset selected for
-     * its mode (the submitted preset, else the current one).
+     * Lower-cases the submitted colours and drops (null = not stored) a colour equal to the preset selected for its
+     * mode (the submitted preset, else the current one), so it keeps following the preset.
+     *
+     * 1.13 (audit LM-L3, the 1.12 core rule): a colour re-submitted equal to its current value (`$current`, the stored
+     * colour) is kept as is, even when it equals the preset: an untouched save, or a switch of the preset to one that
+     * matches a stored colour, never deletes a stored colour. Clear the field ("Use the preset colour") to follow the
+     * preset again.
      */
     public function filterValues(array $values, array $current): array
     {
@@ -166,7 +171,8 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
                     continue;
                 }
                 $color         = strtolower(trim($values[$name]));
-                $values[$name] = $color === strtolower($base[$key]) ? null : $color;
+                $stored        = is_string($current[$name] ?? null) ? strtolower($current[$name]) : null;
+                $values[$name] = $color === strtolower($base[$key]) && $color !== $stored ? null : $color;
             }
         }
 
