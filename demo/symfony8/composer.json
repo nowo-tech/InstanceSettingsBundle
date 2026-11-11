@@ -100,7 +100,10 @@
             "type": "path",
             "url": "/var/instance-settings-bundle",
             "options": {
-                "symlink": true
+                "symlink": true,
+                "versions": {
+                    "nowo-tech/instance-settings-bundle": "1.13.0"
+                }
             }
         }
     ]

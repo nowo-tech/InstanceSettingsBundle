@@ -14,6 +14,7 @@ use Nowo\DoctrineEncryptBundle\Util\EncryptUtil;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
 use Nowo\InstanceSettingsBundle\Brand\AppearanceSection;
 use Nowo\InstanceSettingsBundle\Brand\BrandDefaults;
+use Nowo\InstanceSettingsBundle\Brand\BrandErrorIllustrationProvider;
 use Nowo\InstanceSettingsBundle\Brand\BrandPalettes;
 use Nowo\InstanceSettingsBundle\Brand\BrandSection;
 use Nowo\InstanceSettingsBundle\Brand\BrandTwigExtension;
@@ -78,6 +79,7 @@ use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
 use Nowo\InstanceSettingsBundle\Twig\InstanceSettingsTwigExtension;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
+use Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Resource\FileResource;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
@@ -125,9 +127,11 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 
     /**
      * @param bool|null $brandContracts whether nowo-tech/brand-contracts is installed (null = detect; tests)
+     * @param bool|null $uiKitErrorIllustrations whether UiKit's error illustration SPI (2.47) is installed (null = detect; tests)
      */
     public function __construct(
         private readonly ?bool $brandContracts = null,
+        private readonly ?bool $uiKitErrorIllustrations = null,
     ) {
     }
 
@@ -196,7 +200,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -244,7 +248,40 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->registerWebUi($container, $config);
         if ($brandEnabled) {
             $this->registerBrand($container, $config['brand']);
+            $this->registerErrorIllustrations($container, $config['brand'], $config['files']['store']);
         }
+    }
+
+    /**
+     * 1.13 (Beacon 1.147): the UiKit error illustration provider over the uploaded brand extra images, registered with
+     * UiKit's SPI (2.47) and the filesystem store (an error page must not need the database). The host points
+     * `nowo_ui_kit.error_pages.illustration_provider` at {@see BrandErrorIllustrationProvider::SERVICE_ID}.
+     *
+     * @param array{extra_images: array<string, mixed>, error_illustrations?: array{base: string|null, per_code: bool}} $brand
+     */
+    private function registerErrorIllustrations(ContainerBuilder $container, array $brand, string $store): void
+    {
+        $options = $brand['error_illustrations'] ?? ['base' => null, 'per_code' => true];
+        if ($options['base'] !== null && !array_key_exists($options['base'], $brand['extra_images'])) {
+            throw new InvalidConfigurationException(sprintf('nowo_instance_settings.brand.error_illustrations.base must be one of the brand.extra_images ids, got "%s".', $options['base']));
+        }
+        if (!($this->uiKitErrorIllustrations ?? interface_exists(ErrorIllustrationProviderInterface::class))) {
+            return;
+        }
+        if ($store !== 'filesystem') {
+            if ($options['base'] !== null) {
+                throw new LogicException('NowoInstanceSettingsBundle: brand.error_illustrations needs files.store: filesystem. The error page illustration is read from the image file on disk, never from the database (an error page often renders while the database is down).');
+            }
+
+            return;
+        }
+        $container->setDefinition(BrandErrorIllustrationProvider::class, new Definition(BrandErrorIllustrationProvider::class, [
+            new Reference(FilesystemSettingFileStore::class),
+            new Reference(SettingFileUrls::class),
+            $options['per_code'] ? BrandErrorIllustrationProvider::codeFields(array_keys($brand['extra_images'])) : [],
+            $options['base'] === null ? null : BrandSection::EXTRA_FIELD_PREFIX . $options['base'],
+        ]));
+        $container->setAlias(BrandErrorIllustrationProvider::SERVICE_ID, BrandErrorIllustrationProvider::class)->setPublic(true);
     }
 
     /**
@@ -705,7 +742,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}} $config
+     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}} $config
      */
     private function registerWebUi(ContainerBuilder $container, array $config): void
     {
@@ -764,6 +801,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // 1.9 (Beacon spec 222, owner Q4 = b): secrets typed into hidden provider rows, and the notice while dropped.
             HiddenSecrets::from($webUi['hidden_secrets']),
             $webUi['hidden_secrets_notice'],
+            // 1.13 (audit LM29-I1): the layered stylesheet unless the host links UiKit's unlayered build.
+            $webUi['unlayered_styles'] ?? false,
         ]))->setPublic(true));
 
         // REQ-SF-004 rule 7: not autoconfigured (no `routing.controller` tag from #[Route]); the routes come only from

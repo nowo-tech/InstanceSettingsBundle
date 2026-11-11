@@ -19,7 +19,7 @@ final class ConfigurationTest extends TestCase
         $config = $this->process([]);
 
         self::assertSame(['table_prefix' => '', 'entity_manager' => null], $config['doctrine']);
-        self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'hidden_secrets' => 'drop', 'hidden_secrets_notice' => false, 'templates' => []], $config['web_ui']);
+        self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'hidden_secrets' => 'drop', 'hidden_secrets_notice' => false, 'unlayered_styles' => false, 'templates' => []], $config['web_ui']);
         self::assertSame(['access_roles' => ['ROLE_ADMIN'], 'area_roles' => [], 'access_checker' => null, 'allow_unauthenticated' => false], $config['security']);
         self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true, 'max_file_bytes' => 8_388_608], $config['portability']);
         self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files', 'crop' => ['enabled' => false, 'shape' => null, 'quality' => null, 'labels' => []]], $config['files']);

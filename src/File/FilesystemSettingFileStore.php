@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\File;
 
 use DateTimeImmutable;
+use Nowo\InstanceSettingsBundle\Brand\BrandErrorIllustrationProvider;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Doctrine\TransactionObserverInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
@@ -170,6 +171,17 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
     public function storedPath(string $section, string $field): ?string
     {
         return $this->current($section, $field) instanceof SettingFileRecord ? ($this->existingOriginal($section, $field)[0] ?? null) : null;
+    }
+
+    /**
+     * Metadata of the field's current original (hash, type, width, height, size), or null when the field has no valid
+     * file (1.13). Read from the field's metadata file while it matches the file (one `stat()`), else from the file
+     * itself. Filesystem only: no setting row is read, so it also answers while the database is down (the brand error
+     * illustrations, {@see BrandErrorIllustrationProvider}).
+     */
+    public function storedRecord(string $section, string $field): ?SettingFileRecord
+    {
+        return $this->current($section, $field);
     }
 
     /**

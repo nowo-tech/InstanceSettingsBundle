@@ -129,10 +129,13 @@ final class SettingsSectionType extends AbstractType
             if ($field->image !== null) {
                 // 1.12: one card per image field; the label and help move to the file input (UiKit image input box), so
                 // the field name is printed once.
-                $card             = $base;
-                $card['label']    = false;
-                $card['help']     = null;
-                $card['row_attr'] = ($base['row_attr'] ?? []) + ['class' => self::IMAGE_CARD_CLASS];
+                // 1.13 (audit LM29-I3): `image_input: false` keeps the pre-1.12 row (its label and help, no card).
+                $card = $base;
+                if (($field->formOptions['image_input'] ?? true) !== false) {
+                    $card['label']    = false;
+                    $card['help']     = null;
+                    $card['row_attr'] = ($base['row_attr'] ?? []) + ['class' => self::IMAGE_CARD_CLASS];
+                }
                 $this->addWithDefaults($builder, $name, SettingImageType::class, array_replace_recursive($card, [
                     'required'    => false,
                     'stored'      => $options['stored_images'][$name] ?? false,

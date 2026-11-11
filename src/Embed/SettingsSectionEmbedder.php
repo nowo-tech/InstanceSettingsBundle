@@ -81,6 +81,7 @@ final readonly class SettingsSectionEmbedder
      * @param HiddenSecrets $hiddenSecrets `web_ui.hidden_secrets` (1.9): a secret typed into a hidden row is dropped or saved
      * @param bool $hiddenSecretsNotice `web_ui.hidden_secrets_notice` (1.9): a notice above the form of a section with
      *                                  provider-dependent secrets while they are dropped
+     * @param bool $unlayeredStyles `web_ui.unlayered_styles` (1.13): the pages link the unlayered bundle stylesheet
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -95,6 +96,7 @@ final readonly class SettingsSectionEmbedder
         private ?TranslatorInterface $translator = null,
         private HiddenSecrets $hiddenSecrets = HiddenSecrets::Drop,
         private bool $hiddenSecretsNotice = false,
+        private bool $unlayeredStyles = false,
     ) {
     }
 
@@ -267,8 +269,11 @@ final readonly class SettingsSectionEmbedder
             'image_crop' => SettingImageCrop::inForm($form),
             // 1.12: a colour field: the page loads the colour script and the bundle stylesheet.
             'color_picker' => SettingsPageFactory::hasColorRows($formView),
-            // 1.12: image fields: the page loads UiKit's image-input script and the bundle stylesheet (cards).
-            'image_input' => $images !== [],
+            // 1.12: image fields in UiKit's image input box: the page loads its script and the bundle stylesheet (cards);
+            // 1.13 (audit LM29-I3): not when every image field sets image_input: false.
+            'image_input' => SettingImageType::inputInForm($form),
+            // 1.13 (audit LM29-I1): the stylesheet build the bundle partials link (layered by default).
+            'unlayered_styles' => $this->unlayeredStyles,
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);

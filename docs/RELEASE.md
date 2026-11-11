@@ -22,6 +22,9 @@
 1. Move `[Unreleased]` entries in [CHANGELOG.md](CHANGELOG.md) to a new `## [x.y.z] - YYYY-MM-DD` section.
 2. Update [UPGRADING.md](UPGRADING.md) when hosts must act.
 3. Update integrator docs ([USAGE.md](USAGE.md), [CONFIGURATION.md](CONFIGURATION.md), [SECURITY.md](SECURITY.md)) when behaviour changes.
+   The demo pins the bundle's path package to the release being prepared (`demo/symfony8/composer.json`,
+   `repositories[0].options.versions`): set it to `x.y.z` and refresh the lock entry
+   (`composer update nowo-tech/instance-settings-bundle --no-install` in the demo), so the lock never records a branch name.
 4. Run `make release-check`.
 5. Commit, tag (`git tag -a vx.y.z -m "Release vx.y.z"`), push branch and tag.
 6. Verify the GitHub Release and Packagist.

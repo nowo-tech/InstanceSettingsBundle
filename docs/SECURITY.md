@@ -139,11 +139,16 @@ Batch audit before the tag (owner decision Q-O5): Appendix IU **Pass-Low**; IU-L
 | BB8 | **Disclosure through notices** | Contrast notices are fixed messages per mode and check: never a stored value. | `BrandSectionsTest::testContrastNoticesNameCodesOnly`, `BrandBridgeTest::testAppearancePageShowsContrastNotices` |
 | BB9 | **Availability: brand provider failure** | A store `Exception` is logged and the configured defaults are returned (an error page or manifest never fails); programming errors (`Error`) are not swallowed. | `InstanceBrandProviderTest::testAStoreFailureIsLoggedAndGivesTheDefaults`, `testProgrammingErrorsAreNotSwallowed` |
 | BB10 | **Worker-mode leaks** | Provider, palettes, sections, reader and Twig extension are stateless; values come from the request-bound memo of `InstanceSettings`. | Igor audit |
+| BB12 | **Error page illustrations (1.13): path traversal, another field's image, an unsafe URL** | `BrandErrorIllustrationProvider` reads only fields derived from the configuration at compile time (`extra_error_<N>` for declared `extra_images.error_<N>`, N = 400 … 599, and the declared base id): never a path from the request or the status code beyond that map. The store confines the read (names checked again, no symbolic link, real path inside `files.directory`, ≤ 5 MiB, sniffed PNG / JPEG / WebP whose type matches the extension). The URL comes from the router (the file route) and is validated again by UiKit's `ErrorIllustration::fromUrl()`; only `brand` images, which are public by design, are referenced. | `BrandErrorIllustrationProviderTest`, `ErrorIllustrationsTest` |
+| BB13 | **Error page availability (1.13)** (database or network down while an error page renders) | The provider needs no database and no HTTP: the filesystem store only (`files.store: doctrine` registers nothing and refuses a `base`); one `stat()` + metadata read per lookup. UiKit guards every call (any `Throwable` → its map) and the host sets `illustration_provider_budget_ms`. Readonly service: nothing is kept between requests in worker mode. | `ErrorIllustrationsTest::testUploadedImagesThenUiKitMapWithoutTheDatabase` (table dropped), `testRemovedUploadFallsBackInAKeptAliveKernel` |
 | BB11 | **File mapping missing** (flag prepended after this bundle, audit IO-I10) | `brand.enabled` implies the files and is read in this bundle's own prepend; a flag prepended later fails at compile time with a clear message. | `BrandExtensionTest::testAFlagPrependedAfterThisExtensionFailsClearly`, `testPrependMapsTheFilesForTheBrandAndRecordsIt` |
 
 Residual risks: default assets are trusted, committed files (an SVG default may contain script; it is served by the web
 server and only printed as `<img src>` by the kit, but a host that inlines it must trust its repository); the brand
 images are public by design (do not upload anything confidential to a brand slot); colour contrast is advisory only.
+An error page illustration of a file placed in `files.directory` without its setting row (never seeded) points at a
+file route URL that answers 404 (the file route serves a filesystem-store file only while its row exists): a broken
+image, never another file.
 
 ## Admin UI exposure and allow_unauthenticated
 

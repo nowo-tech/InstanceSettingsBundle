@@ -24,6 +24,7 @@
 - [Brand bridge](#brand-bridge)
   - [Reading the brand](#reading-the-brand)
   - [UiKit appearance](#uikit-appearance)
+  - [Error page illustrations (1.13)](#error-page-illustrations-113)
   - [Migrating a host appearance entity](#migrating-a-host-appearance-entity)
   - [Theme cards](#theme-cards)
 - [Seeding from fallbacks (DB-only mode)](#seeding-from-fallbacks-db-only-mode)
@@ -241,7 +242,8 @@ yield SettingField::color('link', label: 'brand.link')
   to follow the preset).
 - **Assets**: `bundles/nowoinstancesettings/js/nowo-instance-settings-color.js` (plain, deferred, idempotent, binds by
   delegation; `window.NowoInstanceSettingsColor.init(root)` for forms inserted later) and
-  `bundles/nowoinstancesettings/css/nowo-instance-settings.css` (class selectors only, UiKit tokens
+  `bundles/nowoinstancesettings/css/nowo-instance-settings.css` (class selectors only, in UiKit's layer `nowo-ui`
+  since 1.13, or `nowo-instance-settings.unlayered.css` with `web_ui.unlayered_styles: true`; UiKit tokens
   `--nowo-ui-border`, `--nowo-ui-radius`, `--nowo-ui-surface`, `--nowo-ui-focus-ring-color`, `--nowo-ui-muted`). Run
   `assets:install`. The section page loads them only when the form has a colour row, with the request `csp_nonce`
   attribute; no inline script, handler or style, so a strict CSP (`script-src 'self'` or nonces) needs nothing else.
@@ -525,10 +527,15 @@ box (UiKit 2.47, `nowo_ui_image_input` on the file input):
 - With the crop step (1.8) the crop's preview targets the box.
 - Layout: from 40rem the cards sit two per line (CSS grid on the rows container, other rows span both columns); the
   stylesheet `bundles/nowoinstancesettings/css/nowo-instance-settings.css` uses UiKit tokens. The section page loads
-  UiKit's `image-input` script and that stylesheet when the form has an image field (`image_input` template variable).
+  UiKit's `image-input` script and that stylesheet when the form has an image field in the box (`image_input` template
+  variable; 1.13: not when every image field sets `image_input: false`).
+- Cascade (1.13): the stylesheet sits in UiKit's layer `nowo-ui`, so host utilities (Tailwind `components` /
+  `utilities`) and unlayered host CSS win over it. Hosts that link UiKit's `nowo-ui.unlayered.css` set
+  `web_ui.unlayered_styles: true` ([CONFIGURATION](CONFIGURATION.md#web_ui)) to get the unlayered build.
 - CSP: no inline script or style; add `blob:` to `img-src` for the local preview (the crop step needs it already).
-- `withFormOptions(['image_input' => false])` keeps the pre-1.12 file input on a field; `backdrop` (`checkerboard`,
-  `light`, `dark`) sets what shows through transparent art.
+- `withFormOptions(['image_input' => false])` keeps the pre-1.12 row on a field (1.13: its label and help on the row,
+  no card, plain file input and remove checkbox); `backdrop` (`checkerboard`, `light`, `dark`) sets what shows
+  through transparent art.
 
 ### Crop step (1.8)
 
@@ -621,8 +628,10 @@ settings, in two sections:
   decision Q-O4; a vector logo is a committed default asset). The section page previews the stored images by their
   file route URL.
 - Colours are `#rrggbb` (lower-cased on save). An empty colour follows the preset selected for its mode, read from
-  UiKit's preset registry at runtime; a saved colour equal to that preset's is not stored, so a later preset change
-  still reaches it. The appearance page warns (never refuses, Q-O8) when a mode fails WCAG AA: text on paper or surface
+  UiKit's preset registry at runtime; a colour changed to that preset's is not stored, so a later preset change
+  still reaches it. Since 1.13 (audit LM-L3, the 1.12 rule of colour fields) a colour re-submitted unchanged is kept,
+  even when it equals the preset: an untouched save, or switching the preset to one whose colour matches a stored
+  colour, never deletes it. Empty the field ("Use the preset colour") to follow the preset again. The appearance page warns (never refuses, Q-O8) when a mode fails WCAG AA: text on paper or surface
   below 4.5:1, text on the accent below 4.5:1, accent on surface below 3:1.
 - Without a stored value: the texts of `brand.defaults` (a `{key, domain}` eyebrow follows the viewer's locale), the
   config default assets, UiKit's `nowo_ui_kit.appearance.defaults` (or the kit defaults `slate` / `midnight` when
@@ -662,6 +671,44 @@ stored preset ids, corner style, border strength and fixed footer. With an empty
 `eyebrow` equal to UiKit's `defaults.brand_name` / `brand_eyebrow`, the emitted tokens are byte for byte those of UiKit's
 config provider. A host provider (config `provider:` or a services alias of `nowo_ui_kit.appearance.provider`) is never
 replaced. UiKit memoises the appearance per main request: the section form redirects after a save.
+
+### Error page illustrations (1.13)
+
+UiKit's error pages (2.47 SPI `Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface`) can show the instance's own
+art per situation: declare an extra image per status and, optionally, a base image (a mascot), then point UiKit at
+**`nowo_instance_settings.brand.error_illustration_provider`** (`Brand\BrandErrorIllustrationProvider`). Configuration
+in [CONFIGURATION](CONFIGURATION.md#error-page-illustrations-113).
+
+For status N the provider answers the first that exists:
+
+1. the **uploaded** extra image `error_<N>` (field `extra_error_<N>`; with `error_illustrations.per_code: true`);
+2. the **uploaded** base extra image (`error_illustrations.base`, e.g. `mascot`), for every status, `0` (unknown)
+   included;
+3. null: UiKit uses its `error_pages.illustrations` map (the code, then `default`), then no illustration.
+
+Only uploaded images count (stored files, including images adopted by the seeder): the `default` assets of
+`extra_images` are never returned, so an instance without uploads looks exactly like UiKit's map. An uploaded base
+image therefore replaces the map for every status without its own `error_<N>` upload; upload `error_<N>` images (or
+leave the base unset) to keep per-status art.
+
+How it resolves, given an error page often renders because the database is down:
+
+- **No database, no HTTP.** It needs `files.store: filesystem` and reads the field's file on disk
+  (`<files.directory>/brand/extra_<id>.<png|jpg|webp>`) and the store's own metadata file next to it
+  (`brand/.variants/extra_<id>.meta`: SHA-256, type, width and height, trusted while the file's size, mtime, ctime and
+  inode match: one `stat()`). Without valid metadata (a file replaced by a deployment before the next save) the file
+  itself is read, sniffed and hashed (≤ 5 MiB). The metadata format stays private to the bundle.
+- **URL**: the file route of the original, `{files.path_prefix}/brand/extra_<id>/<hash12>.<png|jpg|webp>` (e.g.
+  `/_settings-file/brand/extra_mascot/3f1c9a0b7e21.png`), built by the router; `width` / `height` are the stored
+  image's; no WebP `<source>` (`webp: false`). The file route serves a filesystem-store file only while its setting
+  row exists, so a file placed in the directory by hand without seeding it is advertised but answers 404: seed it
+  (`nowo:instance-settings:seed`) or upload it.
+- **Worker-safe** (FrankenPHP, kernel kept alive, no reset): a readonly service with configuration only; every call
+  reads the disk again, nothing is kept between requests.
+- **Fast**: a few `stat()` calls and one small JSON read per lookup; set `illustration_provider_budget_ms: 20` in UiKit
+  as a guard. Any exception falls back to the map (UiKit's guard).
+
+With `files.store: doctrine` (the default) the service is not registered; a `base` is then refused at build time.
 
 ### Migrating a host appearance entity
 

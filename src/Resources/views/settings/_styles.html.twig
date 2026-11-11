@@ -1,8 +1,13 @@
 {#
   Bundle stylesheet (1.12): bundles/nowoinstancesettings/css/nowo-instance-settings.css (assets:install), with the request
-  `csp_nonce` attribute when there is one. Included by settings/section.html.twig when the form has a colour or an image
-  field. Optional: nonce (default the request attribute csp_nonce).
+  `csp_nonce` attribute when there is one. Included by settings/section.html.twig when the form has a colour field or an
+  image field in UiKit's image input box.
+  1.13 (audit LM29-I1): that file sits in UiKit's cascade layer nowo-ui; with `unlayered` (default: the page variable
+  unlayered_styles, i.e. web_ui.unlayered_styles) it links nowo-instance-settings.unlayered.css instead, for hosts that
+  link UiKit's nowo-ui.unlayered.css.
+  Optional: nonce (default the request attribute csp_nonce), unlayered.
 #}
 {%- set _request = app is defined and app ? app.request : null -%}
 {%- set _nonce = nonce|default(_request ? _request.attributes.get('csp_nonce') : null) -%}
-<link rel="stylesheet" href="{{ asset('bundles/nowoinstancesettings/css/nowo-instance-settings.css') }}"{% if _nonce %} nonce="{{ _nonce }}"{% endif %} data-nowo-instance-settings-styles>
+{%- set _unlayered = unlayered|default(unlayered_styles|default(false)) -%}
+<link rel="stylesheet" href="{{ asset('bundles/nowoinstancesettings/css/nowo-instance-settings' ~ (_unlayered ? '.unlayered' : '') ~ '.css') }}"{% if _nonce %} nonce="{{ _nonce }}"{% endif %} data-nowo-instance-settings-styles>

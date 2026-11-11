@@ -1,10 +1,15 @@
 /*
- * InstanceSettingsBundle 1.12 — styles of the bundle's own widgets, themed by UiKit tokens (--nowo-ui-*), with
- * fallbacks for hosts without UiKit's stylesheet. Loaded by the section page next to the widget script.
- * Colour input (Form/color.html.twig): swatch + hex input + "Use the preset colour" on one line.
- * Image fields (1.12): one card per image field (row class nowo-instance-settings-image-card), two per line from 40rem,
- * holding UiKit's image input box (label, image, Replace / Remove / Undo, help).
+ * InstanceSettingsBundle 1.13 — styles of the bundle's own widgets inside UiKit's cascade layer `nowo-ui` (audit
+ * LM29-I1): host utilities (Tailwind `components` / `utilities`) and unlayered host CSS win, as over UiKit's own rules.
+ * The rules are those of nowo-instance-settings.unlayered.css (web_ui.unlayered_styles: true, for hosts that link
+ * UiKit's nowo-ui.unlayered.css); a test checks that both files match.
+ *
+ * The layer order statement is UiKit's: it only applies when this file is the first stylesheet that names the layers.
  */
+@layer theme, base, nowo-ui, components, utilities;
+
+@layer nowo-ui {
+
 .nowo-instance-settings-color {
     display: flex;
     flex-wrap: wrap;
@@ -69,4 +74,5 @@
     :has(> .nowo-instance-settings-image-card) > :not(.nowo-instance-settings-image-card) {
         grid-column: 1 / -1;
     }
+}
 }

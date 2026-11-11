@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "79760a141856cb49384be0587456d12d",
+    "content-hash": "2dd8d2ad652f9c577fcaa094d32a043b",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -1162,11 +1162,11 @@
         },
         {
             "name": "nowo-tech/instance-settings-bundle",
-            "version": "dev-feat/brand-image-input",
+            "version": "1.13.0",
             "dist": {
                 "type": "path",
                 "url": "/var/instance-settings-bundle",
-                "reference": "77981199727cfc8a9b57c23d977ced1b9c72cbd7"
+                "reference": "269edf2e1801a8e9b69192fb4a1f7739034b07dc"
             },
             "require": {
                 "doctrine/dbal": "^4.0",

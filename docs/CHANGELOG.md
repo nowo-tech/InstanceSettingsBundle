@@ -26,6 +26,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Error page illustrations from the brand** (Beacon 1.147, UiKit 2.47 SPI): `Brand\BrandErrorIllustrationProvider`
+  implements `Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface`, registered as
+  `nowo_instance_settings.brand.error_illustration_provider` with `brand.enabled`, `files.store: filesystem` and UiKit's
+  interface present. New config `brand.error_illustrations` (`base`: an `extra_images` id such as `mascot`;
+  `per_code`: default true). For status N it answers the uploaded `error_<N>` extra image, else the uploaded base image,
+  else null (UiKit's `error_pages.illustrations` map); configured defaults never count. Resolved from the file on disk
+  and the store's own metadata (hash, width, height), never the database or HTTP; file route URL, intrinsic size, no
+  WebP source; readonly, worker-safe. `FilesystemSettingFileStore::storedRecord()` exposes that lookup. A `base` that
+  is not a declared extra image, or set with `files.store: doctrine`, fails the build.
+- **`web_ui.unlayered_styles`** (default false) and `public/css/nowo-instance-settings.unlayered.css`: the unlayered
+  stylesheet for hosts that link UiKit's `nowo-ui.unlayered.css`; `settings/_styles.html.twig` takes `unlayered`.
+
+### Changed
+
+- The bundle stylesheet `nowo-instance-settings.css` sits in UiKit's cascade layer `nowo-ui` (with UiKit's layer order
+  statement), so host utilities and unlayered host CSS win over it (audit LM29-I1). See [UPGRADING](UPGRADING.md#unreleased).
+- The demo pins the bundle's path package as `1.13.0` (`versions` option) instead of the checked-out branch name
+  (audit LM29-I4).
+
+### Fixed
+
+- **Brand appearance colours** (audit LM-L3): `AppearanceSection::filterValues()` kept dropping every submitted colour
+  equal to the selected preset, so an untouched save, or switching the preset to one matching a stored colour, deleted
+  the stored row. It now follows the 1.12 rule of colour fields: a colour re-submitted equal to its stored value is
+  kept; a colour changed to the preset is still stored as null.
+- **`image_input: false`** (audit LM29-I3): such an image field keeps its pre-1.12 row (label and help, no card), and
+  the section page loads UiKit's `image-input` script and the bundle stylesheet only when a field shows the image
+  input box (`SettingImageType::inputInForm()`).
+
 ## [1.12.0] - 2026-11-11
 
 Colour setting field (SettingType::Color, preset-following) and one card per image field on UiKit 2.47's image input. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.12.0/docs/UPGRADING.md#to-1120).

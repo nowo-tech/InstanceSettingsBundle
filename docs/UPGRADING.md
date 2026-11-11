@@ -30,6 +30,55 @@
 
 ## Unreleased
 
+From **1.12.x**: `composer update nowo-tech/instance-settings-bundle`, then `bin/console assets:install` (the bundle
+now also ships `public/css/nowo-instance-settings.unlayered.css`). No configuration change is required.
+
+**Optional — error page illustrations from the brand** (needs `brand.enabled`, `files.store: filesystem` and UiKit
+≥ 2.47). Declare one extra image per status you want to illustrate and, optionally, a base image, then point UiKit at
+the bundle's service:
+
+```yaml
+# config/packages/nowo_instance_settings.yaml
+nowo_instance_settings:
+    brand:
+        extra_images:
+            mascot:    { default: brand/mascot.png }
+            error_404: { default: illustrations/error-404.png }
+            error_503: { default: illustrations/error-503.png }
+        error_illustrations:
+            base: mascot
+            per_code: true
+
+# config/packages/nowo_ui_kit.yaml
+nowo_ui_kit:
+    error_pages:
+        illustration_provider: nowo_instance_settings.brand.error_illustration_provider
+        illustration_provider_budget_ms: 20
+```
+
+For status N UiKit then shows the uploaded `error_<N>` image, else the uploaded base image, else its own
+`error_pages.illustrations` map: until something is uploaded the pages are unchanged. Configured `default` assets never
+replace the map. Keep the file route `PUBLIC_ACCESS` line (anonymous visitors load the image). With
+`files.store: doctrine` the service does not exist and a `base` fails the build. See
+[CONFIGURATION](CONFIGURATION.md#error-page-illustrations-113) and
+[USAGE](USAGE.md#error-page-illustrations-113).
+
+**Bundle stylesheet in UiKit's cascade layer** (audit LM29-I1). `nowo-instance-settings.css` (colour input, image cards)
+now sits in `@layer nowo-ui`, like UiKit's `nowo-ui.css`: host utilities (Tailwind `components` / `utilities`) and
+unlayered host CSS win over it, where 1.12 won over every layered rule. Nothing to do on a host that links UiKit's
+layered `nowo-ui.css`. A host that links UiKit's `nowo-ui.unlayered.css` (Bootstrap or another unlayered framework)
+sets `web_ui.unlayered_styles: true` to keep the 1.12 cascade (`nowo-instance-settings.unlayered.css`); host templates
+that include `settings/_styles.html.twig` get the page variable, or pass `unlayered: true`.
+
+**`image_input: false`** (audit LM29-I3): an image field with `withFormOptions(['image_input' => false])` now keeps its
+pre-1.12 row (label and help on the row, no card) and the page no longer loads UiKit's `image-input` script or the
+bundle stylesheet for it when no other field needs them. Fields with the image input box are unchanged.
+
+**Brand appearance colours** (audit LM-L3). A colour re-submitted equal to its stored value is now kept even when it
+equals the preset (the 1.12 rule of colour fields): an untouched save, or switching `preset` / `preset_dark` to a
+preset whose colour matches a stored colour, no longer deletes the stored row. A colour changed to the preset is still
+saved as null (it follows the preset). To follow the preset again, empty the field ("Use the preset colour").
+
 ## To 1.12.0
 
 From **1.11.x**: `composer update nowo-tech/instance-settings-bundle`, then `bin/console assets:install` (the bundle now
