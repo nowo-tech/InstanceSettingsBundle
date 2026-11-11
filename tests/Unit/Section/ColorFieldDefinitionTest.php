@@ -13,6 +13,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
+use Nowo\InstanceSettingsBundle\Seed\SeedReport;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ColorFixtureSection;
@@ -40,6 +41,7 @@ final class ColorFieldDefinitionTest extends TestCase
         self::assertNull($field->presetFrom());
         self::assertTrue(SettingField::matchesType(SettingType::Color, '#A1b2C3'));
         self::assertFalse(SettingField::matchesType(SettingType::Color, '#abc'));
+        self::assertFalse(SettingField::matchesType(SettingType::Color, "#ffffff\n"), 'no trailing newline (D modifier, audit LM-I1)');
         self::assertFalse(SettingField::matchesType(SettingType::Color, 0xABCDEF));
         self::assertNull(SettingField::color('x')->presetColor(['y' => 'z']));
         self::assertNull(SettingField::string('x', '#abcdef')->presetColor([]), 'only colour fields have a preset');
@@ -140,6 +142,12 @@ final class ColorFieldDefinitionTest extends TestCase
 
         // Unchanged preset colours change nothing.
         self::assertSame([], $settings->save('palette', ['accent' => '#1D4ED8']));
+
+        // A stored colour re-submitted unchanged is kept even when it is (now) the preset (audit LM-M1).
+        $settings->save('palette', ['scheme' => 'light', 'link' => '#DDEEFF']);
+        $settings->save('palette', ['scheme' => 'dark']);
+        self::assertSame([], $settings->save('palette', ['link' => '#ddeeff']));
+        self::assertTrue($settings->isOverridden('palette.link'));
     }
 
     public function testSeedersSkipThePresetColour(): void
@@ -152,6 +160,16 @@ final class ColorFieldDefinitionTest extends TestCase
         self::assertSame(['palette.scheme', 'palette.legacy'], $report->seeded);
         self::assertSame(SeedFileSeeder::SKIP_DEFAULT, $report->skipped['palette.accent']);
         self::assertSame(SeedFileSeeder::SKIP_DEFAULT, $report->skipped['palette.link'], 'the preset of the seeded scheme');
+
+        // The stored source value decides the preset (audit LM-I2): with `scheme` stored as light, the fallback link
+        // #DDEEFF (preset of dark) is a custom colour and is seeded.
+        $repository = new InMemorySettingValueRepository();
+        $settings   = new InstanceSettings($repository, $registry, new ValueNormalizer(Validation::createValidator()));
+        $settings->save('palette', ['scheme' => 'light']);
+        $report = (new FallbackSeeder($registry, $repository, $settings))->seed();
+        self::assertSame(SeedReport::SKIP_STORED, $report->skipped['palette.scheme']);
+        self::assertContains('palette.link', $report->seeded);
+        self::assertSame('#ddeeff', $settings->getString('palette.link'));
 
         $repository = new InMemorySettingValueRepository();
         $settings   = new InstanceSettings($repository, $registry, new ValueNormalizer(Validation::createValidator()));

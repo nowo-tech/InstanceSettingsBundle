@@ -44,7 +44,7 @@ final class ThemeCardsType extends AbstractType
     public const SWATCHES = 'swatches';
 
     /** Accepted swatch colour. */
-    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/';
+    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/D';
 
     /** Most colours shown per card. */
     public const MAX_COLORS = 8;

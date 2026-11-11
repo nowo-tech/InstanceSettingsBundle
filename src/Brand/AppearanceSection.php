@@ -47,7 +47,7 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
     public const NAME = 'appearance';
 
     /** Accepted stored colour. */
-    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/';
+    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/D';
 
     /** Translation domain of UiKit's preset names (theme cards, 1.6). */
     public const UI_KIT_DOMAIN = 'NowoUiKitBundle';

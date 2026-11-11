@@ -9,7 +9,8 @@
     slot, the help / error aria attributes and the row label) is the submitted value. Its placeholder is the preset.
   - The native swatch (<input type="color">, no name: never submitted) is labelled by the row label (label_attr.id)
     and starts with the entered colour, else the preset (the colour an empty value follows).
-  - "Use the preset colour" (UiKit `btn_secondary` + `btn_sm`) empties the hex input.
+  - "Use the preset colour" (UiKit `btn_secondary` + `btn_sm`) empties the hex input; it is described by the row label,
+    so each button names its field (audit LM-L2).
   Swatch and reset are `hidden` until the script shows them, so without JavaScript only the hex input is there.
   No inline handler or style (strict CSP safe). The preset source (preset_from: input name; preset_map: JSON value →
   colour) lets the script follow a change of that field.
@@ -28,6 +29,7 @@
             {%- if disabled %} disabled{% endif %} data-nowo-instance-settings-color-swatch hidden>
         {{- form_widget(form, {attr: _hex_attr}) -}}
         <button type="button" class="{{ (nowo_ui_class('btn_secondary', _b) ~ ' ' ~ nowo_ui_class('btn_sm', _b) ~ ' nowo-instance-settings-color__reset')|trim }}"
+            aria-describedby="{{ label_attr.id|default(id ~ '_label') }}"
             {%- if disabled %} disabled{% endif %} data-nowo-instance-settings-color-reset hidden>{{ 'color.reset'|trans({}, 'NowoInstanceSettingsBundle') }}</button>
     </div>
 {%- endblock nowo_instance_settings_color_widget -%}

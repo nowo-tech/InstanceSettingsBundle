@@ -260,7 +260,7 @@ final readonly class FallbackSeeder
                 [$clean, $messages] = $this->normalizer->normalize($fields[$fallback->field], $fallback->value());
                 if ($messages !== [] || $clean === null) {
                     $reason = SeedReport::SKIP_INVALID;
-                } elseif ($fields[$fallback->field]->type === SettingType::Color && $clean === $fields[$fallback->field]->presetColor($context ??= $this->presetContext($name, $section))) {
+                } elseif ($fields[$fallback->field]->type === SettingType::Color && $clean === $fields[$fallback->field]->presetColor($context ??= $this->presetContext($name, $section, $stored))) {
                     // 1.12: a colour equal to its preset (default, or the colour of the fallback / default source value) is not seeded.
                     $reason = SeedFileSeeder::SKIP_DEFAULT;
                 } else {
@@ -277,13 +277,23 @@ final readonly class FallbackSeeder
     }
 
     /**
-     * Section values a preset colour is resolved against: the plain fallbacks over the field defaults.
+     * Section values a preset colour is resolved against (1.12): the stored values (seeding never overwrites them),
+     * then the plain fallbacks, then the field defaults.
+     *
+     * @param array<string, true> $stored fields with a stored row
      *
      * @return array<string, mixed>
      */
-    private function presetContext(string $name, SectionFallbackProviderInterface $section): array
+    private function presetContext(string $name, SectionFallbackProviderInterface $section, array $stored): array
     {
         $values = [];
+        if ($stored !== []) {
+            foreach ($this->settings->getSection($name) as $field => $value) {
+                if (isset($stored[$field])) {
+                    $values[$field] = $value;
+                }
+            }
+        }
         foreach ($section->getFallbacks() as $fallback) {
             if (!$fallback->secret) {
                 $values[$fallback->field] ??= $fallback->value();

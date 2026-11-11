@@ -55,9 +55,13 @@ SettingField::color('accent', '#1d4ed8', 'brand.accent');
 SettingField::color('accent', label: 'brand.accent')->withPresetFrom('theme', ['light' => '#1d4ed8', 'dark' => '#93c5fd']);
 ```
 
-Stored rows stay valid when they are `#rrggbb` (the type reads them as they are; a new save lower-cases them). A stored
-value that is not `#rrggbb` (e.g. `red`) is still returned by `get()`, but saving the form refuses it until it is
-corrected. After the switch, a save of the preset colour stores null instead of the colour; if your code needs the
+Stored rows stay valid when they are `#rrggbb`, any case (the type reads them as they are; a new save lower-cases
+them). A stored value that is **not** `#rrggbb` (e.g. `red`, `#abc`) is ignored on read: `get()` returns the field
+default, as for any row that does not match its type (`isOverridden()` stays true while the row exists). The form shows
+that default too, so the next save of the section replaces the row: it is deleted when the default is the preset, else
+the submitted colour is stored. Before switching, list such rows (e.g.
+`SELECT name, value FROM instance_setting_value WHERE section = '<section>'`; `value` is JSON, mind
+`doctrine.table_prefix`) and fix them, or keep the field a String + Regex field. After the switch, a save of the preset colour stores null instead of the colour; if your code needs the
 colour, read `get()` (the default) or `SettingField::presetColor()`. Keep your own `Regex` constraint if you want its
 message; the type check runs first with `This value is not a #rrggbb colour.` A `SettingsSectionSaveFilterInterface`
 that already drops preset colours keeps working.

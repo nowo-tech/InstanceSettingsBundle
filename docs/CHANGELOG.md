@@ -43,7 +43,9 @@ Colour setting field. See [UPGRADING](UPGRADING.md#to-1120).
   field live). Without JavaScript the swatch and the button stay hidden and the hex input works alone. Styles in
   `bundles/nowoinstancesettings/css/nowo-instance-settings.css` use UiKit tokens. The section page loads both only when
   the form has a colour row (`color_picker` template variable; partial `settings/_color_assets.html.twig`). New
-  translation key `color.reset` in the 7 locales.
+  translation key `color.reset` in the 7 locales. The form shows a colour that is not stored as empty and a stored colour as
+  stored (an untouched re-submit never deletes it, even when it equals the default); each reset button is described by
+  its field label.
 
 ### Changed
 

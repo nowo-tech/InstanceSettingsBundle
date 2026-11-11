@@ -226,10 +226,14 @@ yield SettingField::color('link', label: 'brand.link')
   null, so changing the default or the source later still reaches untouched instances. `$field->presetColor($values)`
   gives the preset for section values; `get()` returns the default when nothing is stored (with `withPresetFrom()`,
   resolve the colour yourself from the source value, e.g. with `presetColor($settings->getSection(...))`).
+  The admin form shows a colour that is not stored as empty (never its default) and a stored colour as stored, so an
+  untouched re-submit never deletes a stored colour, even one equal to the default. `seed-from-fallbacks` skips a
+  fallback colour equal to its preset, resolved against the stored source value, else the source fallback, else the
+  default.
 - **Form**: the hex text input is the submitted value (`name="settings_section[accent]"`, placeholder = the preset);
   next to it a native swatch (`<input type="color">`, no `name`: never posted, labelled by the row label, described
-  by the help) and a **Use the preset colour** button (`color.reset`, UiKit `btn_secondary` + `btn_sm`) that empties
-  the hex input. A bare `ColorType` cannot be empty (a browser always posts `#000000`), which is why the swatch only
+  by the help) and a **Use the preset colour** button (`color.reset`, UiKit `btn_secondary` + `btn_sm`, described
+  by the row label so each button names its field) that empties the hex input. A bare `ColorType` cannot be empty (a browser always posts `#000000`), which is why the swatch only
   mirrors the hex input: picking a colour writes it into the hex input; typing a valid hex updates the swatch; an
   empty hex shows the preset in the swatch (and follows a change of the source field).
 - **Without JavaScript** the swatch and the button stay `hidden`; the hex input works alone (type a colour, or empty it

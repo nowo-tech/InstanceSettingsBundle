@@ -45,7 +45,7 @@ final readonly class SettingField
     public const IMAGE_REFERENCE_PATTERN = '/^isf:[0-9a-f]{64}$/';
 
     /** A colour value of {@see SettingType::Color} (1.12): `#rrggbb`, any case (stored lower-cased). */
-    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/';
+    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/D';
 
     /** Allowed form groups (1.5): dot-separated lower snake case segments, e.g. `colors.light`. */
     public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/';

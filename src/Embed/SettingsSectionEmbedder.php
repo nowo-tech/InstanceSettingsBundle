@@ -23,6 +23,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionHiddenSecretsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
@@ -189,7 +190,16 @@ final readonly class SettingsSectionEmbedder
             }
         }
 
-        $form = $this->formFactory->create(SettingsSectionType::class, $this->settings->getSection($section), [
+        $data = $this->settings->getSection($section);
+        foreach ($fields as $name => $field) {
+            if ($field->type === SettingType::Color && !$this->settings->isOverridden($section . '.' . $name)) {
+                // 1.12 (audit LM-M1): an unstored colour is empty in the form (= follow the preset), never its default:
+                // a stored colour equal to the default stays stored on an untouched re-submit.
+                $data[$name] = null;
+            }
+        }
+
+        $form = $this->formFactory->create(SettingsSectionType::class, $data, [
             'section'        => $definition,
             'fields'         => $fields,
             'stored_secrets' => $stored,

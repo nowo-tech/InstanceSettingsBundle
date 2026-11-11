@@ -7,10 +7,8 @@ namespace Nowo\InstanceSettingsBundle\Form;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Symfony\Component\Form\AbstractType;
-use Symfony\Component\Form\CallbackTransformer;
 use Symfony\Component\Form\Extension\Core\Type\ColorType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
-use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\Form\FormView;
 use Symfony\Component\OptionsResolver\Exception\InvalidOptionsException;
@@ -22,7 +20,6 @@ use function is_string;
 use function json_encode;
 use function preg_match;
 use function strtolower;
-use function trim;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -33,8 +30,9 @@ use const JSON_THROW_ON_ERROR;
  * A bare ColorType cannot be empty (a browser always posts `#000000`), so the swatch has no `name`: it is never submitted
  * and only mirrors the hex input. Empty hex = null = follow the preset; the swatch then shows the preset colour (the
  * `preset` option, or the colour {@see SettingField::withPresetFrom()} maps to the current value of the source field;
- * the page script follows a change of that field). The server saves a colour equal to the preset as null, and the form
- * shows a value equal to the `preset` option (the effective default of an unstored field) as empty.
+ * the page script follows a change of that field). The server saves a colour equal to the preset as null. The section
+ * form passes null for a colour that is not stored (not its default), so an unstored colour shows empty and a stored
+ * one, whatever its value, is shown and re-submitted as stored (1.12, audit LM-M1).
  *
  * Markup (`Form/color.html.twig`, block `nowo_instance_settings_color_widget`): the swatch and the reset are `hidden`
  * until the page script (`bundles/nowoinstancesettings/js/nowo-instance-settings-color.js`, deferred, nonce from the
@@ -59,21 +57,6 @@ final class SettingColorType extends AbstractType
 
     /** Swatch value while nothing (or an invalid colour) is entered and there is no preset (what ColorType would post). */
     public const FALLBACK_SWATCH = '#000000';
-
-    /**
-     * Shows a value equal to the `preset` option as empty (null = follow the preset): the section form is built from
-     * the effective values, where an unstored field holds its default. The submitted value is not transformed.
-     *
-     * @param array{preset: string|null} $options
-     */
-    public function buildForm(FormBuilderInterface $builder, array $options): void
-    {
-        $preset = $options[self::PRESET];
-        $builder->addModelTransformer(new CallbackTransformer(
-            static fn (mixed $value): mixed => is_string($value) && $preset !== null && strtolower(trim($value)) === $preset ? null : $value,
-            static fn (mixed $value): mixed => $value,
-        ));
-    }
 
     /**
      * Swatch, effective preset (`preset`), the option preset (`static_preset`, what an unmapped source value falls back

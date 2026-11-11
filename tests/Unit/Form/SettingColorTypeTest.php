@@ -39,9 +39,8 @@ final class SettingColorTypeTest extends TestCase
 
         $empty = $factory->createNamed('accent', SettingColorType::class, null, [SettingColorType::PRESET => '#112233'])->createView();
         self::assertSame('#112233', $empty->vars['swatch']);
-        $default = $factory->createNamed('accent', SettingColorType::class, '#112233 ', [SettingColorType::PRESET => '#112233'])->createView();
-        self::assertSame('', $default->vars['value'], 'the effective default (= preset) is shown empty');
-        self::assertSame('#112233', $default->vars['swatch']);
+        $stored = $factory->createNamed('accent', SettingColorType::class, '#112233', [SettingColorType::PRESET => '#112233'])->createView();
+        self::assertSame('#112233', $stored->vars['value'], 'the form data is shown as is (the section form passes null for an unstored colour)');
         $none = $factory->createNamed('accent', SettingColorType::class, 'red')->createView();
         self::assertSame(SettingColorType::FALLBACK_SWATCH, $none->vars['swatch'], 'no preset, invalid value: what a bare ColorType shows');
 
