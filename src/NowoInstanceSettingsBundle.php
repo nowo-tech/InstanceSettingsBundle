@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle;
 
+use Doctrine\Bundle\DoctrineBundle\DependencyInjection\Compiler\DoctrineOrmMappingsPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\EntityManagerMappingPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
@@ -56,6 +58,23 @@ final class NowoInstanceSettingsBundle extends Bundle
         $container->addCompilerPass(new SettingsSectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
         // Before DoctrineBundle's MiddlewaresPass (priority 0): the middleware follows the bundle's connection only.
         $container->addCompilerPass(new FileStoreMiddlewarePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        // 1.11 (rule 6): with doctrine.entity_manager, the entities are mapped on that manager (not prepended to the
+        // default one) and removed from every other manager's chain (auto_mapping), after the mapping passes. An
+        // unknown manager fails first, with the option's name in the message.
+        $container->addCompilerPass(new EntityManagerMappingPass(true), PassConfig::TYPE_BEFORE_OPTIMIZATION, 20);
+        $container->addCompilerPass(DoctrineOrmMappingsPass::createAttributeMappingDriver(
+            [EntityManagerMappingPass::ENTITY_NAMESPACE],
+            [__DIR__ . '/Entity'],
+            [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
+            NowoInstanceSettingsExtension::DEDICATED_MAPPING_PARAMETER,
+        ));
+        $container->addCompilerPass(DoctrineOrmMappingsPass::createAttributeMappingDriver(
+            [EntityManagerMappingPass::FILE_ENTITY_NAMESPACE],
+            [__DIR__ . '/FileEntity'],
+            [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
+            NowoInstanceSettingsExtension::DEDICATED_FILES_MAPPING_PARAMETER,
+        ));
+        $container->addCompilerPass(new EntityManagerMappingPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -10);
     }
 
     /**

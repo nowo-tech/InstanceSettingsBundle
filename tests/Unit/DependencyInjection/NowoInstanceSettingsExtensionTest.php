@@ -11,6 +11,7 @@ use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
+use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
@@ -22,7 +23,9 @@ use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
 use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowReader;
+use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowWriter;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
+use Nowo\InstanceSettingsBundle\Repository\SettingRowWriterInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
@@ -165,6 +168,45 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertFalse(NowoInstanceSettingsExtension::filesEnabled([['files' => ['enabled' => true]], ['files' => ['enabled' => false]]]), 'the last value wins');
         self::assertFalse(NowoInstanceSettingsExtension::filesEnabled([['files' => ['enabled' => '%env(bool:FILES)%']]]), 'a placeholder never maps');
         self::assertFalse(NowoInstanceSettingsExtension::filesEnabled([['files' => 'x'], []]));
+    }
+
+    public function testADedicatedManagerIsMappedByTheBundleClassNotPrepended(): void
+    {
+        $container = new ContainerBuilder();
+        $container->registerExtension($this->extension('doctrine'));
+        $container->registerExtension(new NowoInstanceSettingsExtension());
+        $container->loadFromExtension('nowo_instance_settings', ['doctrine' => ['entity_manager' => ' settings '], 'files' => ['enabled' => true]]);
+        (new NowoInstanceSettingsExtension())->prepend($container);
+
+        self::assertSame([], $container->getExtensionConfig('doctrine'), 'nothing prepended to the default manager');
+        self::assertTrue($container->getParameter(NowoInstanceSettingsExtension::DEDICATED_MAPPING_PARAMETER));
+        self::assertTrue($container->getParameter(NowoInstanceSettingsExtension::DEDICATED_FILES_MAPPING_PARAMETER));
+
+        self::assertSame('settings', NowoInstanceSettingsExtension::rawEntityManager([['doctrine' => ['entity_manager' => 'other']], ['doctrine' => ['entity_manager' => 'settings']]]));
+        self::assertNull(NowoInstanceSettingsExtension::rawEntityManager([['doctrine' => ['entity_manager' => 'settings']], ['doctrine' => ['entity_manager' => null]]]), 'the last value wins');
+        self::assertNull(NowoInstanceSettingsExtension::rawEntityManager([['doctrine' => ['entity_manager' => '  ']], ['doctrine' => 'x'], []]));
+
+        $container->setParameter(NowoInstanceSettingsExtension::FILES_MAPPED_PARAMETER, true);
+        $container->registerExtension($this->extension('security'));
+        (new NowoInstanceSettingsExtension())->load([['doctrine' => ['entity_manager' => 'settings'], 'files' => ['enabled' => true]]], $container);
+        self::assertSame('settings', $container->getParameter('nowo_instance_settings.doctrine.entity_manager'));
+        self::assertSame('settings', $container->getDefinition(SettingsEntityManager::class)->getArgument(1));
+        self::assertTrue($container->getDefinition(SettingsEntityManager::class)->hasTag('kernel.reset'));
+        self::assertSame(SettingsEntityManager::class, (string) $container->getDefinition(DoctrineSettingFileStore::class)->getArgument(2));
+        self::assertSame(RepositorySettingRowWriter::class, (string) $container->getAlias(SettingRowWriterInterface::class));
+        self::assertTrue($container->getAlias(SettingRowWriterInterface::class)->isPublic());
+    }
+
+    public function testAManagerTheMappingDidNotSeeFailsTheBuild(): void
+    {
+        $container = new ContainerBuilder();
+        $container->registerExtension($this->extension('security'));
+        // prepend() ran (doctrine registered) without doctrine.entity_manager: the entities went to the default manager.
+        $container->setParameter(NowoInstanceSettingsExtension::FILES_MAPPED_PARAMETER, false);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('doctrine.entity_manager must be a literal manager name set in the host configuration');
+        (new NowoInstanceSettingsExtension())->load([['doctrine' => ['entity_manager' => 'settings']]], $container);
     }
 
     public function testFilesOffRegistersNoStoreRouteControllerOrPurge(): void

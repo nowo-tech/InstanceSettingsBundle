@@ -7,7 +7,7 @@ namespace Nowo\InstanceSettingsBundle\File;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
-use LogicException;
+use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
 
 use function array_flip;
@@ -21,19 +21,28 @@ use function strlen;
  * Database store of the image setting files (table `instance_setting_file`, spec 220 §5.5).
  *
  * Metadata is read with scalar DQL (the blob is never hydrated for a lookup, an ETag check or a purge); the bytes are
- * read only by {@see self::read()}. Worker-safe: the entity manager is resolved per call and nothing is memoized.
+ * read only by {@see self::read()}. Since 1.11 (architecture bar rule 6) it works on the bundle's private entity
+ * manager ({@see SettingsEntityManager}, shared with the setting repository): a save flushes only the file rows and
+ * no application manager is flushed or reset. Worker-safe: the private manager is replaced when closed and the rows
+ * are detached right after each write; nothing is memoized.
  */
 final readonly class DoctrineSettingFileStore implements SettingFileStoreInterface
 {
     private const COLUMNS = 'f.id, f.section, f.name, f.sha256, f.variant, f.mimeType, f.width, f.height, f.byteSize, f.orphanedAt';
 
+    private SettingsEntityManager $entityManager;
+
     /**
-     * @param string|null $entityManagerName Doctrine entity manager name (null = default)
+     * @param ManagerRegistry $registry Doctrine registry
+     * @param string|null $entityManagerName `doctrine.entity_manager` (null = the manager that maps the bundle entities)
+     * @param SettingsEntityManager|null $entityManager the bundle's private manager (shared with the setting repository)
      */
     public function __construct(
-        private ManagerRegistry $registry,
-        private ?string $entityManagerName = null,
+        ManagerRegistry $registry,
+        ?string $entityManagerName = null,
+        ?SettingsEntityManager $entityManager = null,
     ) {
+        $this->entityManager = $entityManager ?? new SettingsEntityManager($registry, $entityManagerName);
     }
 
     /**
@@ -213,15 +222,6 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
 
     private function entityManager(): EntityManagerInterface
     {
-        $entityManager = $this->registry->getManager($this->entityManagerName);
-        if ($entityManager instanceof EntityManagerInterface && !$entityManager->isOpen()) {
-            $entityManager = $this->registry->resetManager($this->entityManagerName);
-        }
-
-        if (!$entityManager instanceof EntityManagerInterface) {
-            throw new LogicException(sprintf('Entity manager "%s" is not a Doctrine ORM entity manager.', $this->entityManagerName ?? 'default'));
-        }
-
-        return $entityManager;
+        return $this->entityManager->get();
     }
 }

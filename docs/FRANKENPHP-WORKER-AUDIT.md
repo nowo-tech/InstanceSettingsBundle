@@ -36,7 +36,7 @@ A bundle safe under **B** is safe under **A**, classic mode and PHP-FPM.
 | `ResetInterface` / `kernel.reset` | ✅ | `InstanceSettings::reset()` (tag `kernel.reset`) — also correct without it (scenario B) |
 | Request / user captured in services | ✅ | `AccessGuard` reads `RequestStack::getMainRequest()` and the token per call and trusts the token only with a firewall context; the memo keeps only a weak reference to the request |
 | Superglobals, `putenv`, `ini_set`, `setlocale`, timezone | ✅ | None |
-| Doctrine | ✅ | Entity manager resolved per call from the registry (closed one reset), `HINT_REFRESH` reads (no stale identity-map values from an earlier request), DoctrineEncrypt decrypts on load |
+| Doctrine | ✅ | Since 1.11 a bundle-owned private entity manager (`SettingsEntityManager`) on the source manager's connection: cleared after every write unit, replaced when closed or when the connection changed, dropped on `kernel.reset`; the application's managers are never flushed, cleared or reset. `HINT_REFRESH` reads (no stale identity-map values from an earlier request), DoctrineEncrypt decrypts on load. Covered by a kept-alive kernel test through `http_kernel` (no services resetter): a failed bundle write, then the next request saves again; memory flat over 300 requests |
 | Resources held open | ✅ | None (upload / CLI files closed in `finally`) |
 | Memory growth across requests | ✅ | The memo is replaced, not appended, on each request |
 | Output, headers, `exit` | ✅ | Responses / console output only |

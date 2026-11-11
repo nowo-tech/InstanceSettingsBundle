@@ -862,7 +862,7 @@ Section and field labels use each section's own domain. The secret widget copy (
 ## Doctrine schema and migrations
 
 The bundle maps one entity, two with `files.enabled: true` (the mappings are prepended to `doctrine.orm.mappings`
-automatically):
+automatically; with `doctrine.entity_manager` set they are mapped on that manager only, since 1.11):
 
 - `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`).
 - `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#to-160) for the DDL.
@@ -933,6 +933,37 @@ that did not persist.
 unserialized row has no secret). Call `secret()` only where you really need the value. Single values still go through
 `InstanceSettingsInterface` (defaults, overrides, type checks).
 
+**Transactions and entity managers (1.11).** The bundle never flushes, clears or resets an entity manager of yours.
+It reads and writes through a private entity manager on the connection of the manager that maps its entity, so:
+
+- *Standard application* (attributes, one default manager, no option): nothing to configure. `save()` writes the
+  settings rows only; your pending entities stay pending until you flush them.
+- *DDD application* (XML-mapped domain, several managers, the domain's unit of work must stay untouched): optionally
+  give the bundle its own manager. With `auto_mapping: true` on the default manager the bundle removes its entities
+  from it; the build fails if the manager is missing. Keep `default_entity_manager` pointing at yours.
+
+  ```yaml
+  doctrine:
+      orm:
+          default_entity_manager: default
+          entity_managers:
+              default: { connection: default, mappings: { Domain: { type: xml, dir: '%kernel.project_dir%/config/doctrine', prefix: 'App\Domain' } } }
+              instance_settings: { connection: default }   # same connection: your transactions include the settings rows
+  nowo_instance_settings:
+      doctrine:
+          entity_manager: instance_settings
+  ```
+
+- *Host controls the transaction.* There is no switch to turn: call `save()` (or an import) inside your own
+  transaction on the same connection (`$connection->transactional(...)`, `$em->wrapInTransaction(...)`). The rows
+  commit or roll back with it and `SettingsChangedEvent` is dispatched after your outermost commit (dropped on
+  rollback). A manager on another connection gets its own transaction and the event right after it.
+
+**Writing the raw store without the entity.** `Repository\SettingRowWriterInterface::writeRows($save, $remove)`
+(1.11) takes `StoredSettingRow` DTOs (insert or replace by section and name; a secret row stores `secret()`, encrypted
+at rest) and `section.field` keys to delete, in one transaction. It writes the store as given (no section schema, no
+event): use it for migrations and restores; application code keeps using `InstanceSettingsInterface::save()`.
+
 **Other ports you can implement**
 
 | Port | Purpose | How it is wired |
@@ -951,10 +982,10 @@ For image fields written from application code, pass `ImageUpload::fromBytes()` 
 
 **Known limitations**
 
-- The write side of `SettingValueRepositoryInterface` (`apply()`, and the `findAll()` / `findBySection()` the bundle
-  uses itself) still works with the Doctrine entity `SettingValue`, and the ORM mapping is always registered: replacing
-  the storage with a non-Doctrine backend means building those entities and handling secret encryption yourself. Reads
-  for your own code have the DTO port above.
+- The storage SPI `SettingValueRepositoryInterface` (`apply()`, `findAll()`, `findBySection()`, which the bundle uses
+  itself) still works with the Doctrine entity `SettingValue` (deprecated as a public API since 1.11, DTO-typed in
+  2.0), and the ORM mapping is always registered: replacing the storage with a non-Doctrine backend means building
+  those entities and handling secret encryption yourself. Your own code reads and writes through the DTO ports above.
 - `SettingsChangedEvent` carries field names only, not values. With a non-Doctrine store the after-commit dispatch
   only follows transactions on the bundle's Doctrine connection.
 - Keys are `section.field` strings; map them to typed values in your adapter.

@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [To 1.11.0](#to-1110)
 - [To 1.10.0](#to-1100)
 - [To 1.10.0](#to-1100-1)
 - [To 1.9.0](#to-190)
@@ -26,6 +27,29 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+### To 1.11.0
+
+Target **1.11.0**, from **1.10.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+No configuration change for a standard application.
+
+1. **Your pending changes are no longer flushed by a settings save.** Before 1.11, `save()` (and imports, seeds,
+   `SettingValueRepositoryInterface::apply()`) flushed the whole default entity manager. If some code of yours relied
+   on a settings save to persist its own entities, flush them yourself. A failed settings write no longer resets your
+   entity manager either; it only closes the bundle's private one.
+2. **Rows loaded through your own entity manager** (for example `$em->getRepository(SettingValue::class)`) are not
+   the instances the bundle writes: refresh them, or read through `SettingRowReaderInterface` / `InstanceSettingsInterface`.
+3. **`doctrine.entity_manager`** now maps the entities on that manager only and requires a literal manager name set in
+   the host configuration. If you mapped them on that manager by hand, you may remove your mapping. If you set the
+   option but kept the tables on the default manager's database, remove the option (or move the tables).
+4. **Deprecated:** the entity-typed `SettingValueRepositoryInterface::findAll()`, `findBySection()` and `apply()` as a
+   public API. Read with `SettingRowReaderInterface` and write with the new `SettingRowWriterInterface::writeRows()`.
+   Custom implementations of the interface keep working in 1.x.
 
 ## To 1.10.0
 

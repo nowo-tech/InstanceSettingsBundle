@@ -29,6 +29,7 @@ use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
+use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
@@ -52,7 +53,9 @@ use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
 use Nowo\InstanceSettingsBundle\Repository\DoctrineSettingValueRepository;
 use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowReader;
+use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowWriter;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
+use Nowo\InstanceSettingsBundle\Repository\SettingRowWriterInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
 use Nowo\InstanceSettingsBundle\Secret\DoctrineEncryptSecretSealer;
@@ -97,6 +100,7 @@ use function is_string;
 use function rtrim;
 use function sprintf;
 use function str_starts_with;
+use function trim;
 
 /**
  * Loads `nowo_instance_settings`: the settings store, sections registry, fallback seeder, portability, CLI, and (when enabled) the
@@ -109,6 +113,12 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 
     /** Parameter set by prepend(): whether the file entity mapping was prepended (audit IO-I10). */
     public const FILES_MAPPED_PARAMETER = 'nowo_instance_settings.files.mapped';
+
+    /** Parameter set by prepend() with `doctrine.entity_manager` (1.11): the entities are mapped on that manager only. */
+    public const DEDICATED_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_mapping';
+
+    /** Parameter set by prepend() with `doctrine.entity_manager` and the files enabled (1.11): the file entity too. */
+    public const DEDICATED_FILES_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_files_mapping';
 
     /**
      * @param bool|null $brandContracts whether nowo-tech/brand-contracts is installed (null = detect; tests)
@@ -144,9 +154,22 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             ];
             // Opt-in (1.4): hosts without image fields keep the 1.3 schema (no file table, no migration diff).
             // brand.enabled (1.5) implies the files: decided here, in this extension's own prepend (audit IO-I10).
-            $filesMapped = self::filesEnabled($container->getExtensionConfig(Configuration::ALIAS));
+            $rawConfigs  = $container->getExtensionConfig(Configuration::ALIAS);
+            $filesMapped = self::filesEnabled($rawConfigs);
             // load() compares with this: a flag another extension prepends after this one fails with a clear message.
             $container->setParameter(self::FILES_MAPPED_PARAMETER, $filesMapped);
+            // 1.11 (rule 6): with doctrine.entity_manager the bundle maps its entities on that manager only, through
+            // DoctrineOrmMappingsPass + EntityManagerMappingPass (registered by the bundle class); nothing is
+            // prepended to the default manager.
+            if (self::rawEntityManager($rawConfigs) !== null) {
+                $container->setParameter(self::DEDICATED_MAPPING_PARAMETER, true);
+                if ($filesMapped) {
+                    $container->setParameter(self::DEDICATED_FILES_MAPPING_PARAMETER, true);
+                }
+                $this->prependFormKitProfile($container);
+
+                return;
+            }
             if ($filesMapped) {
                 $mappings[self::FILES_MAPPING] = [
                     'type'      => 'attribute',
@@ -182,6 +205,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->assertFilePrefix($config['files']['path_prefix'], $config['web_ui']['path_prefix']);
 
         $container->setParameter('nowo_instance_settings.doctrine.table_prefix', $config['doctrine']['table_prefix']);
+        $this->assertDedicatedMapping($container, $config['doctrine']['entity_manager']);
         $container->setParameter(FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER, $config['doctrine']['entity_manager']);
         $container->setParameter('nowo_instance_settings.web_ui.enabled', $webUi);
         $container->setParameter('nowo_instance_settings.web_ui.path_prefix', $config['web_ui']['path_prefix']);
@@ -308,6 +332,22 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
+     * 1.11: the mapping is decided in prepend() from the raw `doctrine.entity_manager`; a value another extension
+     * prepends after this one (or a non-literal one) would leave the entities on the wrong manager.
+     */
+    private function assertDedicatedMapping(ContainerBuilder $container, ?string $entityManager): void
+    {
+        if (!$container->hasParameter(self::FILES_MAPPED_PARAMETER)) {
+            // prepend() did not run with DoctrineBundle registered: nothing was mapped either way.
+            return;
+        }
+        $dedicated = $container->hasParameter(self::DEDICATED_MAPPING_PARAMETER);
+        if ($dedicated !== ($entityManager !== null && trim($entityManager) !== '')) {
+            throw new LogicException('NowoInstanceSettingsBundle: doctrine.entity_manager must be a literal manager name set in the host configuration (config/packages/nowo_instance_settings.yaml): the entity mapping is decided before the configuration is processed.');
+        }
+    }
+
+    /**
      * Audit IO-I10: the file table is mapped in prepend() from the raw configs. If another extension prepends
      * `files.enabled` / `brand.enabled` after that, the store would be registered without its entity: refuse at compile
      * time instead of a Doctrine mapping error on the first image save.
@@ -351,6 +391,24 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
+     * The last literal, non-empty `doctrine.entity_manager` of the raw configs (null = not set: the default manager).
+     *
+     * @param array<array<string, mixed>> $configs
+     */
+    public static function rawEntityManager(array $configs): ?string
+    {
+        $name = null;
+        foreach ($configs as $config) {
+            $doctrine = $config['doctrine'] ?? null;
+            if (is_array($doctrine) && array_key_exists('entity_manager', $doctrine)) {
+                $name = is_string($doctrine['entity_manager']) && trim($doctrine['entity_manager']) !== '' ? trim($doctrine['entity_manager']) : null;
+            }
+        }
+
+        return $name;
+    }
+
+    /**
      * The last literal `<node>.enabled` of the raw configs (false when none is set or it is not a boolean).
      *
      * @param array<array<string, mixed>> $configs
@@ -380,9 +438,17 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $filesEnabled,
         ]));
 
+        // 1.11 (rule 6): the bundle's private entity manager on the connection of the manager that maps the entities;
+        // shared by the repository and the database file store. Never flushes or resets an application manager.
+        $container->setDefinition(SettingsEntityManager::class, (new Definition(SettingsEntityManager::class, [
+            new Reference('doctrine'),
+            $doctrine['entity_manager'],
+        ]))->addTag('kernel.reset', ['method' => 'reset']));
+
         $container->setDefinition(DoctrineSettingValueRepository::class, new Definition(DoctrineSettingValueRepository::class, [
             new Reference('doctrine'),
             $doctrine['entity_manager'],
+            new Reference(SettingsEntityManager::class),
         ]));
         $container->setAlias(SettingValueRepositoryInterface::class, DoctrineSettingValueRepository::class);
 
@@ -407,6 +473,11 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(SettingValueRepositoryInterface::class),
         ]));
         $container->setAlias(SettingRowReaderInterface::class, RepositorySettingRowReader::class)->setPublic(true);
+        // 1.11 (rule 3): the DTO write counterpart, over the same repository.
+        $container->setDefinition(RepositorySettingRowWriter::class, new Definition(RepositorySettingRowWriter::class, [
+            new Reference(SettingValueRepositoryInterface::class),
+        ]));
+        $container->setAlias(SettingRowWriterInterface::class, RepositorySettingRowWriter::class)->setPublic(true);
 
         $container->setDefinition(InstanceSettings::class, (new Definition(InstanceSettings::class, [
             new Reference(SettingValueRepositoryInterface::class),
@@ -491,6 +562,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setDefinition(DoctrineSettingFileStore::class, new Definition(DoctrineSettingFileStore::class, [
             new Reference('doctrine'),
             $doctrine['entity_manager'],
+            new Reference(SettingsEntityManager::class),
         ]));
         if ($files['store'] === 'filesystem') {
             // 1.7 (owner decision D-20261109-03): stable files per field in files.directory, no database blob.

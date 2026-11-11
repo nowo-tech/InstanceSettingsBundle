@@ -4,31 +4,43 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Repository;
 
-use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Query;
 use Doctrine\Persistence\ManagerRegistry;
-use LogicException;
+use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
-use Throwable;
 
 use function sprintf;
 
 /**
  * Doctrine ORM storage of the instance settings.
  *
- * Worker-safe without `kernel.reset`: the entity manager is resolved per call from the registry (a closed one is
- * reset), and reads use {@see Query::HINT_REFRESH} so rows are re-hydrated (and decrypted again) instead of being
- * served stale from the identity map of an earlier request.
+ * Since 1.11 (architecture bar rule 6) every read and write goes through the bundle's private entity manager
+ * ({@see SettingsEntityManager}): a save flushes only the bundle rows, never a change the application left pending in
+ * its own entity manager, and no application manager is ever reset. The connection is shared, so a transaction the
+ * application opened around the call includes the rows.
+ *
+ * Worker-safe without `kernel.reset`: the private manager is cleared after every write unit and replaced when closed,
+ * and reads use {@see Query::HINT_REFRESH} so rows are re-hydrated (and decrypted again) instead of being served stale
+ * from the identity map of an earlier request.
  */
-final readonly class DoctrineSettingValueRepository implements SettingValueRepositoryInterface
+final class DoctrineSettingValueRepository implements SettingValueRepositoryInterface
 {
+    private readonly SettingsEntityManager $entityManager;
+
+    /** Open {@see transactional()} levels: the private manager is cleared when the outermost one ends (back to 0 in finally). */
+    private int $depth = 0;
+
     /**
-     * @param string|null $entityManagerName Doctrine entity manager name (null = default)
+     * @param ManagerRegistry $registry Doctrine registry
+     * @param string|null $entityManagerName `doctrine.entity_manager` (null = the manager that maps the entity)
+     * @param SettingsEntityManager|null $entityManager the bundle's private manager (shared with the file store)
      */
     public function __construct(
-        private ManagerRegistry $registry,
-        private ?string $entityManagerName = null,
+        ManagerRegistry $registry,
+        ?string $entityManagerName = null,
+        ?SettingsEntityManager $entityManager = null,
     ) {
+        $this->entityManager = $entityManager ?? new SettingsEntityManager($registry, $entityManagerName);
     }
 
     /**
@@ -56,56 +68,52 @@ final readonly class DoctrineSettingValueRepository implements SettingValueRepos
     }
 
     /**
-     * Persists and removes rows with a single flush; a failed flush resets a closed entity manager.
+     * Persists and removes rows with a single flush of the bundle's private entity manager (never the application's).
+     * A failed flush closes only that private manager; the next call gets a fresh one.
      */
     public function apply(array $save, array $remove): void
     {
-        $entityManager = $this->entityManager();
+        $entityManager = $this->entityManager->get();
         foreach ($save as $row) {
             $entityManager->persist($row);
         }
         foreach ($remove as $row) {
-            // @igor-ignore - Unit-of-work scheduling on the request's entity manager; Doctrine resets it between requests.
+            // @igor-ignore - Unit-of-work scheduling on the bundle's private entity manager, cleared after the write unit.
             $entityManager->remove($row);
         }
 
         try {
             $entityManager->flush();
-        } catch (Throwable $e) {
-            if (!$entityManager->isOpen()) {
-                $this->registry->resetManager($this->entityManagerName);
+        } finally {
+            if ($this->depth === 0) {
+                // @igor-ignore - Clears the bundle's own private unit of work at the end of the write unit (rule 6).
+                $this->entityManager->clear();
             }
-
-            throw $e;
         }
     }
 
     /**
-     * Wraps the callback in {@see EntityManagerInterface::wrapInTransaction()}.
+     * Runs the callback in one transaction of the private entity manager (on the shared connection).
      */
     public function transactional(callable $callback): mixed
     {
-        return $this->entityManager()->wrapInTransaction(static fn (): mixed => $callback());
+        // @igor-ignore - Nesting counter of the running call, back to 0 in finally (never spans requests).
+        ++$this->depth;
+        try {
+            return $this->entityManager->get()->wrapInTransaction(static fn (): mixed => $callback());
+        } finally {
+            // @igor-ignore - Nesting counter of the running call, back to 0 in finally (never spans requests).
+            if (--$this->depth === 0) {
+                // @igor-ignore - Clears the bundle's own private unit of work at the end of the write unit (rule 6).
+                $this->entityManager->clear();
+            }
+        }
     }
 
     private function query(string $dql): Query
     {
-        return $this->entityManager()
+        return $this->entityManager->get()
             ->createQuery(sprintf($dql, SettingValue::class))
             ->setHint(Query::HINT_REFRESH, true);
-    }
-
-    private function entityManager(): EntityManagerInterface
-    {
-        $entityManager = $this->registry->getManager($this->entityManagerName);
-        if ($entityManager instanceof EntityManagerInterface && !$entityManager->isOpen()) {
-            $entityManager = $this->registry->resetManager($this->entityManagerName);
-        }
-
-        if (!$entityManager instanceof EntityManagerInterface) {
-            throw new LogicException(sprintf('Entity manager "%s" is not a Doctrine ORM entity manager.', $this->entityManagerName ?? 'default'));
-        }
-
-        return $entityManager;
     }
 }
