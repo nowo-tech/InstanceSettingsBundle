@@ -36,6 +36,7 @@ use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
+use Nowo\InstanceSettingsBundle\EventListener\WorkerBoundaryResetListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
@@ -82,6 +83,7 @@ use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Resource\FileResource;
+use Symfony\Component\DependencyInjection\Argument\IteratorArgument;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ChildDefinition;
@@ -542,6 +544,23 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(SettingFileUrls::class),
         ]))->addTag('kernel.reset', ['method' => 'reset']));
         $container->setAlias(InstanceSettingsInterface::class, InstanceSettings::class)->setPublic(true);
+
+        // 1.13.1 (REQ-RUNTIME-002): the memo and the private manager are also cleared where kernel.reset does not run
+        // (no services resetter, `messenger:consume --no-reset`, long console commands). Uninitialized services are
+        // skipped, so no boundary builds them.
+        $boundary = (new Definition(WorkerBoundaryResetListener::class, [
+            new IteratorArgument([
+                new Reference(InstanceSettings::class, ContainerInterface::IGNORE_ON_UNINITIALIZED_REFERENCE),
+                new Reference(SettingsEntityManager::class, ContainerInterface::IGNORE_ON_UNINITIALIZED_REFERENCE),
+            ]),
+        ]))->addTag('kernel.event_listener', ['event' => KernelEvents::REQUEST, 'method' => 'onKernelRequest', 'priority' => WorkerBoundaryResetListener::START_PRIORITY]);
+        foreach (WorkerBoundaryResetListener::START_EVENTS as $event) {
+            $boundary->addTag('kernel.event_listener', ['event' => $event, 'method' => 'onBoundary', 'priority' => WorkerBoundaryResetListener::START_PRIORITY]);
+        }
+        foreach (WorkerBoundaryResetListener::END_EVENTS as $event) {
+            $boundary->addTag('kernel.event_listener', ['event' => $event, 'method' => 'onBoundary', 'priority' => WorkerBoundaryResetListener::END_PRIORITY]);
+        }
+        $container->setDefinition(WorkerBoundaryResetListener::class, $boundary);
 
         $container->setDefinition(TransactionStateGuard::class, new Definition(TransactionStateGuard::class, [
             new Reference('doctrine'),

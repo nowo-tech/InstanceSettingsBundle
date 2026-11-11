@@ -27,6 +27,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target: 1.13.1 (patch).
+
+### Fixed
+
+- **Stale settings outside HTTP when the services resetter does not run (1.0.0 – 1.13.0):** outside a main request the
+  `InstanceSettings` rows / image-metadata memo was built once and reused until `kernel.reset`, and the bundle's
+  private entity manager (1.11.0+) was dropped only by `kernel.reset`. With the stock Symfony kernel the services
+  resetter runs before every HTTP request (also with `FRANKENPHP_RESET_KERNEL=false`) and Messenger resets services
+  between messages by default, so stock setups are not affected. A Messenger consumer started with `--no-reset`, a
+  long-running console command, or a host that removes or bypasses `services_resetter` (or drives `http_kernel`
+  directly) kept the values it read first and never saw a change saved by another process: for example an SMS or
+  mail provider token rotated in the admin (SmsKit, MailKit read it from here) kept being used until the process
+  exited. New `EventListener\WorkerBoundaryResetListener` resets the memo and drops the private manager (recreated
+  on next use, also when it was closed) at the main `kernel.request` and `kernel.terminate`, Messenger
+  `WorkerMessageReceived` / `Handled` / `Failed` and `console.command` / `console.terminate`. Its references are
+  `IGNORE_ON_UNINITIALIZED_REFERENCE`: a boundary never builds the settings services. `kernel.reset` stays.
+  Tests: `WorkerBoundaryResetTest` (one kernel, no resetter: 600 Messenger messages and 200 console commands
+  alternating two keys, each changed by "another process" with raw SQL before the unit, closed private manager
+  recovered, memory margin 4 MiB) and `WorkerBoundaryResetListenerTest`.
+
 ## [1.13.0] - 2026-11-11
 
 Error page illustrations from the brand (Beacon 1.147), the LM-L3 colour fix and the 1.12 image-input follow-ups. Audit: Appendix LS and Delta LS, Pass.

@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
+use Nowo\InstanceSettingsBundle\EventListener\WorkerBoundaryResetListener;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
 use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
@@ -46,7 +47,9 @@ use function trim;
 /**
  * Default {@see InstanceSettingsInterface}: one query per request for every row, memoized for the current main request
  * only (a new main request always reloads, even when `kernel.reset` is not called between worker requests) and cleared
- * by {@see reset()} and after every save.
+ * by {@see reset()} and after every save. Outside HTTP (Messenger message, console command) the memo lives for one unit
+ * of work: {@see WorkerBoundaryResetListener} calls {@see reset()} at every boundary, also when the services resetter
+ * does not run.
  */
 final class InstanceSettings implements InstanceSettingsInterface, ResetInterface
 {
