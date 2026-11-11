@@ -13,6 +13,8 @@ use Nowo\InstanceSettingsBundle\Form\PortabilityImportType;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
+use Nowo\UiKitBundle\Form\ImageInputTypeExtension;
+use Symfony\Component\Form\Extension\Core\Type\FileType;
 use Symfony\Component\Form\Extension\Csrf\CsrfExtension;
 use Symfony\Component\Form\Extension\HttpFoundation\HttpFoundationExtension;
 use Symfony\Component\Form\Extension\Validator\ValidatorExtension;
@@ -50,7 +52,7 @@ final class FormFactorySupport
         }
 
         return Forms::createFormFactoryBuilder()
-            ->addExtension(new PreloadedExtension([...$types, new SecretType()], []))
+            ->addExtension(new PreloadedExtension([...$types, new SecretType()], [FileType::class => [new ImageInputTypeExtension()]]))
             ->addExtension(new HttpFoundationExtension())
             ->addExtension(new ValidatorExtension(Validation::createValidator()))
             ->addExtension(new CsrfExtension(new class($validCsrf) implements CsrfTokenManagerInterface {

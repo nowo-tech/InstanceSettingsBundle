@@ -2,46 +2,71 @@
  * InstanceSettingsBundle 1.12 — styles of the bundle's own widgets, themed by UiKit tokens (--nowo-ui-*), with
  * fallbacks for hosts without UiKit's stylesheet. Loaded by the section page next to the widget script.
  * Colour input (Form/color.html.twig): swatch + hex input + "Use the preset colour" on one line.
+ * Image fields (1.12): one card per image field (row class nowo-instance-settings-image-card), two per line from 40rem,
+ * holding UiKit's image input box (label, image, Replace / Remove / Undo, help).
  */
-@layer nowo-instance-settings {
-    .nowo-instance-settings-color {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 0.5rem;
+.nowo-instance-settings-color {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.nowo-instance-settings-color > input[data-nowo-instance-settings-color-hex] {
+    flex: 0 1 10rem;
+    min-width: 7.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.nowo-instance-settings-color__swatch {
+    inline-size: 2.75rem;
+    block-size: 2.25rem;
+    padding: 0.125rem;
+    border: var(--nowo-ui-border-width, 1px) solid var(--nowo-ui-border, #c8ccd2);
+    border-radius: var(--nowo-ui-radius, 0.375rem);
+    background: var(--nowo-ui-surface, #fff);
+    cursor: pointer;
+}
+
+.nowo-instance-settings-color__swatch:focus-visible {
+    outline: 2px solid var(--nowo-ui-focus-ring-color, var(--nowo-ui-primary, #2563eb));
+    outline-offset: 2px;
+}
+
+.nowo-instance-settings-color__swatch:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.nowo-instance-settings-color[data-state='preset'] > input[data-nowo-instance-settings-color-hex]::placeholder {
+    color: var(--nowo-ui-muted, #6b7280);
+}
+
+.nowo-instance-settings-color [hidden] {
+    display: none !important;
+}
+
+.nowo-instance-settings-image-card {
+    box-sizing: border-box;
+    min-inline-size: 0;
+    margin-block-end: 1rem;
+    padding: 1rem;
+    border: var(--nowo-ui-border-width, 1px) solid var(--nowo-ui-border, #c8ccd2);
+    border-radius: var(--nowo-ui-radius, 0.375rem);
+    background: var(--nowo-ui-surface, #fff);
+}
+
+/* Two-column grid from 40rem: the rows container of a form with image cards; other rows span both columns.
+   Without :has() support the cards stack, full width. */
+@media (min-width: 40rem) {
+    :has(> .nowo-instance-settings-image-card) {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 1rem;
+        align-items: start;
     }
 
-    .nowo-instance-settings-color > input[data-nowo-instance-settings-color-hex] {
-        flex: 0 1 10rem;
-        min-width: 7.5rem;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    }
-
-    .nowo-instance-settings-color__swatch {
-        inline-size: 2.75rem;
-        block-size: 2.25rem;
-        padding: 0.125rem;
-        border: var(--nowo-ui-border-width, 1px) solid var(--nowo-ui-border, #c8ccd2);
-        border-radius: var(--nowo-ui-radius, 0.375rem);
-        background: var(--nowo-ui-surface, #fff);
-        cursor: pointer;
-    }
-
-    .nowo-instance-settings-color__swatch:focus-visible {
-        outline: 2px solid var(--nowo-ui-focus-ring-color, var(--nowo-ui-primary, #2563eb));
-        outline-offset: 2px;
-    }
-
-    .nowo-instance-settings-color__swatch:disabled {
-        cursor: not-allowed;
-        opacity: 0.6;
-    }
-
-    .nowo-instance-settings-color[data-state='preset'] > input[data-nowo-instance-settings-color-hex]::placeholder {
-        color: var(--nowo-ui-muted, #6b7280);
-    }
-
-    .nowo-instance-settings-color [hidden] {
-        display: none !important;
+    :has(> .nowo-instance-settings-image-card) > :not(.nowo-instance-settings-image-card) {
+        grid-column: 1 / -1;
     }
 }

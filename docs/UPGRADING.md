@@ -43,6 +43,23 @@ or an embed `template`) that do not extend the bundle's: add
 (without it the hex inputs keep working; the swatch stays hidden). A template that sets `form_theme ... only` must add
 `@NowoInstanceSettingsBundle/Form/color.html.twig`.
 
+**Image fields** now render as one card each with UiKit's image input box (requires `nowo-tech/ui-kit-bundle` **^2.47**):
+the stored image, else the default (`default_url`; Brand: the configured default asset) with a badge, a local preview
+before saving, Replace / Remove / Undo in the box, the help under it. The form field names (`<field>[file]`,
+`<field>[remove]`) and the upload handling are unchanged, and without JavaScript the plain file input and the remove
+checkbox still submit as before. Changes to check:
+
+- The separate preview list above the form (`image_previews`, `data-testid="instance-settings-image-previews"`) is no
+  longer rendered by the bundle template; the variable is still passed to host templates. `preview: true` is accepted
+  and has no effect on the bundle template.
+- The row of an image field has no label of its own: the field label and help moved to its file input
+  (`<field>_file_help`); the "Upload an image" / "Replace the stored image" labels are no longer shown.
+- Hosts with their own section template load UiKit's `image-input` script
+  (`script_names: nowo_ui_script_names()|merge(['image-input'])`) and
+  `{{ include('@NowoInstanceSettingsBundle/settings/_styles.html.twig') }}` (cards); `img-src` needs `blob:` for the
+  local preview.
+- `withFormOptions(['image_input' => false])` keeps the pre-1.12 markup on a field.
+
 **Migrating your own String + Regex colour fields** (optional; they keep working as they are):
 
 ```php

@@ -19,8 +19,9 @@ use function mkdir;
 use function preg_replace;
 
 /**
- * 1.8 (image crop): with the crop off (the default), the image pages are byte-identical to 1.7.1. The golden files
- * were rendered by 1.7.1 (`c0014bf`); only the per-session CSRF token values are masked.
+ * 1.8 (image crop): with the crop off (the default), the image pages stay byte-identical. The golden files were
+ * rendered by 1.7.1 (`c0014bf`) and re-rendered for 1.12 (UiKit image input box, one card per image field, no preview
+ * list; `UPDATE_GOLDEN=1`); only the per-session CSRF token values are masked.
  */
 final class ImageCropGoldenTest extends KernelTestCase
 {

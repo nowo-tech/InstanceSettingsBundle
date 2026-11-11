@@ -133,7 +133,7 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
                 square: $rules['square'],
                 public: true,
             );
-            $fields[] = $field->withFormOptions(['preview' => true])->withGroup('images');
+            $fields[] = $field->withFormOptions(['preview' => true] + $this->defaultUrl(BrandAssetSlot::extra((string) $id)))->withGroup('images');
         }
 
         return $fields;
@@ -217,6 +217,19 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
             square: $square,
             variants: $variants,
             public: true,
-        )->withFormOptions(['preview' => true])->withGroup('images');
+        )->withFormOptions(['preview' => true] + $this->defaultUrl($slot))->withGroup('images');
+    }
+
+    /**
+     * 1.12: the config default asset of a slot, shown (with a "Default" badge) in the image input box while nothing is
+     * stored. Built once per worker from the compiled config, never from request data.
+     *
+     * @return array{default_url?: string}
+     */
+    private function defaultUrl(string $slot): array
+    {
+        $asset = $this->defaults->asset($slot);
+
+        return $asset instanceof DefaultAsset ? ['default_url' => $asset->url] : [];
     }
 }
