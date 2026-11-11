@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Ui;
 
 use InvalidArgumentException;
+use Nowo\InstanceSettingsBundle\Embed\SectionEmbedOptions;
 use Nowo\InstanceSettingsBundle\Section\SectionGroups;
 use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
 use Nowo\UiKitBundle\View\Label;
@@ -17,23 +18,29 @@ use function http_build_query;
  * The subtabs of a section page (1.14, `web_ui.section_layout: tabs`): one per resolved field group, rendered by
  * `settings/_section_form_tabs.html.twig` with UiKit's in-page tabs runtime (`nowo-ui-tabs.js`).
  *
- * The open tab is the first one with a validation error, else the requested `?group=` code when the section has it,
+ * The open tab is the first one with a validation error, else the requested `?settings_group=` code (the parameter is
+ * configurable) when the section has it,
  * else the first. Built per page from the form view; immutable and never kept between requests.
  */
 final readonly class SectionGroupTabs
 {
-    /** Query parameter of the open tab. */
-    public const QUERY_PARAMETER = 'group';
+    /** Default query parameter of the open tab (namespaced, audit MP-L1: a host page may use its own `?group=`). */
+    public const QUERY_PARAMETER = 'settings_group';
+
+    /** Accepted query parameter names (`web_ui.section_group_parameter`, {@see SectionEmbedOptions::withGroupParameter()}). */
+    public const PARAMETER_PATTERN = '/^[A-Za-z_][A-Za-z0-9_]{0,63}$/D';
 
     /**
      * @param string $id DOM id of the tabs root (`nowo-instance-settings-<section>-groups`)
      * @param string $active code of the open tab
      * @param list<SectionGroupTab> $tabs tabs in order (at least two)
+     * @param string $parameter query parameter of the open tab (`data-nowo-instance-settings-group-parameter`)
      */
     public function __construct(
         public string $id,
         public string $active,
         public array $tabs,
+        public string $parameter = self::QUERY_PARAMETER,
     ) {
         if (count($tabs) < 2) {
             throw new InvalidArgumentException('SectionGroupTabs needs at least two tabs.');
@@ -47,9 +54,10 @@ final readonly class SectionGroupTabs
      * @param list<SettingsGroup> $groups resolved groups ({@see SectionGroups::resolve()}, at least two)
      * @param string $domain section translation domain (labels without their own domain)
      * @param FormView $form the section form view (error counts)
-     * @param string|null $requested `?group=` of the request (ignored unless the section has that group)
+     * @param string|null $requested the open tab asked by the request (ignored unless the section has that group)
+     * @param string $parameter query parameter of the open tab
      */
-    public static function build(string $section, array $groups, string $domain, FormView $form, ?string $requested): self
+    public static function build(string $section, array $groups, string $domain, FormView $form, ?string $requested, string $parameter = self::QUERY_PARAMETER): self
     {
         $id      = 'nowo-instance-settings-' . $section . '-groups';
         $errors  = [];
@@ -78,11 +86,11 @@ final readonly class SectionGroupTabs
                 $group->fields,
                 $errors[$group->code],
                 $group->code === $active,
-                '?' . http_build_query([self::QUERY_PARAMETER => $group->code]),
+                '?' . http_build_query([$parameter => $group->code]),
             );
         }
 
-        return new self($id, $active, $tabs);
+        return new self($id, $active, $tabs, $parameter);
     }
 
     /**

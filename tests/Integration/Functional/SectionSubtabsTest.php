@@ -25,7 +25,7 @@ use function tempnam;
 /**
  * 1.14: `web_ui.section_layout: tabs` shows the field groups of a section as UiKit subtabs: one form (Save saves every
  * group, write-only secrets left blank keep their value), every panel visible until UiKit's tabs runtime upgrades the
- * root (no-JS), the open tab in `?group=` (kept by the redirect after a save), and the first tab with an error open
+ * root (no-JS), the open tab in `?settings_group=` (configurable; kept by the redirect after a save), and the first tab with an error open
  * after a failed save, with an error badge. The embed supports it too; the default stacked layout is unchanged.
  */
 final class SectionSubtabsTest extends KernelTestCase
@@ -79,7 +79,7 @@ final class SectionSubtabsTest extends KernelTestCase
     public function testTheGroupQueryOpensItsTab(): void
     {
         $admin = $this->client($this->brandKernel('tabs'));
-        foreach (['?group=logos' => 'logos', '?group=advanced' => 'identity', '?group=nope' => 'identity', '?group[]=logos' => 'identity'] as $query => $active) {
+        foreach (['?settings_group=logos' => 'logos', '?group=logos' => 'identity', '?settings_group=advanced' => 'identity', '?settings_group=nope' => 'identity', '?settings_group[]=logos' => 'identity'] as $query => $active) {
             $crawler = $admin->request('GET', self::BRAND_URL . $query);
             self::assertSame(200, $admin->getResponse()->getStatusCode(), $query);
             self::assertSame('nowo-instance-settings-brand-groups-' . $active, $crawler->filter('[data-nowo-instance-settings-tabs]')->attr('data-nowo-ui-tabs-active'), $query);
@@ -91,9 +91,9 @@ final class SectionSubtabsTest extends KernelTestCase
     {
         $kernel  = $this->brandKernel('tabs');
         $admin   = $this->client($kernel);
-        $crawler = $admin->request('GET', self::BRAND_URL . '?group=logos');
+        $crawler = $admin->request('GET', self::BRAND_URL . '?settings_group=logos');
 
-        // The form has no action: it posts to the page URL (the URL script keeps ?group= in it).
+        // The form has no action: it posts to the page URL (the URL script keeps ?settings_group= in it).
         self::assertNull($crawler->filter('form[name="settings_section"]')->attr('action'));
         $form = $crawler->filter('form[name="settings_section"]')->form();
         $form->setValues(['settings_section[name]' => 'Grouped Acme']);
@@ -102,12 +102,12 @@ final class SectionSubtabsTest extends KernelTestCase
         $admin->submit($form);
 
         self::assertSame(302, $admin->getResponse()->getStatusCode());
-        self::assertSame(self::BRAND_URL . '?group=logos', $admin->getResponse()->headers->get('Location'));
+        self::assertSame(self::BRAND_URL . '?settings_group=logos', $admin->getResponse()->headers->get('Location'));
         self::assertSame('Grouped Acme', $this->settings($kernel)->getString('brand.name'));
         self::assertNotNull($this->settings($kernel)->getFile('brand.logo_dark'));
         self::assertNotNull($this->settings($kernel)->getFile('brand.extra_mascot'));
 
-        // Without ?group= the redirect has none.
+        // Without ?settings_group= the redirect has none.
         $crawler = $admin->request('GET', self::BRAND_URL);
         $admin->submit($crawler->filter('form[name="settings_section"]')->form());
         self::assertSame(self::BRAND_URL, $admin->getResponse()->headers->get('Location'));
@@ -117,7 +117,7 @@ final class SectionSubtabsTest extends KernelTestCase
     {
         $kernel  = $this->brandKernel('tabs');
         $admin   = $this->client($kernel);
-        $crawler = $admin->request('GET', self::BRAND_URL . '?group=extra_images');
+        $crawler = $admin->request('GET', self::BRAND_URL . '?settings_group=extra_images');
         $form    = $crawler->filter('form[name="settings_section"]')->form();
         $form->setValues(['settings_section[name]' => str_repeat('x', 81)]);
         $form->setValues(['settings_section[wordmark]' => str_repeat('y', 41)]);
@@ -151,7 +151,7 @@ final class SectionSubtabsTest extends KernelTestCase
     public function testTheStackedLayoutIsTheDefaultAndIgnoresTheGroupQuery(): void
     {
         $admin   = $this->client($this->brandKernel(null));
-        $crawler = $admin->request('GET', self::BRAND_URL . '?group=logos');
+        $crawler = $admin->request('GET', self::BRAND_URL . '?settings_group=logos');
         self::assertSame(200, $admin->getResponse()->getStatusCode());
         self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-tabs], [data-nowo-ui-tabs-panel], fieldset'));
         self::assertCount(0, $crawler->filter('script[src$="nowo-instance-settings-tabs.js"]'));
@@ -168,15 +168,17 @@ final class SectionSubtabsTest extends KernelTestCase
             routes: static function (RoutingConfigurator $routes): void {
                 $routes->import('.', 'nowo_instance_settings');
                 $routes->add('host_grouped', '/host/grouped')->controller([EmbedHostController::class, 'grouped'])->methods(['GET', 'POST']);
+                $routes->add('host_grouped_tab', '/host/grouped-tab')->controller([EmbedHostController::class, 'groupedTab'])->methods(['GET', 'POST']);
             },
         );
         $this->settings($kernel)->save('grouped', ['api_key' => 'REDACTED-TEST-key', 'title' => 'Before']);
         $admin   = $this->client($kernel);
-        $crawler = $admin->request('GET', '/host/grouped?tenant=acme&group=credentials');
+        $crawler = $admin->request('GET', '/host/grouped?group=host&tenant=acme&settings_group=credentials');
         self::assertSame(200, $admin->getResponse()->getStatusCode());
 
         self::assertSame(['Basics', 'Credentials', 'Miscellaneous'], $crawler->filter('[role="tab"]')->each(static fn (Crawler $tab): string => $tab->text()));
         self::assertSame('nowo-instance-settings-grouped-groups-credentials', $crawler->filter('[data-nowo-instance-settings-tabs]')->attr('data-nowo-ui-tabs-active'));
+        self::assertSame('settings_group', $crawler->filter('[data-nowo-instance-settings-tabs]')->attr('data-nowo-instance-settings-group-parameter'));
         $panels = $crawler->filter('[data-nowo-ui-tabs-panel]');
         self::assertSame(['title', 'notes'], $this->fieldsOf($panels->eq(0)));
         self::assertSame(['api_key', 'endpoint'], $this->fieldsOf($panels->eq(1)));
@@ -188,13 +190,22 @@ final class SectionSubtabsTest extends KernelTestCase
         $form->setValues(['settings_section[title]' => 'After']);
         $admin->submit($form);
         self::assertSame(302, $admin->getResponse()->getStatusCode());
-        self::assertSame('/host/grouped?tenant=acme&group=credentials', $admin->getResponse()->headers->get('Location'));
+        self::assertSame('/host/grouped?group=host&tenant=acme&settings_group=credentials', $admin->getResponse()->headers->get('Location'), 'the host ?group= is kept (MP-L1)');
         self::assertSame('After', $this->settings($kernel)->getString('grouped.title'));
         self::assertSame('REDACTED-TEST-key', $this->settings($kernel)->getSecret('grouped.api_key'));
 
-        $crawler = $admin->request('GET', '/host/grouped?tenant=acme');
+        $crawler = $admin->request('GET', '/host/grouped?group=host&tenant=acme');
         $admin->submit($crawler->filter('form[name="settings_section"]')->form());
-        self::assertSame('/host/grouped?tenant=acme', $admin->getResponse()->headers->get('Location'));
+        self::assertSame('/host/grouped?group=host&tenant=acme', $admin->getResponse()->headers->get('Location'));
+
+        // A custom parameter (withGroupParameter): read from the request, printed for the script, and replaced (never
+        // duplicated) in a host URL that already carries it.
+        $crawler = $admin->request('GET', '/host/grouped-tab?tab=misc');
+        $root    = $crawler->filter('[data-nowo-instance-settings-tabs]');
+        self::assertSame('tab', $root->attr('data-nowo-instance-settings-group-parameter'));
+        self::assertSame('nowo-instance-settings-grouped-groups-misc', $root->attr('data-nowo-ui-tabs-active'));
+        $admin->submit($crawler->filter('form[name="settings_section"]')->form());
+        self::assertSame('/host/grouped-tab?tab=misc', $admin->getResponse()->headers->get('Location'));
     }
 
     /**

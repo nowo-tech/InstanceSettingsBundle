@@ -10,6 +10,7 @@ use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityEnvelope;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
+use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
@@ -120,9 +121,17 @@ final class Configuration implements ConfigurationInterface
                             ->defaultFalse()
                         ->end()
                         ->enumNode('section_layout')
-                            ->info('1.14: how a section page lays out its field groups (SettingsSectionGroupsInterface, else the fields\' form groups): "stacked" (default: one column, unchanged markup) or "tabs" (one UiKit subtab per group, ?group=<code> in the URL; one form: Save saves every group). A section with fewer than two groups always renders stacked. SectionEmbedOptions::withSectionLayout() overrides it per embed.')
+                            ->info('1.14: how a section page lays out its field groups (SettingsSectionGroupsInterface, else the fields\' form groups): "stacked" (default: one column, unchanged markup) or "tabs" (one UiKit subtab per group, ?settings_group=<code> in the URL; one form: Save saves every group). A section with fewer than two groups always renders stacked. SectionEmbedOptions::withSectionLayout() overrides it per embed.')
                             ->values(['stacked', 'tabs'])
                             ->defaultValue('stacked')
+                        ->end()
+                        ->scalarNode('section_group_parameter')
+                            ->info('1.14 (audit MP-L1): query parameter of the open subtab with section_layout: tabs (default "settings_group", namespaced so a host page keeps its own ?group=). Letters, digits and underscores; SectionEmbedOptions::withGroupParameter() overrides it per embed.')
+                            ->defaultValue(SectionGroupTabs::QUERY_PARAMETER)
+                            ->validate()
+                                ->ifTrue(static fn (mixed $v): bool => !is_string($v) || preg_match(SectionGroupTabs::PARAMETER_PATTERN, $v) !== 1)
+                                ->thenInvalid('nowo_instance_settings.web_ui.section_group_parameter must contain only letters, digits and underscores (not starting with a digit), got %s.')
+                            ->end()
                         ->end()
                         ->arrayNode('templates')
                             ->info('Per-page template overrides (page id => template): section, portability. Extend @!NowoInstanceSettingsBundle/settings/... and override a block.')

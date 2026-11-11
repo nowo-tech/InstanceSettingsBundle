@@ -13,14 +13,14 @@ use Nowo\UiKitBundle\View\Label;
 final readonly class SectionGroupTab
 {
     /**
-     * @param string $code group code (the `?group=` value)
+     * @param string $code group code (the `?settings_group=` value)
      * @param string $tabId tab id of UiKit's tabs runtime (`data-nowo-ui-tab-id`); the button id is `tab-<tabId>` and
      *                      the panel id `tab-<tabId>-panel`
      * @param Label $label tab label
      * @param list<string> $fields form children of the panel, in field order
      * @param int $errors fields of the panel with a validation error (badge)
      * @param bool $active the panel open on load
-     * @param string $href `?group=<code>` (relative link to this tab)
+     * @param string $href `?<parameter>=<code>` (relative link to this tab)
      */
     public function __construct(
         public string $code,

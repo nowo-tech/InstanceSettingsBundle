@@ -9,11 +9,13 @@
   tab / tabpanel, aria-controls, aria-selected, roving tabindex, ArrowLeft / ArrowRight, Home / End; a browser
   `invalid` control in a hidden panel opens it). Inactive panels are only `hidden`, never disabled: Save submits every
   group (file inputs and write-only secrets included: a blank secret keeps its stored value). The open tab is reflected
-  in the URL as ?group=<code> by nowo-instance-settings-tabs.js (history.replaceState; the form posts to that URL).
+  in the URL as ?settings_group=<code> by nowo-instance-settings-tabs.js (history.replaceState; the form posts to that
+  URL); the parameter name is groups.parameter (web_ui.section_group_parameter / SectionEmbedOptions::withGroupParameter()),
+  printed as data-nowo-instance-settings-group-parameter on the root for the script.
 
   Required:
     - form: FormView (SettingsSectionType)
-    - groups: Ui\SectionGroupTabs (id, active, tabs: code, tabId, label, fields, errors, active, href)
+    - groups: Ui\SectionGroupTabs (id, active, parameter, tabs: code, tabId, label, fields, errors, active, href)
   Optional:
     - submit_label, actions (View\Action list), bundle, nowo_ui_page_type, nonce (default the request csp_nonce)
 #}
@@ -40,7 +42,7 @@
     </div>
 {% endset %}
 {{ form_start(form, {attr: {class: nowo_ui_class('form', bundle), 'data-nowo-ui-region': 'form'}|merge(_form_id ? {id: _form_id} : {})|merge(nowo_ui_theme.attributesFor('form', bundle, {}, _pt))}) }}
-    <div id="{{ groups.id }}" class="nowo-ui-locale-tabs nowo-instance-settings-tabs" data-nowo-instance-settings-tabs data-nowo-ui-tabs data-nowo-ui-tabs-upgrade data-nowo-ui-tabs-active="{{ groups.id ~ '-' ~ groups.active }}" data-nowo-ui-tabs-tab-class="{{ _tab_class }}" data-nowo-ui-tabs-tab-active-class="{{ _tab_active_class }}">
+    <div id="{{ groups.id }}" class="nowo-ui-locale-tabs nowo-instance-settings-tabs" data-nowo-instance-settings-tabs data-nowo-instance-settings-group-parameter="{{ groups.parameter }}" data-nowo-ui-tabs data-nowo-ui-tabs-upgrade data-nowo-ui-tabs-active="{{ groups.id ~ '-' ~ groups.active }}" data-nowo-ui-tabs-tab-class="{{ _tab_class }}" data-nowo-ui-tabs-tab-active-class="{{ _tab_active_class }}">
         <div role="tablist" aria-label="{{ 'tabs.label'|trans({}, 'NowoInstanceSettingsBundle') }}" class="{{ nowo_ui_class('locale_tabs_nav', bundle) }}" data-nowo-ui-tabs-list hidden{{ nowo_ui_attrs('locale_tabs_nav', bundle) }}>
             {%- for tab in groups.tabs %}
             <button type="button" role="tab" id="tab-{{ tab.tabId }}" aria-controls="tab-{{ tab.tabId }}-panel" aria-selected="{{ tab.active ? 'true' : 'false' }}" tabindex="{{ tab.active ? '0' : '-1' }}" class="{{ tab.active ? _tab_active_class : _tab_class }}" data-nowo-ui-tabs-trigger data-nowo-ui-tab-id="{{ tab.tabId }}" data-nowo-instance-settings-group-tab="{{ tab.code }}"

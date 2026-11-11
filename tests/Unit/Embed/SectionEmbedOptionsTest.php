@@ -56,6 +56,18 @@ final class SectionEmbedOptionsTest extends TestCase
         self::assertSame(SectionLayout::Stacked, $tabs->withSectionLayout(SectionLayout::Stacked)->sectionLayout);
         self::assertNull($tabs->withSectionLayout(null)->sectionLayout);
 
+        // Audit MP-L1: the subtab query parameter, kept by every other copy.
+        self::assertNull($options->groupParameter);
+        $param = $options->withGroupParameter('tab')->withSectionLayout('tabs')->withTemplate(null)->withLayout(null)->withHeader(null)->withContext([]);
+        self::assertSame('tab', $param->groupParameter);
+        self::assertNull($param->withGroupParameter(null)->groupParameter);
+        try {
+            $options->withGroupParameter('tab[x]');
+            self::fail('invalid parameter');
+        } catch (InvalidArgumentException $e) {
+            self::assertStringContainsString('Invalid subtab query parameter "tab[x]"', $e->getMessage());
+        }
+
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('Invalid section layout "grid"');
         $options->withSectionLayout('grid');

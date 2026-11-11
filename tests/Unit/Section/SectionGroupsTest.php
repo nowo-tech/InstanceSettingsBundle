@@ -13,6 +13,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionGroupsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -110,6 +111,33 @@ final class SectionGroupsTest extends TestCase
         self::assertSame([['a', 'd'], ['c'], ['b']], array_map(static fn (SettingsGroup $g): array => $g->fields, $groups));
         self::assertSame('plain.group.colors.light', $groups[0]->labelKey('plain'));
         self::assertNull($groups[0]->translationDomain);
+    }
+
+    public function testTheRegistryValidatesDeclaredGroupsInEveryLayout(): void
+    {
+        // Audit MP-I2: a second rest group fails when the section definitions load, not on the first tabs page.
+        SectionGroups::validate(self::plain(), self::fields(SettingField::string('a')));
+        $section = new class extends AbstractSettingsSection implements SettingsSectionGroupsInterface {
+            public function getName(): string
+            {
+                return 'twice';
+            }
+
+            public function getFields(): iterable
+            {
+                yield SettingField::string('a');
+            }
+
+            public function getGroups(): iterable
+            {
+                yield new SettingsGroup('one', rest: true);
+                yield new SettingsGroup('two', rest: true);
+            }
+        };
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('groups "one" and "two" are both the rest group');
+        (new SettingsSectionRegistry([$section]))->all();
     }
 
     public function testDuplicateCodesAndUnknownFieldsFailLoudly(): void

@@ -31,11 +31,28 @@ final class SectionGroups
     public const OTHER_LABEL = 'group.other';
 
     /**
+     * Checks the declared groups of a section (MP-I2: called when the registry loads the section definitions, whatever
+     * the layout): unique codes, known field names, at most one `rest` group. No-op without
+     * {@see SettingsSectionGroupsInterface}.
+     *
+     * @param array<string, SettingField> $fields the section's fields
+     *
+     * @throws LogicException on an invalid declaration
+     */
+    public static function validate(SettingsSectionInterface $section, array $fields): void
+    {
+        if ($section instanceof SettingsSectionGroupsInterface) {
+            self::declared($section, $fields);
+        }
+    }
+
+    /**
      * The non-empty groups of a section, each holding its field names in field order; [] for fewer than two.
      *
      * @param array<string, SettingField> $fields the section's fields (registry order)
      *
-     * @throws LogicException for a duplicate group code or a group listing a field the section does not have
+     * @throws LogicException for a duplicate group code, a group listing a field the section does not have or more
+     *                        than one `rest` group
      *
      * @return list<SettingsGroup>
      */
@@ -48,11 +65,7 @@ final class SectionGroups
 
         $rest = null;
         foreach ($declared as $code => $group) {
-            if ($group->rest) {
-                $rest = $code;
-
-                break;
-            }
+            $rest = $group->rest ? $code : $rest;
         }
         $members = [];
         foreach ($fields as $name => $field) {
@@ -81,6 +94,7 @@ final class SectionGroups
     private static function declared(SettingsSectionGroupsInterface&SettingsSectionInterface $section, array $fields): array
     {
         $groups = [];
+        $rest   = null;
         foreach ($section->getGroups() as $group) {
             if (array_key_exists($group->code, $groups)) {
                 throw new LogicException(sprintf('Settings section "%s": duplicate group code "%s".', $section->getName(), $group->code));
@@ -90,6 +104,10 @@ final class SectionGroups
                     throw new LogicException(sprintf('Settings section "%s": group "%s" lists the unknown field "%s".', $section->getName(), $group->code, $name));
                 }
             }
+            if ($group->rest && $rest !== null) {
+                throw new LogicException(sprintf('Settings section "%s": groups "%s" and "%s" are both the rest group (at most one).', $section->getName(), $rest, $group->code));
+            }
+            $rest                 = $group->rest ? $group->code : $rest;
             $groups[$group->code] = $group;
         }
 

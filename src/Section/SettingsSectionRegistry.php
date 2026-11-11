@@ -257,6 +257,8 @@ final class SettingsSectionRegistry
                 $this->assertVisibleWhen($name, $field, $fields);
                 $this->assertPresetFrom($name, $field, $fields);
             }
+            // 1.14 (audit MP-I2): declared field groups fail here, in every layout, not on the first tabs page.
+            SectionGroups::validate($section, $fields);
 
             $map[$name] = ['section' => $section, 'fields' => $fields];
         }

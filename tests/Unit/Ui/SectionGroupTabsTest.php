@@ -25,7 +25,8 @@ final class SectionGroupTabsTest extends TestCase
         self::assertSame('one', $tabs->active);
         self::assertSame([true, false], array_map(static fn (SectionGroupTab $t): bool => $t->active, $tabs->tabs));
         self::assertSame('nowo-instance-settings-look-groups-two', $tabs->tabs[1]->tabId);
-        self::assertSame('?group=two', $tabs->tabs[1]->href);
+        self::assertSame('?settings_group=two', $tabs->tabs[1]->href);
+        self::assertSame('settings_group', $tabs->parameter);
         self::assertSame(['look.group.one', 'app'], [$tabs->tabs[0]->label->key, $tabs->tabs[0]->label->domain]);
         self::assertSame(['own.label', 'other'], [$tabs->tabs[1]->label->key, $tabs->tabs[1]->label->domain]);
         self::assertSame(['b', 'missing'], $tabs->tabs[1]->fields);
@@ -36,6 +37,10 @@ final class SectionGroupTabsTest extends TestCase
 
         self::assertSame('two', SectionGroupTabs::build('look', $groups, 'app', $this->form([]), 'two')->active);
         self::assertSame('one', SectionGroupTabs::build('look', $groups, 'app', $this->form([]), 'nope')->active);
+
+        $custom = SectionGroupTabs::build('look', $groups, 'app', $this->form([]), null, 'tab');
+        self::assertSame('tab', $custom->parameter);
+        self::assertSame('?tab=two', $custom->tabs[1]->href);
     }
 
     public function testTheFirstTabWithAnErrorWinsAndCountsItsErrors(): void

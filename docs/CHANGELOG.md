@@ -43,8 +43,11 @@ Target: 1.14.0 (minor). Opt-in subtabs for long settings sections (Beacon brand 
   - **One form:** Save saves every group. Inactive panels are only `hidden` (never disabled), so their fields, file
     inputs included, are submitted; write-only secrets left blank keep their stored value, encrypted secrets and
     "blank = keep" / "clear" are unchanged.
-  - **URL:** the open tab is `?group=<code>` (read on GET; unknown or non-string values ignored), kept by the redirect
-    after a save (bundle route and embeds; a host route URL that already has a query gets `&group=`). The new
+  - **URL:** the open tab is `?settings_group=<code>` (read on GET; unknown or non-string values ignored), kept by the
+    redirect after a save (bundle route and embeds). The parameter is namespaced so a host page keeps its own
+    `?group=` (audit MP-L1): `web_ui.section_group_parameter` and `SectionEmbedOptions::withGroupParameter()` rename
+    it, the tabs root prints it as `data-nowo-instance-settings-group-parameter` for the script, and the redirect
+    replaces it in a host route URL that already carries it instead of appending a duplicate. The new
     `bundles/nowoinstancesettings/js/nowo-instance-settings-tabs.js` (plain, deferred, CSP nonce, idempotent) updates
     the URL with `history.replaceState` on every tab change, so a reload or the form post come back to the same tab.
   - **Accessible:** UiKit's in-page tabs runtime (`nowo-ui-tabs.js`, in UiKit's default script set): role `tablist` /
@@ -59,7 +62,13 @@ Target: 1.14.0 (minor). Opt-in subtabs for long settings sections (Beacon brand 
     group in a panel; UiKit's in-page tab classes and theme slots `locale_tabs_nav`, `tab`, `tab_active`,
     `tab_panel`). UiKit 2.48.1 has no generic in-page tabs partial (only `locale_tabs`, bound to languages: `lang`,
     `dir`, language names), so the bundle prints the markup contract of UiKit's tabs runtime itself. The section page
-    gets a `section_groups` variable (`Ui\SectionGroupTabs`) only in the tabs layout.
+    gets a `section_groups` variable (`Ui\SectionGroupTabs` in the tabs layout, null otherwise). It is reserved: a host
+    `SectionEmbedOptions::withContext()` value of that name never wins (audit MP-I3).
+  - **Validation (audit MP-I2):** declared groups are checked when the registry loads the section definitions, in every
+    layout: duplicate codes, unknown field names and more than one `rest` group throw a `LogicException`.
+  - **Overrides (audit MP-I4):** the tabs layout renders `settings/_section_form_tabs.html.twig` instead of UiKit's
+    `section_form` partial; override that template (not the partial) to change it. Without UiKit's `nowo-ui-tabs.js` the
+    page falls back to the stacked fieldsets.
 - **Default groups of the bundle's sections:** `brand` — Identity (name, short name, eyebrow, wordmark), Logos (light,
   dark, mark, favicon, app icon), Extra images (`brand.extra_images`), Advanced (any other field; not shown while
   empty); `appearance` — Theme (presets), Light colours, Dark colours, Shape (corners, borders, footer). Group labels
@@ -73,7 +82,8 @@ Target: 1.14.0 (minor). Opt-in subtabs for long settings sections (Beacon brand 
   services resetter every later image change of the process was staged into that dead transaction and never written.
   The transactions are now a `WeakMap` keyed by the driver connection, as in `AfterCommitEventDispatcher` (audit
   KI-I-L1): a dropped connection takes its staged changes with it (their temporary files are removed by
-  `purge-files`). The boundary listener still does not reset the store: a nested command would drop the outer
+  `purge-files`; schedule it, e.g. daily, on hosts whose workers may drop connections mid-transaction, audit MP-I1).
+  The boundary listener still does not reset the store: a nested command would drop the outer
   transaction's files.
 - Tests: a connection closed mid-transaction (`FilesystemSettingFileStoreTest`); in `WorkerBoundaryResetTest` an
   encrypted secret rotated by another process and read decrypted on the next message (MH-I-I1), and a nested console

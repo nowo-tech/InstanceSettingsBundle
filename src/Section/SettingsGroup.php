@@ -24,7 +24,7 @@ use function str_starts_with;
  */
 final readonly class SettingsGroup
 {
-    /** Group codes: the `?group=` value and part of the DOM ids (the 1.5 field group pattern, e.g. `colors.light`). */
+    /** Group codes: the `?settings_group=` value and part of the DOM ids (the 1.5 field group pattern, e.g. `colors.light`). */
     public const CODE_PATTERN = SettingField::GROUP_PATTERN;
 
     /** @var list<string> */
@@ -35,7 +35,7 @@ final readonly class SettingsGroup
 
     /**
      * @param string $code stable code ({@see self::CODE_PATTERN}), unique inside its section; never rename it once
-     *                     published: hosts link to `?group=<code>`
+     *                     published: hosts link to `?settings_group=<code>`
      * @param string|null $label translation key of the tab label in the section domain (null = `<section>.group.<code>`)
      * @param iterable<string> $fields field names the group claims, in any order (the form keeps the field order)
      * @param iterable<string> $fieldGroups 1.5 form groups whose fields the group claims (exact, or a parent group)

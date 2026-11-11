@@ -60,11 +60,20 @@ nowo_instance_settings:
 - The bundle's `brand` and `appearance` sections declare their groups. Your own sections: implement
   `SettingsSectionGroupsInterface` (see [USAGE](USAGE.md#field-groups-and-subtabs-114)), or rely on the 1.5
   `SettingField::withGroup()` groups (labels `<section>.group.<code>` in the section domain).
-- A host that overrides the theme partial `section_form` keeps it in the stacked layout; the tabs layout renders
-  `settings/_section_form_tabs.html.twig`. A host template for `web_ui.templates.section` that does not extend the
-  bundle template must include that partial when the `section_groups` variable is set.
+- The tabs layout renders `settings/_section_form_tabs.html.twig` instead of UiKit's `section_form` theme partial: a
+  host override of `section_form` still applies in the stacked layout only. To change the tabs form, override
+  `templates/bundles/NowoInstanceSettingsBundle/settings/_section_form_tabs.html.twig`. A host template for
+  `web_ui.templates.section` that does not extend the bundle template must include that partial when the
+  `section_groups` variable is set. `section_groups` is reserved: a `withContext()` value of that name is ignored.
+- Without UiKit's `nowo-ui-tabs.js` on the page the tabs layout falls back to the stacked fieldsets (every group
+  visible, the tab list hidden); the form still saves every group.
+- Declared groups are validated when the section definitions load, in every layout (at most one `rest` group).
 - Embeds follow the config; `SectionEmbedOptions::withSectionLayout('tabs')` opts one embed in (or out).
-- Links may carry `?group=<code>` to open a tab (e.g. `/developer/appearance/brand?group=logos`).
+- Links may carry `?settings_group=<code>` to open a tab (e.g. `/developer/appearance/brand?settings_group=logos`).
+  The name is `web_ui.section_group_parameter` (default `settings_group`), or `SectionEmbedOptions::withGroupParameter()`
+  per embed; a host `?group=` is left alone.
+- With the filesystem store, schedule `nowo:instance-settings:purge-files` (e.g. daily): a transaction dropped by a
+  connection closed mid-transaction leaves its `.tmp-*` files until the next purge.
 
 ## To 1.13.1
 
