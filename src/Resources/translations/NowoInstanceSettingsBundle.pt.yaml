@@ -71,6 +71,8 @@ image:
   upload: 'Carregar uma imagem (PNG, JPEG ou WebP)'
   replace: 'Substituir a imagem guardada'
   remove: 'Remover a imagem guardada'
+color:
+  reset: 'Usar a cor predefinida'
 brand:
   section:
     label: Marca

@@ -23,6 +23,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionHiddenSecretsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
@@ -189,7 +190,16 @@ final readonly class SettingsSectionEmbedder
             }
         }
 
-        $form = $this->formFactory->create(SettingsSectionType::class, $this->settings->getSection($section), [
+        $data = $this->settings->getSection($section);
+        foreach ($fields as $name => $field) {
+            if ($field->type === SettingType::Color && !$this->settings->isOverridden($section . '.' . $name)) {
+                // 1.12 (audit LM-M1): an unstored colour is empty in the form (= follow the preset), never its default:
+                // a stored colour equal to the default stays stored on an untouched re-submit.
+                $data[$name] = null;
+            }
+        }
+
+        $form = $this->formFactory->create(SettingsSectionType::class, $data, [
             'section'        => $definition,
             'fields'         => $fields,
             'stored_secrets' => $stored,
@@ -227,16 +237,17 @@ final readonly class SettingsSectionEmbedder
             array_push($notices, ...$this->hiddenSecretErrors($form, $fields, $definition->getTranslationDomain()));
         }
 
+        $formView = $form->createView();
         if ($options instanceof SectionEmbedOptions) {
             $tabs = [];
             foreach ($this->accessibleSections($options) as $name => $tab) {
                 $tabs[$name] = ['section' => $tab, 'href' => $hostUrls[$name]];
             }
-            $page     = $this->pages->embeddedSection($tabs, $section, $form->createView(), $actions, $options->header, $options->layout);
+            $page     = $this->pages->embeddedSection($tabs, $section, $formView, $actions, $options->header, $options->layout);
             $template = $options->template ?? $this->pages->template('section');
             $extra    = $options->context;
         } else {
-            $page     = $this->pages->section($this->accessibleSections(), $section, $form->createView(), $actions, $this->canUsePortability());
+            $page     = $this->pages->section($this->accessibleSections(), $section, $formView, $actions, $this->canUsePortability());
             $template = $this->pages->template('section');
             $extra    = [];
         }
@@ -248,6 +259,8 @@ final readonly class SettingsSectionEmbedder
             'image_previews' => $previews,
             // 1.8: an image field with the crop step: the page loads UiKit's image-crop script.
             'image_crop' => SettingImageCrop::inForm($form),
+            // 1.12: a colour field: the page loads the colour script and the bundle stylesheet.
+            'color_picker' => SettingsPageFactory::hasColorRows($formView),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);

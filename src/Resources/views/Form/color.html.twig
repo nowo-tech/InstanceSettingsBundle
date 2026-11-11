@@ -1,0 +1,35 @@
+{#
+  Colour input (1.12): the widget of Nowo\InstanceSettingsBundle\Form\SettingColorType. Added to a section form's
+  themes by SettingsPageFactory only when the form has such a row; it defines only the `nowo_instance_settings_color_*`
+  blocks. Hosts with their own section template can add it with
+  {% form_theme form '@NowoInstanceSettingsBundle/Form/color.html.twig' %} and load the page script
+  with {{ include('@NowoInstanceSettingsBundle/settings/_color_assets.html.twig') }}.
+
+  - The hex text input (the parent TextType widget, rendered by the form theme chain, so it keeps the UiKit `input`
+    slot, the help / error aria attributes and the row label) is the submitted value. Its placeholder is the preset.
+  - The native swatch (<input type="color">, no name: never submitted) is labelled by the row label (label_attr.id)
+    and starts with the entered colour, else the preset (the colour an empty value follows).
+  - "Use the preset colour" (UiKit `btn_secondary` + `btn_sm`) empties the hex input; it is described by the row label,
+    so each button names its field (audit LM-L2).
+  Swatch and reset are `hidden` until the script shows them, so without JavaScript only the hex input is there.
+  No inline handler or style (strict CSP safe). The preset source (preset_from: input name; preset_map: JSON value →
+  colour) lets the script follow a change of that field.
+#}
+{%- block nowo_instance_settings_color_widget -%}
+    {%- set _b = 'NowoInstanceSettingsBundle' -%}
+    {%- set _hex_attr = attr|merge({'data-nowo-instance-settings-color-hex': ''}) -%}
+    {%- if preset is not null and attr.placeholder is not defined -%}
+        {%- set _hex_attr = _hex_attr|merge({placeholder: preset}) -%}
+    {%- endif -%}
+    <div class="nowo-instance-settings-color" data-nowo-instance-settings-color
+        {%- if static_preset is not null %} data-preset="{{ static_preset }}"{% endif %}
+        {%- if preset_from is not null %} data-preset-from="{{ preset_from }}" data-preset-map="{{ preset_map }}"{% endif %}>
+        <input type="color" id="{{ id }}_swatch" class="nowo-instance-settings-color__swatch" value="{{ swatch }}" aria-labelledby="{{ label_attr.id|default(id ~ '_label') }}"
+            {%- if help is defined and help is not empty %} aria-describedby="{{ id }}_help"{% endif %}
+            {%- if disabled %} disabled{% endif %} data-nowo-instance-settings-color-swatch hidden>
+        {{- form_widget(form, {attr: _hex_attr}) -}}
+        <button type="button" class="{{ (nowo_ui_class('btn_secondary', _b) ~ ' ' ~ nowo_ui_class('btn_sm', _b) ~ ' nowo-instance-settings-color__reset')|trim }}"
+            aria-describedby="{{ label_attr.id|default(id ~ '_label') }}"
+            {%- if disabled %} disabled{% endif %} data-nowo-instance-settings-color-reset hidden>{{ 'color.reset'|trans({}, 'NowoInstanceSettingsBundle') }}</button>
+    </div>
+{%- endblock nowo_instance_settings_color_widget -%}

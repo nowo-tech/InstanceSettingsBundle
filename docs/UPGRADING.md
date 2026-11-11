@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.12.0](#to-1120)
 - [To 1.11.1](#to-1111)
 - [To 1.11.0](#to-1110)
 - [To 1.10.0](#to-1100)
@@ -28,6 +29,42 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.12.0
+
+From **1.11.x**: `composer update nowo-tech/instance-settings-bundle`, then `bin/console assets:install` (the bundle now
+ships `public/js/nowo-instance-settings-color.js` and `public/css/nowo-instance-settings.css`). No configuration change.
+
+**Brand appearance.** The 14 `appearance` colours render as a swatch + hex input + "Use the preset colour". The form
+field names, the stored values (`#rrggbb`, lower-cased, null = preset), the save rule (a colour equal to the preset is
+not stored), the validation message and the export are unchanged. Hosts with their own section template (`web_ui.templates.section`
+or an embed `template`) that do not extend the bundle's: add
+`{% if color_picker|default(false) %}{{ include('@NowoInstanceSettingsBundle/settings/_color_assets.html.twig') }}{% endif %}`
+(without it the hex inputs keep working; the swatch stays hidden). A template that sets `form_theme ... only` must add
+`@NowoInstanceSettingsBundle/Form/color.html.twig`.
+
+**Migrating your own String + Regex colour fields** (optional; they keep working as they are):
+
+```php
+// Before
+SettingField::string('accent', '#1d4ed8', 'brand.accent', constraints: [new Regex('/^#[0-9a-fA-F]{6}$/')]);
+
+// After (1.12)
+SettingField::color('accent', '#1d4ed8', 'brand.accent');
+// A preset that depends on another field (e.g. a theme choice):
+SettingField::color('accent', label: 'brand.accent')->withPresetFrom('theme', ['light' => '#1d4ed8', 'dark' => '#93c5fd']);
+```
+
+Stored rows stay valid when they are `#rrggbb`, any case (the type reads them as they are; a new save lower-cases
+them). A stored value that is **not** `#rrggbb` (e.g. `red`, `#abc`) is ignored on read: `get()` returns the field
+default, as for any row that does not match its type (`isOverridden()` stays true while the row exists). The form shows
+that default too, so the next save of the section replaces the row: it is deleted when the default is the preset, else
+the submitted colour is stored. Before switching, list such rows (e.g.
+`SELECT name, value FROM instance_setting_value WHERE section = '<section>'`; `value` is JSON, mind
+`doctrine.table_prefix`) and fix them, or keep the field a String + Regex field. After the switch, a save of the preset colour stores null instead of the colour; if your code needs the
+colour, read `get()` (the default) or `SettingField::presetColor()`. Keep your own `Regex` constraint if you want its
+message; the type check runs first with `This value is not a #rrggbb colour.` A `SettingsSectionSaveFilterInterface`
+that already drops preset colours keeps working.
 
 ## To 1.11.1
 

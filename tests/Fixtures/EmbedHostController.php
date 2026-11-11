@@ -41,6 +41,11 @@ final readonly class EmbedHostController
         return $this->embedder->handle($request, 'look', SectionEmbedOptions::routes(['look' => 'host_look']));
     }
 
+    public function palette(Request $request): Response
+    {
+        return $this->embedder->handle($request, 'palette', SectionEmbedOptions::routes(['palette' => 'host_palette']));
+    }
+
     /**
      * A host route calling the bundle page directly (outside the access listener's prefix), and listing the
      * sections for a menu: audit JE-L1.

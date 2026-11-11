@@ -203,6 +203,24 @@ final class SettingsSectionRegistry
     }
 
     /**
+     * A colour field's preset source (1.12, {@see SettingField::withPresetFrom()}) is another field of the same section
+     * whose value is rendered: not a secret, not an image.
+     *
+     * @param array<string, SettingField> $fields
+     */
+    private function assertPresetFrom(string $section, SettingField $field, array $fields): void
+    {
+        $from = $field->presetFrom();
+        if ($from === null) {
+            return;
+        }
+        $target = $fields[$from['field']] ?? null;
+        if ($target === null || $target->secret || $target->type === SettingType::Image) {
+            throw new LogicException(sprintf('Field "%s" of instance settings section "%s": the preset colour source "%s" must be a plain (not secret, not image) field of the section.', $field->name, $section, $from['field']));
+        }
+    }
+
+    /**
      * @return array<string, array{section: SettingsSectionInterface, fields: array<string, SettingField>}>
      */
     private function map(): array
@@ -237,6 +255,7 @@ final class SettingsSectionRegistry
             }
             foreach ($fields as $field) {
                 $this->assertVisibleWhen($name, $field, $fields);
+                $this->assertPresetFrom($name, $field, $fields);
             }
 
             $map[$name] = ['section' => $section, 'fields' => $fields];

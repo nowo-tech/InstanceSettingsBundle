@@ -304,10 +304,21 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         if ($violations !== []) {
             throw new InvalidSettingValueException($section, $violations);
         }
-
         $existing = [];
         foreach ($this->repository->findBySection($section) as $row) {
             $existing[$row->getName()] = $row;
+        }
+        // 1.12: a colour equal to its preset (default, or the colour of the submitted / stored preset source value) is
+        // not stored, so a later change of the preset still reaches it. A colour re-submitted unchanged (the stored
+        // value) is kept as is (audit LM-M1: an untouched save never changes a stored colour).
+        $presetContext = null;
+        foreach ($normalized as $name => $value) {
+            if ($value !== null && $fields[$name]->type === SettingType::Color && ($existing[$name] ?? null)?->getValue() !== $value) {
+                $presetContext ??= $this->visibilityContext($section, $normalized);
+                if ($value === $fields[$name]->presetColor($presetContext)) {
+                    $normalized[$name] = null;
+                }
+            }
         }
 
         $now         = $this->clock?->now() ?? (new NativeClock())->now();

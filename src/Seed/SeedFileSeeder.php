@@ -349,9 +349,14 @@ final readonly class SeedFileSeeder
         }
         $definition = $this->registry->get($section);
         $filtered   = $definition instanceof SettingsSectionSaveFilterInterface ? $definition->filterValues($plain, $this->settings->getSection($section)) : $plain;
+        $context    = null;
         foreach ($plain as $name => $raw) {
             $key                = $section . '.' . $name;
             [$clean, $messages] = $this->normalizer->normalize($fields[$name], $filtered[$name] ?? null, false);
+            if ($clean !== null && $fields[$name]->type === SettingType::Color && $clean === $fields[$name]->presetColor($context ??= $filtered + $this->settings->getSection($section))) {
+                // 1.12: a colour equal to its preset is not stored (as on save).
+                $clean = null;
+            }
             if ($messages !== []) {
                 $errors[] = SeedFileException::line($key, SeedFileException::INVALID_VALUE);
             } elseif ($clean === null) {

@@ -19,6 +19,7 @@ use function is_int;
 use function is_numeric;
 use function is_string;
 use function preg_match;
+use function strtolower;
 use function trim;
 
 use const FILTER_NULL_ON_FAILURE;
@@ -27,12 +28,16 @@ use const FILTER_VALIDATE_BOOLEAN;
 /**
  * Normalizes and validates submitted setting values (admin form, {@see InstanceSettingsInterface::save()}, imports).
  *
- * Strings are trimmed ('' becomes null), numeric strings become numbers, `"true"` / `"1"` / `"on"` become booleans.
+ * Strings are trimmed ('' becomes null), numeric strings become numbers, `"true"` / `"1"` / `"on"` become booleans,
+ * colours are lower-cased (1.12).
  * Then the type, `required`, the built-in type constraints (e-mail, http(s) URL, choice) and the field constraints
  * are checked. Messages never contain the value.
  */
 final readonly class ValueNormalizer
 {
+    /** Violation of a {@see SettingType::Color} value that is not `#rrggbb` (1.12). */
+    public const INVALID_COLOR = 'This value is not a #rrggbb colour.';
+
     /**
      * @param ValidatorInterface|null $validator Symfony Validator for the field constraints (null = type checks only)
      */
@@ -61,6 +66,10 @@ final readonly class ValueNormalizer
             // Image fields take an upload through InstanceSettingsInterface::save() or an import with its file, never
             // a bare value (a reference could point to a file the field never received).
             return [null, ['This value is not a valid image.']];
+        }
+        if ($field->type === SettingType::Color && !SettingField::matchesType($field->type, $value)) {
+            // 1.12: the message of the String + Regex colour fields (AppearanceSection) before the Color type.
+            return [null, [self::INVALID_COLOR]];
         }
         if (!SettingField::matchesType($field->type, $value, $field->choices)) {
             return [null, [$field->type === SettingType::Choice ? 'The value is not one of the allowed choices.' : 'This value is not a valid ' . $field->type->value . '.']];
@@ -118,6 +127,7 @@ final readonly class ValueNormalizer
             SettingType::Bool  => $this->toBool($value),
             SettingType::Int   => is_string($value) && preg_match('/^-?\d+$/', $value) === 1 ? (int) $value : $value,
             SettingType::Float => is_int($value) || (is_string($value) && is_numeric($value)) ? (float) $value : $value,
+            SettingType::Color => is_string($value) ? strtolower($value) : $value,
             default            => $value,
         };
     }

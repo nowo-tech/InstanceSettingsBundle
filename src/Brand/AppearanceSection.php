@@ -26,6 +26,7 @@ use function array_combine;
 use function array_key_exists;
 use function in_array;
 use function is_string;
+use function preg_match;
 use function str_replace;
 use function strtolower;
 use function trim;
@@ -35,8 +36,9 @@ use function ucfirst;
  * The `appearance` settings section of the brand bridge (spec 220 §3.1, §6): the preset per mode, seven colours per
  * mode, corner style, border strength and fixed footer.
  *
- * Colours are `#rrggbb` only (lower-cased on save). An empty colour follows the selected preset, and a saved colour
- * equal to it is dropped (not stored), so changing the preset later still reaches untouched fields. Contrast below
+ * Colours are `#rrggbb` only (lower-cased on save; 1.12: {@see SettingType::Color} fields, a swatch paired with the hex
+ * input, following the selected preset). An empty colour follows the selected preset, and a saved colour equal to it is
+ * dropped (not stored), so changing the preset later still reaches untouched fields. Contrast below
  * WCAG AA is a notice, never a refusal (owner decision Q-O8).
  */
 final class AppearanceSection extends AbstractSettingsSection implements SettingsSectionSaveFilterInterface, SettingsSectionNoticesInterface, SectionFallbackProviderInterface
@@ -45,7 +47,7 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
     public const NAME = 'appearance';
 
     /** Accepted stored colour. */
-    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/';
+    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/D';
 
     /** Translation domain of UiKit's preset names (theme cards, 1.6). */
     public const UI_KIT_DOMAIN = 'NowoUiKitBundle';
@@ -115,15 +117,28 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
             $this->preset('preset_dark', AppearancePreset::MODE_DARK, $choices, $defaults->themeIdDark),
         ];
         foreach (self::MODES as $mode => $prefix) {
+            // 1.12: colour inputs (swatch + hex + "Use the preset colour"); the swatch of an empty colour follows the
+            // preset selected for the mode, live.
+            $presetField = $fields[$mode === AppearancePreset::MODE_DARK ? 1 : 0];
+            $palettes    = [];
+            foreach ($presetField->choices as $id) {
+                $palettes[(string) $id] = $this->palettes->presetPalette($mode, (string) $id)->toArray();
+            }
             foreach (BrandPalettes::KEYS as $key) {
-                $fields[] = (new SettingField(
+                $presets = [];
+                foreach ($palettes as $id => $palette) {
+                    $color = $palette[$key] ?? null;
+                    if (is_string($color) && preg_match(self::COLOR_PATTERN, $color) === 1) {
+                        $presets[$id] = $color;
+                    }
+                }
+                $field = SettingField::color(
                     $prefix . $key,
-                    SettingType::String,
-                    null,
-                    'appearance.field.' . $prefix . $key,
-                    'appearance.help.color',
+                    label: 'appearance.field.' . $prefix . $key,
+                    help: 'appearance.help.color',
                     constraints: [new Regex(pattern: self::COLOR_PATTERN, message: 'This value is not a #rrggbb colour.')],
-                ))->withGroup('colors.' . $mode);
+                );
+                $fields[] = ($presets === [] ? $field : $field->withPresetFrom($presetField->name, $presets))->withGroup('colors.' . $mode);
             }
         }
         $corners  = CornerStyle::values();

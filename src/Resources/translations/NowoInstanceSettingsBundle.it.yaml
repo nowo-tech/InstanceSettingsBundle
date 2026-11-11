@@ -71,6 +71,8 @@ image:
   upload: 'Carica un''immagine (PNG, JPEG o WebP)'
   replace: 'Sostituisci l''immagine salvata'
   remove: 'Rimuovi l''immagine salvata'
+color:
+  reset: 'Usa il colore predefinito'
 brand:
   section:
     label: Marchio

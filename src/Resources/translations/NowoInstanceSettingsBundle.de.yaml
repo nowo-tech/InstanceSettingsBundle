@@ -71,6 +71,8 @@ image:
   upload: 'Bild hochladen (PNG, JPEG oder WebP)'
   replace: 'Gespeichertes Bild ersetzen'
   remove: 'Gespeichertes Bild entfernen'
+color:
+  reset: 'Voreingestellte Farbe verwenden'
 brand:
   section:
     label: Marke

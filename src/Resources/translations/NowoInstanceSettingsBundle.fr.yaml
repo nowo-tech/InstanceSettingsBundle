@@ -71,6 +71,8 @@ image:
   upload: 'Téléverser une image (PNG, JPEG ou WebP)'
   replace: 'Remplacer l''image enregistrée'
   remove: 'Supprimer l''image enregistrée'
+color:
+  reset: 'Utiliser la couleur prédéfinie'
 brand:
   section:
     label: Marque

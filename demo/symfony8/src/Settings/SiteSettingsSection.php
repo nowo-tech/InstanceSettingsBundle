@@ -38,6 +38,9 @@ final class SiteSettingsSection extends AbstractSettingsSection
         yield SettingField::url('support_url', null, 'site.support_url');
         yield SettingField::int('page_size', 25, 'site.page_size', 'site.page_size_help', constraints: [new Range(min: 5, max: 200)]);
         yield SettingField::choice('theme', ['site.theme_light' => 'light', 'site.theme_dark' => 'dark', 'site.theme_auto' => 'auto'], 'auto', 'site.theme');
+        // 1.12: colour field: swatch + hex input; empty follows the preset of the selected theme (live in the form).
+        yield SettingField::color('accent_color', '#2563eb', 'site.accent_color', 'site.accent_color_help')
+            ->withPresetFrom('theme', ['light' => '#1d4ed8', 'dark' => '#93c5fd', 'auto' => '#2563eb']);
         yield SettingField::bool('maintenance_banner', false, 'site.maintenance_banner')->notPortable();
         // 1.8: crop step (UiKit image crop) on the logo, a 3:1 band up to 1200 px wide (the derived default would be
         // a free crop of at most 400 px, the smaller side); the server still checks and re-encodes the upload.
