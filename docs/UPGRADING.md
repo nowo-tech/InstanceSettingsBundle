@@ -31,6 +31,13 @@
 
 ## Unreleased
 
+To **1.13.1** (patch): `composer update nowo-tech/instance-settings-bundle`; no configuration change. The bundle now
+registers `Nowo\InstanceSettingsBundle\EventListener\WorkerBoundaryResetListener`, which clears the settings memo
+and drops the bundle's private entity manager at every request, Messenger message and console command boundary, so a
+`messenger:consume --no-reset` consumer or a long-running command reads values saved by another process from its next
+unit of work. Nothing to do unless you relied on a consumer keeping the values it read first (re-read them per
+message instead).
+
 ## To 1.13.0
 
 From **1.12.x**: `composer update nowo-tech/instance-settings-bundle`, then `bin/console assets:install` (the bundle
