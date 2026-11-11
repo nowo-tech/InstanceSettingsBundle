@@ -1631,12 +1631,14 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  * @psalm-type NowoInstanceSettingsConfig = array{ // Nowo Instance Settings — runtime settings store split into sections, encrypted secrets, admin UI, import / export.
  *     doctrine?: array{
  *         table_prefix?: scalar|Param|null, // Prefix of the bundle table and index names (REQ-ORM-002): "app_" gives app_instance_setting_value. // Default: ""
- *         entity_manager?: scalar|Param|null, // Doctrine ORM entity manager name (null = default). // Default: null
+ *         entity_manager?: scalar|Param|null, // Source manager of the bundle's private entity manager (null = the manager that maps the entity; a literal name maps the entities on that manager only, 1.11). // Default: null
  *     },
  *     web_ui?: array{ // Admin UI (REQ-UI-001 / REQ-UI-003): one UiKit settings page per section + the import / export page.
  *         enabled?: bool|Param, // false = no admin UI (no routes, no controller); the PHP / Twig / CLI API stays available. // Default: true
  *         path_prefix?: scalar|Param|null, // URL prefix of the admin routes; protect it with security.access_control in the host. // Default: "/admin/settings"
  *         layout_template?: scalar|Param|null, // Layout the pages extend. Null (default) = nowo_ui_kit.layouts.admin. // Default: null
+ *         hidden_secrets?: "drop"|"keep_typed"|Param, // 1.9: a secret typed into a provider-dependent row hidden for the submitted provider: "drop" (default: ignored, only an explicit clear deletes) or "keep_typed" (saved whichever provider is selected; never required, its own constraints run). A section implementing SettingsSectionHiddenSecretsInterface overrides it. // Default: "drop"
+ *         hidden_secrets_notice?: bool|Param, // 1.9: while hidden secrets are dropped, a section with provider-dependent secrets shows a notice above its form (translation key notice.hidden_secrets_dropped, NowoInstanceSettingsBundle domain). // Default: false
  *         templates?: array<string, scalar|Param|null>,
  *     },
  *     security?: array{ // REQ-UI-002 private access of the admin UI.

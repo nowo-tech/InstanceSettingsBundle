@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Section;
 
 use InvalidArgumentException;
+use Nowo\InstanceSettingsBundle\Form\SettingColorType;
 use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
@@ -24,6 +25,7 @@ use function is_scalar;
 use function is_string;
 use function preg_match;
 use function sprintf;
+use function strtolower;
 
 /**
  * One field of a settings section: name, type, default, labels, validation and the secret / portable flags.
@@ -41,6 +43,9 @@ final readonly class SettingField
 
     /** A stored image reference: `isf:` + the lower-case hex SHA-256 of the re-encoded file. */
     public const IMAGE_REFERENCE_PATTERN = '/^isf:[0-9a-f]{64}$/';
+
+    /** A colour value of {@see SettingType::Color} (1.12): `#rrggbb`, any case (stored lower-cased). */
+    public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/';
 
     /** Allowed form groups (1.5): dot-separated lower snake case segments, e.g. `colors.light`. */
     public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/';
@@ -212,6 +217,20 @@ final readonly class SettingField
     }
 
     /**
+     * Colour field (1.12): `#rrggbb`, stored lower-cased; the admin form shows a native swatch paired with the hex text
+     * input and a "Use the preset colour" reset ({@see SettingColorType}). Null (nothing stored) follows the preset
+     * colour: `$default` here, or another field's value with {@see self::withPresetFrom()}. A colour equal to the
+     * preset is saved as null, so a later change of the preset still reaches untouched instances.
+     *
+     * @param string|null $default preset colour `#rrggbb` (null = none: the swatch starts black while empty)
+     * @param iterable<Constraint> $constraints extra constraints (the `#rrggbb` check is built in)
+     */
+    public static function color(string $name, ?string $default = null, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = []): self
+    {
+        return new self($name, SettingType::Color, $default === null ? null : strtolower($default), $label, $help, $required, constraints: $constraints);
+    }
+
+    /**
      * Encrypted secret (API key, password, DSN, token): never rendered back and exported only sealed.
      *
      * @param iterable<Constraint> $constraints
@@ -291,6 +310,83 @@ final readonly class SettingField
     public function hasThemeCards(): bool
     {
         return $this->type === SettingType::Choice && array_key_exists(ThemeCardsType::SWATCHES, $this->formOptions);
+    }
+
+    /**
+     * Copy whose preset colour follows another field of the same section (1.12): while nothing is stored, the colour is
+     * the one `$colors` maps to the current value of `$field` (e.g. a theme preset choice), else the field default.
+     * Only for {@see SettingType::Color}. The admin swatch follows a change of `$field` live (JavaScript), and a save
+     * of the colour equal to the preset for the submitted (else the stored) value of `$field` stores null.
+     *
+     * @param string $field controlling field name (same section, not secret, not an image)
+     * @param array<int|string, string> $colors value of `$field` (booleans as `'1'` / `''`) => preset colour `#rrggbb`
+     */
+    public function withPresetFrom(string $field, array $colors): self
+    {
+        if ($this->type !== SettingType::Color) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": a preset colour source is only for colour fields.', $this->name));
+        }
+        if (preg_match(self::NAME_PATTERN, $field) !== 1 || $field === $this->name) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": the preset colour source must be another field name of the same section.', $this->name));
+        }
+        if ($colors === []) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": the preset colour source needs at least one colour.', $this->name));
+        }
+        $map = [];
+        foreach ($colors as $value => $color) {
+            if (!is_string($color) || preg_match(self::COLOR_PATTERN, $color) !== 1) {
+                throw new InvalidArgumentException(sprintf('Setting field "%s": preset colours are #rrggbb.', $this->name));
+            }
+            $map[(string) $value] = strtolower($color);
+        }
+
+        return $this->withFormOptions([SettingColorType::PRESET_FROM => ['field' => $field, 'colors' => $map]]);
+    }
+
+    /**
+     * The preset colour source of a colour field ({@see self::withPresetFrom()}), or null.
+     *
+     * @return array{field: string, colors: array<string, string>}|null
+     */
+    public function presetFrom(): ?array
+    {
+        if ($this->type !== SettingType::Color) {
+            return null;
+        }
+        $from = $this->formOptions[SettingColorType::PRESET_FROM] ?? null;
+        if (!is_array($from) || !is_string($from['field'] ?? null) || !is_array($from['colors'] ?? null)) {
+            return null;
+        }
+        $colors = [];
+        foreach ($from['colors'] as $value => $color) {
+            if (is_string($color) && preg_match(self::COLOR_PATTERN, $color) === 1) {
+                $colors[(string) $value] = strtolower($color);
+            }
+        }
+
+        return ['field' => $from['field'], 'colors' => $colors];
+    }
+
+    /**
+     * Preset colour of a colour field for these section values (1.12): the {@see self::withPresetFrom()} colour of the
+     * controlling value, else the default (lower-cased); null for other types or without a preset.
+     *
+     * @param array<string, mixed> $values section values (name => value)
+     */
+    public function presetColor(array $values): ?string
+    {
+        if ($this->type !== SettingType::Color) {
+            return null;
+        }
+        $from = $this->presetFrom();
+        if ($from !== null) {
+            $color = $from['colors'][self::visibilityValue($values[$from['field']] ?? null)] ?? null;
+            if ($color !== null) {
+                return $color;
+            }
+        }
+
+        return is_string($this->default) ? strtolower($this->default) : null;
     }
 
     /**
@@ -470,6 +566,7 @@ final readonly class SettingField
             SettingType::Float                                                           => is_float($value) || is_int($value),
             SettingType::Choice                                                          => (is_string($value) || is_int($value)) && in_array($value, $choices, true),
             SettingType::Image                                                           => is_string($value) && preg_match(self::IMAGE_REFERENCE_PATTERN, $value) === 1,
+            SettingType::Color                                                           => is_string($value) && preg_match(self::COLOR_PATTERN, $value) === 1,
         };
     }
 }

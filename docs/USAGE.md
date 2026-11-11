@@ -8,6 +8,7 @@
   - [Extra actions next to the submit button](#extra-actions-next-to-the-submit-button)
   - [Section notices (warnings)](#section-notices-warnings)
   - [Provider-dependent fields (visible_when)](#provider-dependent-fields-visible_when)
+  - [Colour fields (1.12)](#colour-fields-112)
   - [Reading the values in the contributing bundle](#reading-the-values-in-the-contributing-bundle)
   - [Reacting to changes](#reacting-to-changes)
   - [Rules for bundle authors](#rules-for-bundle-authors)
@@ -86,6 +87,7 @@ final class SiteSettingsSection extends AbstractSettingsSection
 | `int(...)` / `float(...)` | `int` / `float` | `?int` / `?float` (numeric strings accepted) | `IntegerType` / `NumberType` |
 | `choice($name, $choices, $default, $label, $help, $required)` | `choice` | one of the values of `$choices` (label key => value) | `ChoiceType` |
 | `secret($name, $label, $help, $required, $constraints, $type = String)` | string-like, `secret: true` | encrypted at rest, read with `getSecret()` | DoctrineEncrypt `SecretType` |
+| `color($name, $default, $label, $help, $required, $constraints)` (1.12) | `color` | `?string` `#rrggbb`, lower-cased; null = the preset | `SettingColorType` (swatch + hex), see [Colour fields](#colour-fields-112) |
 
 Every typed factory accepts `$constraints` (for example an `https://` or host allow-list check on a provider URL). Modifiers: `->notPortable()` (left out of exports, refused on imports — for flags that must never travel between instances), `->withFormOptions([...])` (extra options merged into the admin form field; `['preview' => true]` on an image field shows the stored image on the section page, 1.5) and `->withGroup('colors.light')` (1.5: the row carries `data-nowo-instance-settings-group="colors.light"` for host themes or stylesheets that lay groups out as fieldsets or tabs; keep the fields of a group together, groups never change storage or validation). The full constructor also takes `$portable`, `$constraints` (Symfony Validator constraints, applied on save and import) and `$choices`.
 
@@ -206,6 +208,45 @@ yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true
   stored values).
 - `InstanceSettings::save()` (API), imports, exports and the seed store every given field; `required` is not enforced
   on a field hidden for the normalized saved values merged over the stored ones.
+
+### Colour fields (1.12)
+
+```php
+yield SettingField::color('accent', '#1d4ed8', 'brand.accent', 'brand.accent_help');
+
+// The preset follows another field of the section (a choice, a bool as '1' / ''):
+yield SettingField::color('link', label: 'brand.link')
+    ->withPresetFrom('theme', ['light' => '#1d4ed8', 'dark' => '#93c5fd']);
+```
+
+- **Value**: `#rrggbb`, stored lower-cased; anything else is refused (`This value is not a #rrggbb colour.`). Read it
+  with `get()` / `getString()`. A colour field cannot be secret.
+- **Preset**: null (nothing stored) follows the preset colour: the colour `withPresetFrom()` maps to the current value
+  of the source field, else the default. A save (form, `save()`, import, seed) of a colour equal to the preset stores
+  null, so changing the default or the source later still reaches untouched instances. `$field->presetColor($values)`
+  gives the preset for section values; `get()` returns the default when nothing is stored (with `withPresetFrom()`,
+  resolve the colour yourself from the source value, e.g. with `presetColor($settings->getSection(...))`).
+- **Form**: the hex text input is the submitted value (`name="settings_section[accent]"`, placeholder = the preset);
+  next to it a native swatch (`<input type="color">`, no `name`: never posted, labelled by the row label, described
+  by the help) and a **Use the preset colour** button (`color.reset`, UiKit `btn_secondary` + `btn_sm`) that empties
+  the hex input. A bare `ColorType` cannot be empty (a browser always posts `#000000`), which is why the swatch only
+  mirrors the hex input: picking a colour writes it into the hex input; typing a valid hex updates the swatch; an
+  empty hex shows the preset in the swatch (and follows a change of the source field).
+- **Without JavaScript** the swatch and the button stay `hidden`; the hex input works alone (type a colour, or empty it
+  to follow the preset).
+- **Assets**: `bundles/nowoinstancesettings/js/nowo-instance-settings-color.js` (plain, deferred, idempotent, binds by
+  delegation; `window.NowoInstanceSettingsColor.init(root)` for forms inserted later) and
+  `bundles/nowoinstancesettings/css/nowo-instance-settings.css` (in `@layer nowo-instance-settings`, UiKit tokens
+  `--nowo-ui-border`, `--nowo-ui-radius`, `--nowo-ui-surface`, `--nowo-ui-focus-ring-color`, `--nowo-ui-muted`). Run
+  `assets:install`. The section page loads them only when the form has a colour row, with the request `csp_nonce`
+  attribute; no inline script, handler or style, so a strict CSP (`script-src 'self'` or nonces) needs nothing else.
+  Host templates: `{{ include('@NowoInstanceSettingsBundle/settings/_color_assets.html.twig') }}` and the form theme
+  `@NowoInstanceSettingsBundle/Form/color.html.twig` (added automatically to the bundle's section page).
+- **Style hooks**: `.nowo-instance-settings-color` (with `data-state="preset|custom|invalid"` once the script runs),
+  `.nowo-instance-settings-color__swatch`, `.nowo-instance-settings-color__reset`.
+
+Existing `SettingField::string()` + `Regex` colour fields keep working unchanged; see
+[UPGRADING](UPGRADING.md#to-1120) to switch them.
 
 ### Reading the values in the contributing bundle
 
@@ -601,6 +642,9 @@ value, only the values that differ from the code defaults), set `brand.fallback_
 `bin/console nowo:instance-settings:seed-from-fallbacks --section=brand --section=appearance` (first with
 `--dry-run`). It is insert-only and idempotent; colours equal to the selected preset are not seeded, image keys are
 skipped (keep the images as config default assets or upload them). Remove the old entity in a later release.
+
+Since 1.12 the 14 colours are colour fields ([Colour fields](#colour-fields-112)): the swatch of an empty colour shows the
+colour of the preset selected for its mode, and follows the preset select (or theme cards) live.
 
 ### Theme cards
 

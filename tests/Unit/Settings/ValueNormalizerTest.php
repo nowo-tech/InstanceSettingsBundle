@@ -38,6 +38,11 @@ final class ValueNormalizerTest extends TestCase
         yield 'email bad' => [SettingField::email('a'), 'nope', 'nope', 1];
         yield 'url ok' => [SettingField::url('a'), 'https://example.test/x', 'https://example.test/x', 0];
         yield 'url scheme' => [SettingField::url('a'), 'ftp://example.test', null, 1];
+        yield 'color lower-cased' => [SettingField::color('a'), ' #ABCdef ', '#abcdef', 0];
+        yield 'color blank is null' => [SettingField::color('a', '#000000'), '', null, 0];
+        yield 'color short form' => [SettingField::color('a'), '#abc', null, 1];
+        yield 'color name' => [SettingField::color('a'), 'red', null, 1];
+        yield 'color not a string' => [SettingField::color('a'), 12, null, 1];
         yield 'choice ok' => [SettingField::choice('a', ['l' => 'x', 'm' => 'y']), 'y', 'y', 0];
         yield 'choice bad' => [SettingField::choice('a', ['l' => 'x']), 'z', null, 1];
         yield 'string array' => [SettingField::string('a'), ['x'], null, 1];

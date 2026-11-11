@@ -44,6 +44,7 @@ use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\File\SettingFileUrls;
 use Nowo\InstanceSettingsBundle\Form\PortabilityExportType;
 use Nowo\InstanceSettingsBundle\Form\PortabilityImportType;
+use Nowo\InstanceSettingsBundle\Form\SettingColorType;
 use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
@@ -724,7 +725,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             return;
         }
 
-        foreach ([SettingsSectionType::class, ThemeCardsType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
+        foreach ([SettingsSectionType::class, ThemeCardsType::class, SettingColorType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
             $container->setDefinition($type, (new Definition($type))->addTag('form.type'));
         }
         // 1.8: the bundle default of the image crop step (files.crop) and the translator of its dialog texts.

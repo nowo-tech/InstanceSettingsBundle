@@ -71,6 +71,8 @@ image:
   upload: 'Upload an image (PNG, JPEG or WebP)'
   replace: 'Replace the stored image'
   remove: 'Remove the stored image'
+color:
+  reset: 'Use the preset colour'
 brand:
   section:
     label: Brand

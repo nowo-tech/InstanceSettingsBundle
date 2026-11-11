@@ -42,6 +42,7 @@ use function array_reverse;
 use function is_array;
 use function is_string;
 use function sprintf;
+use function strtolower;
 
 /**
  * Admin form of one settings section, built from its {@see SettingField}s (REQ-TWIG-005 rule 11: FormKit type).
@@ -51,6 +52,8 @@ use function sprintf;
  * never handed to the form, only whether one is stored.
  *
  * Image fields (1.4) use {@see SettingImageType} (unmapped upload + "remove" when an image is stored).
+ *
+ * Colour fields (1.12) use {@see SettingColorType} (hex text input + native swatch + preset reset).
  *
  * Provider-dependent fields (1.3, {@see SettingField::withVisibleWhen()}) carry the UiKit `visible-when` row
  * attributes (`row_attr`), so the peer hides them without disabling or clearing them. On submit, a field hidden for the
@@ -281,6 +284,11 @@ final class SettingsSectionType extends AbstractType
             SettingType::Float  => [NumberType::class, ['html5' => true, 'scale' => null]],
             SettingType::Choice => [ChoiceType::class, ['choices' => $field->choices, 'placeholder' => $field->required ? null : '']],
             SettingType::Image  => [SettingImageType::class, []],
+            // 1.12: hex input (submitted) + native swatch + "Use the preset colour"; preset_from comes in formOptions.
+            SettingType::Color => [SettingColorType::class, [
+                'attr'                   => ['maxlength' => 7, 'autocomplete' => 'off', 'spellcheck' => 'false'],
+                SettingColorType::PRESET => is_string($field->default) ? strtolower($field->default) : null,
+            ]],
         };
     }
 }

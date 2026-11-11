@@ -25,6 +25,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Colour setting field. See [UPGRADING](UPGRADING.md#to-1120).
+
+### Added
+
+- **`SettingType::Color` and `SettingField::color()`.** A `#rrggbb` colour, stored lower-cased; null (nothing stored)
+  follows the field's preset colour: its default, or another field's value with
+  `SettingField::withPresetFrom($field, [value => '#rrggbb'])`. A colour equal to its preset (for the submitted, else
+  the stored, value of the source field) is saved as null, so a later change of the preset still reaches it. An invalid
+  value is refused with `This value is not a #rrggbb colour.`; a colour field cannot be secret. `presetColor()` and
+  `presetFrom()` read the preset; the registry refuses a preset source that is missing, secret or an image field.
+- **Colour input in the admin form** (`Form\SettingColorType`, theme `@NowoInstanceSettingsBundle/Form/color.html.twig`):
+  the hex text input is the submitted value, paired with a native swatch (`<input type="color">`, never submitted,
+  labelled by the row label) and a "Use the preset colour" button, kept in sync both ways by
+  `bundles/nowoinstancesettings/js/nowo-instance-settings-color.js` (plain script, deferred, request `csp_nonce`, no
+  inline handler or style). The swatch shows the entered colour, else the preset (following a change of the source
+  field live). Without JavaScript the swatch and the button stay hidden and the hex input works alone. Styles in
+  `bundles/nowoinstancesettings/css/nowo-instance-settings.css` use UiKit tokens. The section page loads both only when
+  the form has a colour row (`color_picker` template variable; partial `settings/_color_assets.html.twig`). New
+  translation key `color.reset` in the 7 locales.
+
+### Changed
+
+- **Brand appearance colours** (`appearance.light_*` / `dark_*`) are `SettingType::Color` fields with the colour input;
+  the swatch of an empty colour shows the colour of the selected preset of its mode. Stored values, the `Regex`
+  constraint, labels, help, contrast notices and the export are unchanged.
+
 ## [1.11.1] - 2026-11-11
 
 `SettingsChangedEvent` is dispatched after the commit, outside any transaction. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.11.1/docs/UPGRADING.md#to-1111).

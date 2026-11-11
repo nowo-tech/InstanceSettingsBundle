@@ -71,6 +71,8 @@ image:
   upload: 'Een afbeelding uploaden (PNG, JPEG of WebP)'
   replace: 'Opgeslagen afbeelding vervangen'
   remove: 'Opgeslagen afbeelding verwijderen'
+color:
+  reset: 'Vooraf ingestelde kleur gebruiken'
 brand:
   section:
     label: Merk

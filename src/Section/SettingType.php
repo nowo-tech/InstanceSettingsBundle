@@ -42,6 +42,14 @@ enum SettingType: string
     case Image = 'image';
 
     /**
+     * Colour `#rrggbb` (1.12), stored lower-cased. The admin form pairs a native swatch (`<input type="color">`) with
+     * the hex text input, which is the submitted value (works without JavaScript). Empty (null) follows the field's
+     * preset colour: its default, or {@see SettingField::withPresetFrom()}; a submitted colour equal to the preset is
+     * saved as null. Read it with {@see InstanceSettingsInterface::getString()}.
+     */
+    case Color = 'color';
+
+    /**
      * Whether values of this type are strings (the only types that can be secret).
      */
     public function isString(): bool

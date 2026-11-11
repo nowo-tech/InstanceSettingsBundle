@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Ui;
 
+use Nowo\InstanceSettingsBundle\Form\SettingColorType;
 use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
@@ -128,20 +129,44 @@ final readonly class SettingsPageFactory
     }
 
     /**
-     * Form themes of a section form (1.6): the theme-card picker's theme when a row uses {@see ThemeCardsType},
-     * nothing otherwise (pages without such a row render unchanged).
+     * Form themes of a section form: the theme-card picker's theme when a row uses {@see ThemeCardsType} (1.6), the
+     * colour input's theme when a row uses {@see SettingColorType} (1.12); nothing otherwise (pages without such a row
+     * render unchanged).
      *
      * @return list<string>
      */
     public static function formThemes(FormView $form): array
     {
-        foreach ($form->children as $child) {
-            if (in_array(ThemeCardsType::BLOCK_PREFIX, $child->vars['block_prefixes'] ?? [], true)) {
-                return [ThemeCardsType::FORM_THEME];
+        $themes = [];
+        foreach ([ThemeCardsType::BLOCK_PREFIX => ThemeCardsType::FORM_THEME, SettingColorType::BLOCK_PREFIX => SettingColorType::FORM_THEME] as $prefix => $theme) {
+            if (self::hasRowOf($form, $prefix)) {
+                $themes[] = $theme;
             }
         }
 
-        return [];
+        return $themes;
+    }
+
+    /**
+     * Whether the form has a colour row (1.12): the page then loads the colour script and the bundle stylesheet.
+     */
+    public static function hasColorRows(FormView $form): bool
+    {
+        return self::hasRowOf($form, SettingColorType::BLOCK_PREFIX);
+    }
+
+    /**
+     * Whether a direct child of the form has `$blockPrefix` among its block prefixes.
+     */
+    private static function hasRowOf(FormView $form, string $blockPrefix): bool
+    {
+        foreach ($form->children as $child) {
+            if (in_array($blockPrefix, $child->vars['block_prefixes'] ?? [], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

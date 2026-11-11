@@ -11,6 +11,8 @@ site:
   theme_light: Light
   theme_dark: Dark
   theme_auto: Follow the system
+  accent_color: Accent colour
+  accent_color_help: '#rrggbb. Empty = the accent of the selected theme.'
   logo: Logo
   logo_help: PNG, JPEG or WebP. You crop it to a 3:1 band before it is uploaded.
   maintenance_banner: Show the maintenance banner (instance-only, never exported)

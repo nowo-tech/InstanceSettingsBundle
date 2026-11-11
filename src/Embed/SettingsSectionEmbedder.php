@@ -227,16 +227,17 @@ final readonly class SettingsSectionEmbedder
             array_push($notices, ...$this->hiddenSecretErrors($form, $fields, $definition->getTranslationDomain()));
         }
 
+        $formView = $form->createView();
         if ($options instanceof SectionEmbedOptions) {
             $tabs = [];
             foreach ($this->accessibleSections($options) as $name => $tab) {
                 $tabs[$name] = ['section' => $tab, 'href' => $hostUrls[$name]];
             }
-            $page     = $this->pages->embeddedSection($tabs, $section, $form->createView(), $actions, $options->header, $options->layout);
+            $page     = $this->pages->embeddedSection($tabs, $section, $formView, $actions, $options->header, $options->layout);
             $template = $options->template ?? $this->pages->template('section');
             $extra    = $options->context;
         } else {
-            $page     = $this->pages->section($this->accessibleSections(), $section, $form->createView(), $actions, $this->canUsePortability());
+            $page     = $this->pages->section($this->accessibleSections(), $section, $formView, $actions, $this->canUsePortability());
             $template = $this->pages->template('section');
             $extra    = [];
         }
@@ -248,6 +249,8 @@ final readonly class SettingsSectionEmbedder
             'image_previews' => $previews,
             // 1.8: an image field with the crop step: the page loads UiKit's image-crop script.
             'image_crop' => SettingImageCrop::inForm($form),
+            // 1.12: a colour field: the page loads the colour script and the bundle stylesheet.
+            'color_picker' => SettingsPageFactory::hasColorRows($formView),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);

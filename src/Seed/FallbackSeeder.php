@@ -15,6 +15,7 @@ use Nowo\InstanceSettingsBundle\Section\SectionFallbackProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
 use Psr\Clock\ClockInterface;
@@ -251,6 +252,7 @@ final readonly class FallbackSeeder
         $values  = [];
         $skipped = [];
         $seen    = [];
+        $context = null;
         foreach ($section->getFallbacks() as $fallback) {
             $key    = $name . '.' . $fallback->field;
             $reason = $this->skipReason($fallback, $fields, $stored, $seen);
@@ -258,6 +260,9 @@ final readonly class FallbackSeeder
                 [$clean, $messages] = $this->normalizer->normalize($fields[$fallback->field], $fallback->value());
                 if ($messages !== [] || $clean === null) {
                     $reason = SeedReport::SKIP_INVALID;
+                } elseif ($fields[$fallback->field]->type === SettingType::Color && $clean === $fields[$fallback->field]->presetColor($context ??= $this->presetContext($name, $section))) {
+                    // 1.12: a colour equal to its preset (default, or the colour of the fallback / default source value) is not seeded.
+                    $reason = SeedFileSeeder::SKIP_DEFAULT;
                 } else {
                     $values[$fallback->field] = $clean;
                 }
@@ -269,6 +274,26 @@ final readonly class FallbackSeeder
         }
 
         return [$values, $skipped];
+    }
+
+    /**
+     * Section values a preset colour is resolved against: the plain fallbacks over the field defaults.
+     *
+     * @return array<string, mixed>
+     */
+    private function presetContext(string $name, SectionFallbackProviderInterface $section): array
+    {
+        $values = [];
+        foreach ($section->getFallbacks() as $fallback) {
+            if (!$fallback->secret) {
+                $values[$fallback->field] ??= $fallback->value();
+            }
+        }
+        foreach ($this->registry->fields($name) as $field) {
+            $values[$field->name] ??= $field->default;
+        }
+
+        return $values;
     }
 
     /**
