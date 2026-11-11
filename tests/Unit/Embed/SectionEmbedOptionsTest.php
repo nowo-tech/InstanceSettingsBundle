@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\Embed;
 
 use InvalidArgumentException;
 use Nowo\InstanceSettingsBundle\Embed\SectionEmbedOptions;
+use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
 use Nowo\UiKitBundle\View\Label;
 use Nowo\UiKitBundle\View\PageHeader;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -43,6 +44,33 @@ final class SectionEmbedOptionsTest extends TestCase
         self::assertSame(['app_appearance', ['x' => 1, 'tab' => 'brand']], $options->routeOf('brand'));
         self::assertSame(['host/appearance.html.twig', 'host/layout.html.twig', $header, ['menu' => 'appearance']], [$options->template, $options->layout, $options->header, $options->context]);
         self::assertNull($options->withTemplate(null)->withLayout(null)->withHeader(null)->template);
+    }
+
+    public function testSectionLayoutOverride(): void
+    {
+        $options = SectionEmbedOptions::routes(['brand' => 'app_brand']);
+        self::assertNull($options->sectionLayout);
+
+        $tabs = $options->withSectionLayout('tabs')->withTemplate('t.html.twig')->withLayout('l.html.twig')->withHeader(null)->withContext(['a' => 1]);
+        self::assertSame(SectionLayout::Tabs, $tabs->sectionLayout, 'kept by every other copy');
+        self::assertSame(SectionLayout::Stacked, $tabs->withSectionLayout(SectionLayout::Stacked)->sectionLayout);
+        self::assertNull($tabs->withSectionLayout(null)->sectionLayout);
+
+        // Audit MP-L1: the subtab query parameter, kept by every other copy.
+        self::assertNull($options->groupParameter);
+        $param = $options->withGroupParameter('tab')->withSectionLayout('tabs')->withTemplate(null)->withLayout(null)->withHeader(null)->withContext([]);
+        self::assertSame('tab', $param->groupParameter);
+        self::assertNull($param->withGroupParameter(null)->groupParameter);
+        try {
+            $options->withGroupParameter('tab[x]');
+            self::fail('invalid parameter');
+        } catch (InvalidArgumentException $e) {
+            self::assertStringContainsString('Invalid subtab query parameter "tab[x]"', $e->getMessage());
+        }
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid section layout "grid"');
+        $options->withSectionLayout('grid');
     }
 
     public function testRouteOfAnUnlistedSectionThrows(): void

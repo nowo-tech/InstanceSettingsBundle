@@ -26,3 +26,13 @@ relay:
   token: Relay token
   enabled: Relay enabled
   notice_token: The relay is enabled but its token is empty.
+grouped:
+  title: Title
+  api_key: API key
+  notes: Notes
+  endpoint: Endpoint
+  banner: Banner
+  credentials: Credentials
+  group:
+    basics: Basics
+    misc: Miscellaneous

@@ -36,6 +36,22 @@ final readonly class EmbedHostController
         return $this->embedder->handle($request, 'mailer', SectionEmbedOptions::routes(['mailer' => 'host_mailer']));
     }
 
+    /**
+     * 1.14: field groups as subtabs in an embed (the host route carries a query parameter).
+     */
+    public function grouped(Request $request): Response
+    {
+        return $this->embedder->handle($request, 'grouped', SectionEmbedOptions::routes(['grouped' => 'host_grouped'], ['group' => 'host', 'tenant' => 'acme'])->withSectionLayout('tabs'));
+    }
+
+    /**
+     * 1.14 (audit MP-L1): a custom subtab parameter that the host route already carries (replaced, never duplicated).
+     */
+    public function groupedTab(Request $request): Response
+    {
+        return $this->embedder->handle($request, 'grouped', SectionEmbedOptions::routes(['grouped' => 'host_grouped_tab'], ['tab' => 'basics'])->withSectionLayout('tabs')->withGroupParameter('tab'));
+    }
+
     public function look(Request $request): Response
     {
         return $this->embedder->handle($request, 'look', SectionEmbedOptions::routes(['look' => 'host_look']));
@@ -69,7 +85,7 @@ final readonly class EmbedHostController
             ->withTemplate('@Host/embed.html.twig')
             ->withLayout('@Host/layout.html.twig')
             ->withHeader(new PageHeader(new Label('Host appearance')))
-            ->withContext(['host_note' => 'from the host', 'page' => 'never wins']);
+            ->withContext(['host_note' => 'from the host', 'page' => 'never wins', 'section_groups' => 'never wins']);
 
         return $this->embedder->handle($request, 'general', $options);
     }

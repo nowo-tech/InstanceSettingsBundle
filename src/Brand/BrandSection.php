@@ -10,6 +10,8 @@ use Nowo\InstanceSettingsBundle\Section\AbstractSettingsSection;
 use Nowo\InstanceSettingsBundle\Section\SectionFallbackProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
+use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionGroupsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Symfony\Component\Validator\Constraints\Length;
 use Symfony\Component\Validator\Constraints\Regex;
@@ -23,8 +25,11 @@ use function substr;
  * The `brand` settings section of the brand bridge (spec 220 §6, `brand.enabled: true`): identity texts and the
  * brand images. Every image field is public (served anonymously by the file route), PNG / JPEG / WebP only (no SVG
  * upload, owner decision Q-O4) and re-encoded by the 1.4 pipeline; the admin page previews the stored image.
+ *
+ * 1.14: four field groups (subtabs with `web_ui.section_layout: tabs`): identity texts, logos, extra images and
+ * advanced (any other field).
  */
-final class BrandSection extends AbstractSettingsSection implements SectionFallbackProviderInterface
+final class BrandSection extends AbstractSettingsSection implements SectionFallbackProviderInterface, SettingsSectionGroupsInterface
 {
     /** Section name. */
     public const NAME = 'brand';
@@ -40,6 +45,18 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
 
     /** Extra image ids (the field name `extra_<id>` stays within 64 characters). */
     public const EXTRA_ID_PATTERN = '/^[a-z][a-z0-9_]{0,57}$/D';
+
+    /** Field groups (1.14): codes of the subtabs, in order. */
+    public const GROUP_IDENTITY = 'identity';
+
+    public const GROUP_LOGOS = 'logos';
+
+    public const GROUP_EXTRA_IMAGES = 'extra_images';
+
+    public const GROUP_ADVANCED = 'advanced';
+
+    /** The fixed image slots of the "Logos" group, in tab order (light, dark, mark, favicon, app icon). */
+    public const LOGO_FIELDS = ['logo_light', 'logo_dark', 'mark', 'favicon', 'app_icon'];
 
     /** Longest name. */
     public const NAME_MAX = 80;
@@ -137,6 +154,23 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
         }
 
         return $fields;
+    }
+
+    /**
+     * 1.14: Identity (name, short name, eyebrow, wordmark), Logos (the five fixed images), Extra images (the configured
+     * extra images) and Advanced (any other field; empty, and so not shown, unless a later field lands there). Labels
+     * `brand.group.<code>` in the bundle domain.
+     *
+     * @return list<SettingsGroup>
+     */
+    public function getGroups(): iterable
+    {
+        return [
+            new SettingsGroup(self::GROUP_IDENTITY, fieldGroups: ['identity']),
+            new SettingsGroup(self::GROUP_LOGOS, fields: self::LOGO_FIELDS),
+            new SettingsGroup(self::GROUP_EXTRA_IMAGES, fieldGroups: ['images']),
+            new SettingsGroup(self::GROUP_ADVANCED, rest: true),
+        ];
     }
 
     /**

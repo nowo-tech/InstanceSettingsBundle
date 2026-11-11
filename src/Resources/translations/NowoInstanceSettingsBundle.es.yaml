@@ -74,6 +74,11 @@ image:
 color:
   reset: 'Usar el color predefinido'
 brand:
+  group:
+    identity: Identidad
+    logos: Logotipos
+    extra_images: Imágenes adicionales
+    advanced: Avanzado
   section:
     label: Marca
     intro: Nombre, textos e imágenes de esta instancia. Las imágenes son PNG, JPEG o WebP (no se sube SVG), se recodifican al subirlas y se sirven públicamente.
@@ -99,6 +104,11 @@ brand:
     app_icon: Cuadrado, opaco, mínimo 512 × 512 px; se generan versiones de 512, 192 y 180 px. Vacío = un símbolo cuadrado de 512 px o más.
     favicon: Cuadrado, mínimo 32 × 32 px; se generan versiones de 32 y 16 px. Vacío = el símbolo y luego el icono de la app.
 appearance:
+  group:
+    theme: Tema
+    light_colors: Colores claros
+    dark_colors: Colores oscuros
+    shape: Forma
   section:
     label: Apariencia
     intro: Colores y diseño de la interfaz. Un color vacío sigue el tema seleccionado.
@@ -140,3 +150,8 @@ appearance:
       text_on_surface: 'Modo oscuro: el texto sobre la superficie no llega al contraste WCAG AA (4,5:1).'
       primary_contrast_on_primary: 'Modo oscuro: el texto sobre el color de acento no llega al contraste WCAG AA (4,5:1).'
       primary_on_surface: 'Modo oscuro: el color de acento sobre la superficie no llega a 3:1 (WCAG 1.4.11).'
+group:
+  other: Otros
+tabs:
+  label: Grupos de ajustes
+  errors: '%count% campo(s) con errores'

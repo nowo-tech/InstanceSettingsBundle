@@ -8,14 +8,15 @@ use DateTimeImmutable;
 use Nowo\InstanceSettingsBundle\Brand\BrandErrorIllustrationProvider;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Doctrine\TransactionObserverInterface;
+use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Symfony\Contracts\Service\ResetInterface;
 use Throwable;
+use WeakMap;
 
 use function array_diff;
-use function array_key_last;
 use function array_pop;
 use function array_slice;
 use function array_values;
@@ -46,7 +47,6 @@ use function rename;
 use function rsort;
 use function rtrim;
 use function scandir;
-use function spl_object_id;
 use function sprintf;
 use function stat;
 use function str_starts_with;
@@ -100,6 +100,10 @@ use const DIRECTORY_SEPARATOR;
  * the changes the bundle committed inside it wait for its real commit, and its rollback discards them.
  *
  * Holds the staged changes of the open units and transactions only; {@see self::reset()} discards them (worker-safe).
+ * The transactions are keyed weakly by the driver connection (1.14, audit MH-I-L1), as in
+ * {@see AfterCommitEventDispatcher}: a connection closed or dropped in the middle
+ * of a transaction (`Connection::close()` never rolls back, so no end is reported) takes its staged changes with it
+ * instead of holding every later change of the process (their temporary files are removed by `purge-files`).
  */
 final class FilesystemSettingFileStore implements StagedSettingFileStoreInterface, TransactionObserverInterface, ResetInterface
 {
@@ -136,13 +140,14 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
     private array $units = [];
 
     /**
-     * Open database transactions of the bundle's connection (reported by the DBAL middleware), keyed by connection,
+     * Open database transactions of the bundle's connection (reported by the DBAL middleware), keyed weakly by the
+     * driver connection,
      * in the order they began: the real transaction, then one level per savepoint, each with the operations the bundle
      * committed while it was the innermost level. A rolled-back level drops its operations (audit JG-M3).
      *
-     * @var array<int, list<array{0: string|null, 1: list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>}>>
+     * @var WeakMap<object, list<array{0: string|null, 1: list<array{0: string, 1: string, 2: string, 3: string|null, 4: string|null, 5?: array<string, int|string>}>}>>
      */
-    private array $transactions = [];
+    private WeakMap $transactions;
 
     /**
      * The directory is checked here as the container checks a literal one (1.7.1): with `%env(...)%` it is only known
@@ -167,6 +172,7 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
             throw new RuntimeException(sprintf('Instance settings file store: files.directory must be an absolute path (a relative one depends on the current directory of each process), got "%s".', $directory));
         }
         $this->assertNotUnderForbiddenRoot();
+        $this->transactions = new WeakMap();
     }
 
     /**
@@ -298,7 +304,7 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
             $this->discard($operations);
         }
         $this->units        = [];
-        $this->transactions = [];
+        $this->transactions = new WeakMap();
     }
 
     /**
@@ -306,8 +312,9 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     public function transactionStarted(object $connection): void
     {
-        unset($this->transactions[spl_object_id($connection)]);
-        $this->transactions[spl_object_id($connection)] = [[null, []]];
+        unset($this->transactions[$connection]);
+        // @igor-ignore - Staged changes of the open transaction; applied / discarded at its end and on kernel.reset.
+        $this->transactions[$connection] = [[null, []]];
     }
 
     /**
@@ -315,8 +322,8 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     public function transactionEnded(object $connection, bool $committed): void
     {
-        $levels = $this->transactions[spl_object_id($connection)] ?? [];
-        unset($this->transactions[spl_object_id($connection)]);
+        $levels = $this->transactions[$connection] ?? [];
+        unset($this->transactions[$connection]);
         $operations = $this->flatten($levels);
         $committed ? $this->apply($operations) : $this->discard($operations);
     }
@@ -327,12 +334,14 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     public function savepointCreated(object $connection, string $name): void
     {
-        $id = spl_object_id($connection);
-        if (!isset($this->transactions[$id])) {
+        if (!isset($this->transactions[$connection])) {
             return;
         }
-        $this->closeSavepoint($id, $name, true);
-        $this->transactions[$id][] = [$name, []];
+        $this->closeSavepoint($connection, $name, true);
+        $levels   = $this->transactions[$connection];
+        $levels[] = [$name, []];
+        // @igor-ignore - Staged changes of the open transaction; applied / discarded at its end and on kernel.reset.
+        $this->transactions[$connection] = $levels;
     }
 
     /**
@@ -340,7 +349,7 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     public function savepointReleased(object $connection, string $name): void
     {
-        $this->closeSavepoint(spl_object_id($connection), $name, true);
+        $this->closeSavepoint($connection, $name, true);
     }
 
     /**
@@ -349,7 +358,7 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     public function savepointRolledBack(object $connection, string $name): void
     {
-        $this->closeSavepoint(spl_object_id($connection), $name, false);
+        $this->closeSavepoint($connection, $name, false);
     }
 
     /**
@@ -433,10 +442,18 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
      */
     private function queue(array $operations): void
     {
-        $connection = array_key_last($this->transactions);
+        $connection = null;
+        foreach ($this->transactions as $open => $levels) {
+            // The most recently started live transaction.
+            $connection = $open;
+        }
         if ($this->units === [] && $connection !== null) {
-            $level                                      = count($this->transactions[$connection]) - 1;
-            $this->transactions[$connection][$level][1] = [...$this->transactions[$connection][$level][1], ...$operations];
+            $levels        = $this->transactions[$connection];
+            $last          = count($levels) - 1;
+            [$name, $held] = $levels[$last];
+            $levels[$last] = [$name, [...$held, ...$operations]];
+            // @igor-ignore - Staged changes of the open transaction; applied / discarded at its end and on kernel.reset.
+            $this->transactions[$connection] = $levels;
 
             return;
         }
@@ -563,7 +580,7 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
     /**
      * Closes the savepoint level `$name` and every level inside it: committed into the enclosing level, or discarded.
      */
-    private function closeSavepoint(int $connection, string $name, bool $committed): void
+    private function closeSavepoint(object $connection, string $name, bool $committed): void
     {
         $levels = $this->transactions[$connection] ?? [];
         foreach ($levels as $index => [$level]) {
@@ -576,6 +593,7 @@ final class FilesystemSettingFileStore implements StagedSettingFileStoreInterfac
                 } else {
                     $this->discard($closed);
                 }
+                // @igor-ignore - Staged changes of the open transaction; applied / discarded at its end and on kernel.reset.
                 $this->transactions[$connection] = $levels;
 
                 return;

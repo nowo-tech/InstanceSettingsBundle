@@ -74,6 +74,11 @@ image:
 color:
   reset: 'Usar a cor predefinida'
 brand:
+  group:
+    identity: Identidade
+    logos: Logótipos
+    extra_images: Imagens adicionais
+    advanced: Avançado
   section:
     label: Marca
     intro: Nome, textos e imagens desta instância. As imagens são PNG, JPEG ou WebP (sem envio de SVG), recodificadas no envio e servidas publicamente.
@@ -99,6 +104,11 @@ brand:
     app_icon: Quadrado, opaco, pelo menos 512 × 512 px; são geradas versões de 512, 192 e 180 px. Vazio = um símbolo quadrado de 512 px ou mais.
     favicon: Quadrado, pelo menos 32 × 32 px; são geradas versões de 32 e 16 px. Vazio = o símbolo e depois o ícone da app.
 appearance:
+  group:
+    theme: Tema
+    light_colors: Cores claras
+    dark_colors: Cores escuras
+    shape: Forma
   section:
     label: Aparência
     intro: Cores e disposição da interface. Uma cor vazia segue o tema selecionado.
@@ -140,3 +150,8 @@ appearance:
       text_on_surface: 'Modo escuro: o texto sobre a superfície não atinge o contraste WCAG AA (4,5:1).'
       primary_contrast_on_primary: 'Modo escuro: o texto sobre a cor de destaque não atinge o contraste WCAG AA (4,5:1).'
       primary_on_surface: 'Modo escuro: a cor de destaque sobre a superfície não atinge 3:1 (WCAG 1.4.11).'
+group:
+  other: Outros
+tabs:
+  label: Grupos de definições
+  errors: '%count% campo(s) com erros'

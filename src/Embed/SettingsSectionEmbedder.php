@@ -17,7 +17,9 @@ use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
+use Nowo\InstanceSettingsBundle\Section\SectionGroups;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
+use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionActionsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionHiddenSecretsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
@@ -28,6 +30,8 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Ui\ImagePreview;
+use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
+use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Nowo\UiKitBundle\View\Label;
@@ -47,8 +51,13 @@ use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
 
 use function array_push;
+use function explode;
+use function http_build_query;
+use function implode;
+use function is_string;
 use function sprintf;
 use function str_starts_with;
+use function urldecode;
 
 /**
  * Shows and saves one settings section: the bundle's own section page and, since 1.6 (IS-1), the same page embedded
@@ -82,6 +91,8 @@ final readonly class SettingsSectionEmbedder
      * @param bool $hiddenSecretsNotice `web_ui.hidden_secrets_notice` (1.9): a notice above the form of a section with
      *                                  provider-dependent secrets while they are dropped
      * @param bool $unlayeredStyles `web_ui.unlayered_styles` (1.13): the pages link the unlayered bundle stylesheet
+     * @param SectionLayout $sectionLayout `web_ui.section_layout` (1.14): field groups as subtabs or stacked (default)
+     * @param string $groupParameter `web_ui.section_group_parameter` (1.14, audit MP-L1): query parameter of the open subtab
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -97,6 +108,8 @@ final readonly class SettingsSectionEmbedder
         private HiddenSecrets $hiddenSecrets = HiddenSecrets::Drop,
         private bool $hiddenSecretsNotice = false,
         private bool $unlayeredStyles = false,
+        private SectionLayout $sectionLayout = SectionLayout::Stacked,
+        private string $groupParameter = SectionGroupTabs::QUERY_PARAMETER,
     ) {
     }
 
@@ -216,13 +229,23 @@ final readonly class SettingsSectionEmbedder
             'hidden_secrets'    => $hiddenSecrets,
         ]);
         $form->handleRequest($request);
+        // 1.14: the field groups as subtabs (one form: hidden panels still submit their fields); [] = stacked.
+        $groups         = ($options->sectionLayout ?? $this->sectionLayout) === SectionLayout::Tabs ? SectionGroups::resolve($definition, $fields) : [];
+        $groupParameter = $options->groupParameter ?? $this->groupParameter;
+        $requestedGroup = $this->requestedGroup($request, $groups, $groupParameter);
 
         if ($form->isSubmitted() && $form->isValid()) {
             try {
                 $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets), SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
 
-                return new RedirectResponse($options instanceof SectionEmbedOptions ? $hostUrls[$section] : $this->urlGenerator->generate(InstanceSettingsRoutes::SECTION, ['section' => $section]));
+                // 1.14: back to the open subtab (a known group code only, never a raw request value).
+                $query = $requestedGroup === null ? [] : [$groupParameter => $requestedGroup];
+                if (!$options instanceof SectionEmbedOptions) {
+                    return new RedirectResponse($this->urlGenerator->generate(InstanceSettingsRoutes::SECTION, ['section' => $section] + $query));
+                }
+
+                return new RedirectResponse($requestedGroup === null ? $hostUrls[$section] : $this->withQueryParameter($hostUrls[$section], $groupParameter, $requestedGroup));
             } catch (InvalidSettingValueException $e) {
                 foreach ($e->violations as $name => $messages) {
                     foreach ($messages as $message) {
@@ -274,6 +297,9 @@ final readonly class SettingsSectionEmbedder
             'image_input' => SettingImageType::inputInForm($form),
             // 1.13 (audit LM29-I1): the stylesheet build the bundle partials link (layered by default).
             'unlayered_styles' => $this->unlayeredStyles,
+            // 1.14: subtabs of the field groups (web_ui.section_layout: tabs); null in the stacked layout. A reserved key
+            // (audit MP-I3): always set here, so a host context value never wins.
+            'section_groups' => $groups === [] ? null : SectionGroupTabs::build($section, $groups, $definition->getTranslationDomain(), $formView, $requestedGroup, $groupParameter),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);
@@ -392,6 +418,41 @@ final readonly class SettingsSectionEmbedder
         }
 
         return $notices;
+    }
+
+    /**
+     * The open-subtab code of the request (`?<parameter>=`) when the section page has that group (1.14), else null.
+     *
+     * @param list<SettingsGroup> $groups
+     */
+    private function requestedGroup(Request $request, array $groups, string $parameter): ?string
+    {
+        $code = $request->query->all()[$parameter] ?? null;
+        foreach (is_string($code) ? $groups : [] as $group) {
+            if ($group->code === $code) {
+                return $code;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * `$url` with `$name` set to `$value` (audit MP-L1): an existing `$name` in its query is replaced, never duplicated;
+     * every other parameter of the host URL is kept as generated.
+     */
+    private function withQueryParameter(string $url, string $name, string $value): string
+    {
+        [$path, $query] = explode('?', $url, 2) + [1 => ''];
+        $pairs          = [];
+        foreach (explode('&', $query) as $pair) {
+            if ($pair !== '' && urldecode(explode('=', $pair, 2)[0]) !== $name) {
+                $pairs[] = $pair;
+            }
+        }
+        $pairs[] = http_build_query([$name => $value]);
+
+        return $path . '?' . implode('&', $pairs);
     }
 
     /**

@@ -9,6 +9,7 @@
   - [Section notices (warnings)](#section-notices-warnings)
   - [Provider-dependent fields (visible_when)](#provider-dependent-fields-visible_when)
   - [Colour fields (1.12)](#colour-fields-112)
+  - [Field groups and subtabs (1.14)](#field-groups-and-subtabs-114)
   - [Reading the values in the contributing bundle](#reading-the-values-in-the-contributing-bundle)
   - [Reacting to changes](#reacting-to-changes)
   - [Rules for bundle authors](#rules-for-bundle-authors)
@@ -254,6 +255,72 @@ yield SettingField::color('link', label: 'brand.link')
 
 Existing `SettingField::string()` + `Regex` colour fields keep working unchanged; see
 [UPGRADING](UPGRADING.md#to-1120) to switch them.
+
+### Field groups and subtabs (1.14)
+
+A long section can split its form into groups, shown as UiKit subtabs with `web_ui.section_layout: tabs` (default
+`stacked`: one column, as before). Declare the groups with the optional `SettingsSectionGroupsInterface` (a separate
+interface: sections without it keep compiling):
+
+```php
+use Nowo\InstanceSettingsBundle\Section\AbstractSettingsSection;
+use Nowo\InstanceSettingsBundle\Section\SettingField;
+use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionGroupsInterface;
+
+final class SmsSection extends AbstractSettingsSection implements SettingsSectionGroupsInterface
+{
+    public function getName(): string { return 'sms'; }
+
+    public function getFields(): iterable
+    {
+        yield SettingField::choice('provider', ['sms.twilio' => 'twilio', 'sms.vonage' => 'vonage'], 'twilio', 'sms.provider');
+        yield SettingField::string('sender', null, 'sms.sender')->withGroup('general');
+        yield SettingField::secret('api_key', 'sms.api_key');
+        yield SettingField::url('endpoint', null, 'sms.endpoint')->withGroup('credentials.remote');
+        yield SettingField::int('retries', 3, 'sms.retries');
+    }
+
+    public function getGroups(): iterable
+    {
+        yield new SettingsGroup('general', fields: ['provider'], fieldGroups: ['general']); // label sms.group.general
+        yield new SettingsGroup('credentials', 'sms.credentials_tab', fields: ['api_key'], fieldGroups: ['credentials']);
+        yield new SettingsGroup('advanced', rest: true);                                  // every other field
+    }
+}
+```
+
+- **`SettingsGroup`**: `code` (`?settings_group=<code>`, lower snake case segments, unique in the section; never rename a
+  published one), `label` (translation key in the section domain; null = `<section>.group.<code>`), `fields` (field
+  names), `fieldGroups` (1.5 form groups: the exact group or any group below it, `credentials` claims
+  `credentials.remote`), `rest` (takes the fields no other group claims), `translationDomain` (null = the section
+  domain).
+- **Assignment**: each field goes to the first group listing its name, else the first group claiming its form group,
+  else the `rest` group, else an automatic "Other" group (`group.other`, bundle domain). Fields keep the section's order
+  inside a group. Empty groups are not shown; with fewer than two groups the page stays stacked. A duplicate code or a
+  group listing an unknown field, or more than one `rest` group, throws a `LogicException` when the section definitions
+  load (every layout).
+- **Without the interface** the 1.5 form groups are the tabs: one per distinct `withGroup()` value, in the order of its
+  first field, labelled `<section>.group.<group>` (e.g. `sms.group.credentials.remote`).
+- **One form**: Save saves every group. Inactive panels are only hidden, so every field is submitted (file inputs too);
+  secrets keep "blank = keep" and the explicit "clear", provider-dependent rows (`visible_when`) work inside panels.
+- **URL**: the open tab is `?settings_group=<code>` (link to a tab, e.g.
+  `/admin/settings/sections/sms?settings_group=credentials`; rename the parameter with `web_ui.section_group_parameter`
+  or `SectionEmbedOptions::withGroupParameter()`, a host `?group=` is never touched); the
+  redirect after a save keeps it. After a failed save the first tab with an error opens; each tab with errors shows a
+  badge with the count.
+- **Markup and assets**: `settings/_section_form_tabs.html.twig` with UiKit's in-page tabs runtime (`nowo-ui-tabs.js`,
+  part of UiKit's default scripts: WAI-ARIA keyboard, `aria-controls` / `aria-selected`; without JavaScript every
+  group is a visible fieldset) and `bundles/nowoinstancesettings/js/nowo-instance-settings-tabs.js` (keeps
+  `?settings_group=` in the URL, reading the name from `data-nowo-instance-settings-group-parameter`; run
+  `assets:install`). Without `nowo-ui-tabs.js` the page falls back to the stacked fieldsets. To change the tabs form,
+  override `settings/_section_form_tabs.html.twig` (UiKit's `section_form` partial is only used by the stacked
+  layout). `section_groups` is a reserved template variable. Hooks: `[data-nowo-instance-settings-tabs]` (root,
+  `id="nowo-instance-settings-<section>-groups"`), `[data-nowo-instance-settings-group-tab="<code>"]`,
+  `[data-nowo-instance-settings-group-panel="<code>"]`, `data-invalid` on tabs / panels with errors. Theme slots:
+  UiKit's `locale_tabs_nav`, `tab`, `tab_active`, `tab_panel`.
+- The bundle's own sections: `brand` (Identity, Logos, Extra images, Advanced) and `appearance` (Theme, Light colours,
+  Dark colours, Shape).
 
 ### Reading the values in the contributing bundle
 
@@ -923,6 +990,10 @@ public function __invoke(Request $request, SettingsSectionEmbedder $embedder, st
 - `withTemplate()` (page template; same variables as `settings/section.html.twig`, plus `embedded: true`),
   `withLayout()` (the layout the scaffold extends), `withHeader()` (a UiKit `PageHeader`; default: the bundle title
   and intro without the import / export link), `withContext()` (extra variables; the bundle's win on a clash).
+- `withSectionLayout('tabs' | 'stacked' | null)` (1.14): the field groups of the embedded sections as subtabs (null =
+  `web_ui.section_layout`); the redirect after a save keeps `?settings_group=<code>`, replacing that parameter (never
+  duplicating it) in a host URL that already carries it. `withGroupParameter('tab')` (1.14) renames the parameter for
+  a host page that uses `settings_group` itself. See [Field groups and subtabs](#field-groups-and-subtabs-114).
 - `accessibleSections($options)`: the allowlisted sections the current user may open (for a host menu; empty when the
   UI gate denies the user).
 - `routeParameters` come from host code, never from the request (a request value in a host placeholder could point the
@@ -964,6 +1035,7 @@ Procedure: 1) pick the `<subpath>` below; 2) create `templates/bundles/NowoInsta
 | --- | --- |
 | `settings/section.html.twig` | Section page (and the empty state): extends `@NowoUiKit/page/settings.html.twig` |
 | `settings/portability.html.twig` | Import / export page: extends `@NowoUiKit/page/settings.html.twig` |
+| `settings/_section_form_tabs.html.twig` | 1.14: section form of the tabs layout (`web_ui.section_layout: tabs`), used instead of UiKit's `section_form` partial |
 
 The override directory is registered (when present) before the bundle views by `TwigPathsPass`; the namespace is always `@NowoInstanceSettingsBundle`.
 
