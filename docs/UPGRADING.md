@@ -4,6 +4,7 @@
 
 - [Unreleased](#unreleased)
 - [To 1.14.0](#to-1140)
+- [To 1.14.0](#to-1140-1)
 - [To 1.13.1](#to-1131)
 - [To 1.13.0](#to-1130)
 - [To 1.12.0](#to-1120)
@@ -32,6 +33,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.14.0
+
+From **1.13.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 ## To 1.14.0
 
