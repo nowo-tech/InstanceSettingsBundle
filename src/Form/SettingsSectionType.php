@@ -71,13 +71,16 @@ final class SettingsSectionType extends AbstractType
     /** Placeholder handed to {@see SecretType} as `current_value` when a secret is stored (only its presence counts). */
     private const STORED_SECRET_MARKER = 'stored';
 
+    /** Row class of an image field (1.12): one card per image field, laid out two per line by the bundle stylesheet. */
+    public const IMAGE_CARD_CLASS = 'nowo-instance-settings-image-card';
+
     /** Row attribute carrying the form group of a field (1.5, {@see SettingField::withGroup()}). */
     public const GROUP_ATTRIBUTE = 'data-nowo-instance-settings-group';
 
     /**
      * Adds one form field per setting field.
      *
-     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, hidden_secrets: HiddenSecrets} $options
+     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -124,12 +127,21 @@ final class SettingsSectionType extends AbstractType
             }
 
             if ($field->image !== null) {
-                $this->addWithDefaults($builder, $name, SettingImageType::class, array_replace_recursive($base, [
-                    'required'  => false,
-                    'stored'    => $options['stored_images'][$name] ?? false,
-                    'max_bytes' => $field->image->maxBytes,
-                    'types'     => $field->image->types,
-                    'spec'      => $field->image,
+                // 1.12: one card per image field; the label and help move to the file input (UiKit image input box), so
+                // the field name is printed once.
+                $card             = $base;
+                $card['label']    = false;
+                $card['help']     = null;
+                $card['row_attr'] = ($base['row_attr'] ?? []) + ['class' => self::IMAGE_CARD_CLASS];
+                $this->addWithDefaults($builder, $name, SettingImageType::class, array_replace_recursive($card, [
+                    'required'    => false,
+                    'stored'      => $options['stored_images'][$name] ?? false,
+                    'current_url' => $options['stored_image_urls'][$name] ?? null,
+                    'max_bytes'   => $field->image->maxBytes,
+                    'types'       => $field->image->types,
+                    'spec'        => $field->image,
+                    'file_label'  => $field->labelKey(),
+                    'file_help'   => $field->help,
                 ], $field->formOptions));
 
                 continue;
@@ -236,7 +248,8 @@ final class SettingsSectionType extends AbstractType
     }
 
     /**
-     * Options: `section` and `fields` (required), `stored_secrets` and `stored_images` (field => bool),
+     * Options: `section` and `fields` (required), `stored_secrets` and `stored_images` (field => bool), `stored_image_urls`
+     * (1.12: field => URL of the stored image, shown in the image input box),
      * `hidden_secrets` (1.9: {@see HiddenSecrets} or its value, default `drop`).
      */
     public function configureOptions(OptionsResolver $resolver): void
@@ -248,6 +261,7 @@ final class SettingsSectionType extends AbstractType
             'data_class'         => null,
             'stored_secrets'     => [],
             'stored_images'      => [],
+            'stored_image_urls'  => [],
             'csrf_protection'    => true,
             'csrf_field_name'    => '_token',
             'csrf_token_id'      => 'nowo_instance_settings_section',
@@ -255,6 +269,7 @@ final class SettingsSectionType extends AbstractType
         ]);
         $resolver->setAllowedTypes('stored_secrets', 'array');
         $resolver->setAllowedTypes('stored_images', 'array');
+        $resolver->setAllowedTypes('stored_image_urls', 'array');
         $resolver->setAllowedTypes('csrf_token_id', 'string');
         $resolver->setDefault('hidden_secrets', HiddenSecrets::Drop);
         $resolver->setAllowedTypes('hidden_secrets', [HiddenSecrets::class, 'string']);

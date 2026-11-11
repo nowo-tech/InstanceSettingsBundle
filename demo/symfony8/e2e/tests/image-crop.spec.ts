@@ -6,7 +6,7 @@ import { sectionForm } from './helpers';
  * InstanceSettings 1.8 — crop step on image fields (UiKit 2.43 image crop). The demo `site.logo` field crops to a 3:1
  * band (`withCrop(['aspect' => '3/1', 'max' => 1200])`, field limits 1200 × 400): a 900 × 600 picture is cropped in
  * the browser to 900 × 300, uploaded through the real section form, re-encoded by the server and shown as the stored
- * preview. Runs in Chromium (WebP crops) and WebKit (WebP, or PNG / JPEG where the engine cannot encode WebP).
+ * image in the field's own image input box (1.12). Runs in Chromium (WebP crops) and WebKit (WebP, or PNG / JPEG where the engine cannot encode WebP).
  */
 test.describe('Image crop step', () => {
   test('a logo is cropped in the browser and saved through the section form', async ({ page }) => {
@@ -34,6 +34,11 @@ test.describe('Image crop step', () => {
     await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
     await expect(dialog).toBeHidden();
 
+    // 1.12: the field's image input box shows the crop before anything is uploaded.
+    const box = sectionForm(page).locator('#settings_section_logo [data-nowo-ui-image-input]');
+    await expect(box).toHaveAttribute('data-nowo-ui-image-input-state', 'picked');
+    await expect(box.locator('img')).toHaveAttribute('src', /^blob:/);
+
     // The input now holds the crop in place of the picked file.
     const cropped = await input.evaluate((element: HTMLInputElement) => {
       const file = element.files?.[0];
@@ -47,9 +52,10 @@ test.describe('Image crop step', () => {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.getByText('Settings saved.')).toBeVisible();
 
-    // The server accepted the crop and stored a 3:1 image of the picture's width (never enlarged); the preview
+    // The server accepted the crop and stored a 3:1 image of the picture's width (never enlarged); the box (1.12)
     // shows it scaled down, so read the stored image's own size.
-    const preview = page.locator('[data-testid="instance-settings-image-previews"] li[data-field="logo"] img');
+    await expect(sectionForm(page).locator('#settings_section_logo [data-nowo-ui-image-input]')).toHaveAttribute('data-nowo-ui-image-input-state', 'stored');
+    const preview = sectionForm(page).locator('#settings_section_logo_file_preview');
     await expect(preview).toBeVisible();
     await preview.evaluate((img: HTMLImageElement) => img.decode());
     const size = await preview.evaluate((img: HTMLImageElement) => ({ width: img.naturalWidth, height: img.naturalHeight }));

@@ -175,6 +175,7 @@ final readonly class SettingsSectionEmbedder
         $stored        = [];
         $images        = [];
         $previews      = [];
+        $imageUrls     = [];
         foreach ($fields as $name => $field) {
             if ($field->secret) {
                 $stored[$name] = $this->settings->hasSecret($section . '.' . $name);
@@ -182,6 +183,10 @@ final readonly class SettingsSectionEmbedder
             if ($field->image !== null) {
                 $file          = $this->settings->getFile($section . '.' . $name);
                 $images[$name] = $file instanceof StoredSettingFile;
+                if ($file instanceof StoredSettingFile && $file->url() !== null) {
+                    // 1.12: the stored image is shown in the field's own image input box (file route URL only).
+                    $imageUrls[$name] = $file->url();
+                }
                 // 1.5 (audit IO Q3): opt-in preview of the stored image, by its file route URL only.
                 $preview = $file instanceof StoredSettingFile && ($field->formOptions['preview'] ?? false) === true ? ImagePreview::of($file, $field, $definition->getTranslationDomain()) : null;
                 if ($preview instanceof ImagePreview) {
@@ -200,12 +205,13 @@ final readonly class SettingsSectionEmbedder
         }
 
         $form = $this->formFactory->create(SettingsSectionType::class, $data, [
-            'section'        => $definition,
-            'fields'         => $fields,
-            'stored_secrets' => $stored,
-            'stored_images'  => $images,
-            'csrf_token_id'  => self::CSRF_TOKEN_PREFIX . $section,
-            'hidden_secrets' => $hiddenSecrets,
+            'section'           => $definition,
+            'fields'            => $fields,
+            'stored_secrets'    => $stored,
+            'stored_images'     => $images,
+            'stored_image_urls' => $imageUrls,
+            'csrf_token_id'     => self::CSRF_TOKEN_PREFIX . $section,
+            'hidden_secrets'    => $hiddenSecrets,
         ]);
         $form->handleRequest($request);
 
@@ -261,6 +267,8 @@ final readonly class SettingsSectionEmbedder
             'image_crop' => SettingImageCrop::inForm($form),
             // 1.12: a colour field: the page loads the colour script and the bundle stylesheet.
             'color_picker' => SettingsPageFactory::hasColorRows($formView),
+            // 1.12: image fields: the page loads UiKit's image-input script and the bundle stylesheet (cards).
+            'image_input' => $images !== [],
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);

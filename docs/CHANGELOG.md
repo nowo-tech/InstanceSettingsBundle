@@ -25,7 +25,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Colour setting field. See [UPGRADING](UPGRADING.md#to-1120).
+Colour setting field and the image input box for image fields. See [UPGRADING](UPGRADING.md#to-1120).
 
 ### Added
 
@@ -47,8 +47,19 @@ Colour setting field. See [UPGRADING](UPGRADING.md#to-1120).
   stored (an untouched re-submit never deletes it, even when it equals the default); each reset button is described by
   its field label.
 
+- **Image input box** (UiKit 2.47): each image field is one card holding UiKit's image input: the stored image, else
+  the field's `default_url` (Brand and `extra_images`: the configured default asset) with a "Default" badge, a local
+  preview of a picked or dropped file before saving, Replace / Remove / Undo in the box, the field label once (on the
+  file input, also the preview's `alt`) and the help under it. Two cards per line from 40rem (bundle stylesheet, UiKit
+  tokens). No-JS path unchanged (plain file input + remove checkbox). Options `image_input` (default true),
+  `current_url`, `default_url`, `backdrop`; section form option `stored_image_urls`; template variable `image_input`
+  (loads UiKit's `image-input` script) and partial `settings/_styles.html.twig`.
+
 ### Changed
 
+- **Requires `nowo-tech/ui-kit-bundle` ^2.47** (image input).
+- **Image fields**: the 1.5 preview list above the form is no longer rendered by the bundle template (the box shows the
+  image); an image row carries no label of its own (the field label and help are on its file input).
 - **Brand appearance colours** (`appearance.light_*` / `dark_*`) are `SettingType::Color` fields with the colour input;
   the swatch of an empty colour shows the colour of the selected preset of its mode. Stored values, the `Regex`
   constraint, labels, help, contrast notices and the export are unchanged.

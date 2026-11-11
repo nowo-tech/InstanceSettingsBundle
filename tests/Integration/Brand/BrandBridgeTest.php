@@ -87,7 +87,13 @@ final class BrandBridgeTest extends KernelTestCase
 
         $crawler = $admin->request('GET', '/admin/settings/sections/brand');
         self::assertSame(200, $admin->getResponse()->getStatusCode());
-        self::assertCount(0, $crawler->filter('[data-testid="instance-settings-image-previews"]'), 'nothing stored, no preview');
+        self::assertCount(0, $crawler->filter('[data-testid="instance-settings-image-previews"]'), '1.12: no separate preview list');
+        self::assertSame('empty', $crawler->filter('#settings_section_logo_light [data-nowo-ui-image-input]')->attr('data-nowo-ui-image-input-state'), 'nothing stored, no default: an empty box');
+        // 1.12: the config default asset is shown in the box, marked as default.
+        $markBox = $crawler->filter('#settings_section_mark [data-nowo-ui-image-input]');
+        self::assertSame('default', $markBox->attr('data-nowo-ui-image-input-state'));
+        self::assertMatchesRegularExpression('#^/brand/mark\.png\?v=[0-9a-f]{12}$#', (string) $markBox->filter('img')->attr('src'));
+        self::assertNull($markBox->filter('[data-nowo-ui-image-input-badge]')->attr('hidden'), 'the Default badge is shown');
         self::assertSame('identity', $crawler->filter('input[name="settings_section[name]"]')->closest('[data-nowo-instance-settings-group]')?->attr('data-nowo-instance-settings-group'));
 
         $form                           = $crawler->filter('form[name="settings_section"]')->form();
@@ -100,11 +106,14 @@ final class BrandBridgeTest extends KernelTestCase
         self::assertNotNull($file);
         $crawler = $admin->request('GET', '/admin/settings/sections/brand');
         $html    = (string) $admin->getResponse()->getContent();
-        $img     = $crawler->filter('[data-testid="instance-settings-image-previews"] img');
+        $box     = $crawler->filter('#settings_section_logo_light [data-nowo-ui-image-input]');
+        $img     = $box->filter('img');
         self::assertCount(1, $img);
-        // Audit IO Q3: the file route URL only, never inline bytes.
+        // Audit IO Q3: the file route URL only, never inline bytes; 1.12: in the field's own image input box.
+        self::assertSame('stored', $box->attr('data-nowo-ui-image-input-state'));
         self::assertSame($file->url(), $img->attr('src'));
-        self::assertSame(['160', '53'], [$img->attr('width'), $img->attr('height')]);
+        self::assertSame('Logo (light backgrounds)', $img->attr('alt'));
+        self::assertCount(1, $box->filter('input[type="checkbox"][name="settings_section[logo_light][remove]"]'), 'the remove checkbox sits in the box');
         self::assertStringNotContainsString('data:image', $html);
         self::assertStringNotContainsString('base64', $html);
 

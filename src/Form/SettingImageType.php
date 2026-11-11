@@ -9,6 +9,7 @@ use Nowo\FormKitBundle\Form\FormOptionsTrait;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
+use Nowo\UiKitBundle\Form\ImageInputTypeExtension;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
 use Symfony\Component\Form\Extension\Core\Type\FileType;
@@ -29,6 +30,12 @@ use function min;
  * 1.8: an opt-in crop step ({@see SettingImageCrop}): the file input then carries UiKit's image crop attributes, from
  * the `crop` option (per field, {@see SettingField::withCrop()}) or the bundle default `files.crop`. Off by default:
  * the input is then exactly as before.
+ *
+ * 1.12: the file input is UiKit's image input (2.47, {@see ImageInputTypeExtension}): one box showing the stored image
+ * (`current_url`) or the default (`default_url`, with a "Default" badge), a local preview of a picked or dropped file
+ * before saving, and Replace / Remove / Undo in the box (the remove checkbox is rendered inside it). The file input
+ * carries the field's label and help (`file_label`, `file_help`), so the name appears once. Without JavaScript: the
+ * current image, the plain file input and the remove checkbox. `image_input: false` keeps the pre-1.12 markup.
  *
  * @extends AbstractType<null>
  */
@@ -57,7 +64,7 @@ final class SettingImageType extends AbstractType
     /**
      * Adds the file input and, with a stored image, the remove checkbox.
      *
-     * @param array{stored: bool, max_bytes: int, types: list<string>, translation_domain: string, crop: array<mixed>|bool|null, spec: ImageSpec|null} $options
+     * @param array{stored: bool, max_bytes: int, types: list<string>, translation_domain: string, crop: array<mixed>|bool|null, spec: ImageSpec|null, image_input: bool, current_url: string|null, default_url: string|null, backdrop: string, file_label: string|null, file_help: string|null} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -70,14 +77,31 @@ final class SettingImageType extends AbstractType
                 $attr += SettingImageCrop::attributes($spec, $crop, $this->translator);
             }
         }
-        $this->addWithDefaults($builder, self::FILE, FileType::class, [
+        $file = [
             'label'              => $options['stored'] ? 'image.replace' : 'image.upload',
             'translation_domain' => NowoInstanceSettingsBundle::TRANSLATION_DOMAIN,
             'required'           => false,
             'mapped'             => false,
             'attr'               => $attr,
             'constraints'        => [new File(maxSize: max(1, $options['max_bytes']))],
-        ]);
+        ];
+        if ($options['image_input']) {
+            // 1.12: UiKit's image input box. The stored URL goes through a closure: a value UiKit refuses renders the
+            // box without it (one warning logged) instead of failing the page.
+            $current = $options['stored'] ? $options['current_url'] : null;
+            $file    = [
+                'label'                         => $options['file_label'] ?? $file['label'],
+                'help'                          => $options['file_help'],
+                'translation_domain'            => $options['file_label'] === null ? NowoInstanceSettingsBundle::TRANSLATION_DOMAIN : $options['translation_domain'],
+                ImageInputTypeExtension::OPTION => [
+                    'current_url'  => static fn (): ?string => $current,
+                    'default_url'  => $options['default_url'],
+                    'remove_field' => $options['stored'] ? self::REMOVE : null,
+                    'backdrop'     => $options['backdrop'],
+                ],
+            ] + $file;
+        }
+        $this->addWithDefaults($builder, self::FILE, FileType::class, $file);
         if ($options['stored']) {
             $this->addWithDefaults($builder, self::REMOVE, CheckboxType::class, [
                 'label'              => 'image.remove',
@@ -94,6 +118,11 @@ final class SettingImageType extends AbstractType
      * `SettingField::withFormOptions(['preview' => true])`), `crop` (1.8: null = the bundle default `files.crop`,
      * false = off, true or an array = on with these options, see {@see SettingImageCrop}) and `spec` (1.8: the field's
      * {@see ImageSpec}, the crop defaults are derived from it; without it, from `types` and `max_bytes`).
+     * 1.12: `image_input` (default true: UiKit's image input box; false = the pre-1.12 file input), `current_url` (URL
+     * of the stored image, shown while `stored`), `default_url` (image used when nothing is stored, e.g. a brand default
+     * asset; set it with `SettingField::withFormOptions(['default_url' => …])`), `backdrop` (`checkerboard`, `light`,
+     * `dark`), `file_label` / `file_help` (the field label and help, in `translation_domain`, carried by the file input).
+     * `preview` is kept for BC; the box replaces the 1.5 preview list.
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -108,7 +137,19 @@ final class SettingImageType extends AbstractType
             'error_bubbling'         => false,
             SettingImageCrop::OPTION => null,
             'spec'                   => null,
+            'image_input'            => true,
+            'current_url'            => null,
+            'default_url'            => null,
+            'backdrop'               => 'checkerboard',
+            'file_label'             => null,
+            'file_help'              => null,
         ]);
+        $resolver->setAllowedTypes('image_input', 'bool');
+        $resolver->setAllowedTypes('current_url', ['null', 'string']);
+        $resolver->setAllowedTypes('default_url', ['null', 'string']);
+        $resolver->setAllowedValues('backdrop', ['checkerboard', 'light', 'dark']);
+        $resolver->setAllowedTypes('file_label', ['null', 'string']);
+        $resolver->setAllowedTypes('file_help', ['null', 'string']);
         $resolver->setAllowedTypes(SettingImageCrop::OPTION, ['null', 'bool', 'array']);
         $resolver->setAllowedTypes('spec', ['null', ImageSpec::class]);
         $resolver->setAllowedTypes('preview', 'bool');

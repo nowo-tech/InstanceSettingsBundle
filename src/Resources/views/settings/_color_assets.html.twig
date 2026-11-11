@@ -7,5 +7,5 @@
 #}
 {%- set _request = app is defined and app ? app.request : null -%}
 {%- set _nonce = nonce|default(_request ? _request.attributes.get('csp_nonce') : null) -%}
-<link rel="stylesheet" href="{{ asset('bundles/nowoinstancesettings/css/nowo-instance-settings.css') }}"{% if _nonce %} nonce="{{ _nonce }}"{% endif %} data-nowo-instance-settings-styles>
+{{- include('@NowoInstanceSettingsBundle/settings/_styles.html.twig', {nonce: _nonce}) -}}
 <script src="{{ asset('bundles/nowoinstancesettings/js/nowo-instance-settings-color.js') }}" defer{% if _nonce %} nonce="{{ _nonce }}"{% endif %} data-nowo-instance-settings-color-script></script>

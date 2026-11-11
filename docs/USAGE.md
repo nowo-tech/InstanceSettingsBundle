@@ -20,6 +20,7 @@
 - [Secrets](#secrets)
 - [Image fields](#image-fields)
   - [Crop step (1.8)](#crop-step-18)
+  - [Image input box and cards (1.12)](#image-input-box-and-cards-112)
 - [Brand bridge](#brand-bridge)
   - [Reading the brand](#reading-the-brand)
   - [UiKit appearance](#uikit-appearance)
@@ -89,7 +90,7 @@ final class SiteSettingsSection extends AbstractSettingsSection
 | `secret($name, $label, $help, $required, $constraints, $type = String)` | string-like, `secret: true` | encrypted at rest, read with `getSecret()` | DoctrineEncrypt `SecretType` |
 | `color($name, $default, $label, $help, $required, $constraints)` (1.12) | `color` | `?string` `#rrggbb`, lower-cased; null = the preset | `SettingColorType` (swatch + hex), see [Colour fields](#colour-fields-112) |
 
-Every typed factory accepts `$constraints` (for example an `https://` or host allow-list check on a provider URL). Modifiers: `->notPortable()` (left out of exports, refused on imports — for flags that must never travel between instances), `->withFormOptions([...])` (extra options merged into the admin form field; `['preview' => true]` on an image field shows the stored image on the section page, 1.5) and `->withGroup('colors.light')` (1.5: the row carries `data-nowo-instance-settings-group="colors.light"` for host themes or stylesheets that lay groups out as fieldsets or tabs; keep the fields of a group together, groups never change storage or validation). The full constructor also takes `$portable`, `$constraints` (Symfony Validator constraints, applied on save and import) and `$choices`.
+Every typed factory accepts `$constraints` (for example an `https://` or host allow-list check on a provider URL). Modifiers: `->notPortable()` (left out of exports, refused on imports — for flags that must never travel between instances), `->withFormOptions([...])` (extra options merged into the admin form field; `['default_url' => '/img/default-logo.png']` on an image field shows that image, with a "Default" badge, in its box while nothing is stored, 1.12; `['preview' => true]` (1.5) is kept for BC, the box replaced the preview list) and `->withGroup('colors.light')` (1.5: the row carries `data-nowo-instance-settings-group="colors.light"` for host themes or stylesheets that lay groups out as fieldsets or tabs; keep the fields of a group together, groups never change storage or validation). The full constructor also takes `$portable`, `$constraints` (Symfony Validator constraints, applied on save and import) and `$choices`.
 
 Definition errors fail fast: a field name must be lower snake case (`^[a-z][a-z0-9_]{0,63}$`), a secret must be string-typed and has no default, a choice needs choices, a default must match the type; section names follow the same pattern and must be unique, field names must be unique in their section.
 
@@ -240,7 +241,7 @@ yield SettingField::color('link', label: 'brand.link')
   to follow the preset).
 - **Assets**: `bundles/nowoinstancesettings/js/nowo-instance-settings-color.js` (plain, deferred, idempotent, binds by
   delegation; `window.NowoInstanceSettingsColor.init(root)` for forms inserted later) and
-  `bundles/nowoinstancesettings/css/nowo-instance-settings.css` (in `@layer nowo-instance-settings`, UiKit tokens
+  `bundles/nowoinstancesettings/css/nowo-instance-settings.css` (class selectors only, UiKit tokens
   `--nowo-ui-border`, `--nowo-ui-radius`, `--nowo-ui-surface`, `--nowo-ui-focus-ring-color`, `--nowo-ui-muted`). Run
   `assets:install`. The section page loads them only when the form has a colour row, with the request `csp_nonce`
   attribute; no inline script, handler or style, so a strict CSP (`script-src 'self'` or nonces) needs nothing else.
@@ -505,6 +506,29 @@ so the stored `isf:` reference can differ from the one in the envelope; this is 
 
 **Audit.** The "Instance settings saved." log line gets `files`: `logo=3f1c9a0b7e21 image/png 512x512 20480B` (or
 `logo=removed`); `SettingsChangedEvent::$fileChanges` gives `field => {old, new}` full hashes. Never content.
+
+### Image input box and cards (1.12)
+
+Each image field renders as **one card** (row class `nowo-instance-settings-image-card`) holding UiKit's **image input**
+box (UiKit 2.47, `nowo_ui_image_input` on the file input):
+
+- The box shows the **stored** image (its file route URL), else the field's `default_url` with a **Default** badge
+  (Brand: the configured default asset of the slot, `extra_images` included), else "No image". The 1.5 preview list
+  above the form is gone.
+- Picking or dropping a file shows a **local preview** at once (an object URL; nothing is uploaded before Save), with
+  "Selected: <name>" announced in a polite live region. **Replace**, **Remove** (only when an image is stored) and
+  **Undo** are buttons in the box, keyboard reachable, described by the field name, help and errors.
+- The field **label** is carried by the file input (and is the preview's `alt`): the name is printed once. The **help**
+  sits under the box.
+- **Without JavaScript**: the current image, the plain file input and the "Remove the stored image" checkbox; the form
+  submits as before.
+- With the crop step (1.8) the crop's preview targets the box.
+- Layout: from 40rem the cards sit two per line (CSS grid on the rows container, other rows span both columns); the
+  stylesheet `bundles/nowoinstancesettings/css/nowo-instance-settings.css` uses UiKit tokens. The section page loads
+  UiKit's `image-input` script and that stylesheet when the form has an image field (`image_input` template variable).
+- CSP: no inline script or style; add `blob:` to `img-src` for the local preview (the crop step needs it already).
+- `withFormOptions(['image_input' => false])` keeps the pre-1.12 file input on a field; `backdrop` (`checkerboard`,
+  `light`, `dark`) sets what shows through transparent art.
 
 ### Crop step (1.8)
 

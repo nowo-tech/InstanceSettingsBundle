@@ -1,0 +1,8 @@
+{#
+  Bundle stylesheet (1.12): bundles/nowoinstancesettings/css/nowo-instance-settings.css (assets:install), with the request
+  `csp_nonce` attribute when there is one. Included by settings/section.html.twig when the form has a colour or an image
+  field. Optional: nonce (default the request attribute csp_nonce).
+#}
+{%- set _request = app is defined and app ? app.request : null -%}
+{%- set _nonce = nonce|default(_request ? _request.attributes.get('csp_nonce') : null) -%}
+<link rel="stylesheet" href="{{ asset('bundles/nowoinstancesettings/css/nowo-instance-settings.css') }}"{% if _nonce %} nonce="{{ _nonce }}"{% endif %} data-nowo-instance-settings-styles>
