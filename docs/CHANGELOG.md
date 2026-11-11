@@ -29,7 +29,6 @@ All notable changes to this project are documented here. The format follows
 
 `SettingsChangedEvent` is dispatched after the commit, outside any transaction. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.11.1/docs/UPGRADING.md#to-1111).
 
-
 ### Fixed
 
 - **`SettingsChangedEvent` was dispatched from inside the commit.** Inside an application transaction (a `save()` or an
@@ -40,6 +39,10 @@ All notable changes to this project are documented here. The format follows
   transaction: the next settings event, a Doctrine `postFlush`, the end of the bundle's own import transaction, the
   end of the request / console command / Messenger message, or `SettingsPendingEventsInterface::dispatchPending()`.
   Rollback and savepoint rollback still drop them; `save()` outside a transaction still dispatches at once.
+  Affected: 1.10.0 to 1.11.0. On PostgreSQL and MySQL a listener that wrote to the database failed and its row (for
+  example an audit row) was lost; on PostgreSQL the connection was also left inside a transaction, so later writes in
+  the same process (a kept-alive worker) were not committed. Workaround for older versions: do not write to the
+  database from a `SettingsChangedEvent` listener when saving inside your own transaction, or save outside it.
 
 ### Added
 
