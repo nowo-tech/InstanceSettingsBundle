@@ -8,6 +8,7 @@ use Doctrine\ORM\Query;
 use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
+use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 
 use function sprintf;
 
@@ -34,11 +35,14 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
      * @param ManagerRegistry $registry Doctrine registry
      * @param string|null $entityManagerName `doctrine.entity_manager` (null = the manager that maps the entity)
      * @param SettingsEntityManager|null $entityManager the bundle's private manager (shared with the file store)
+     * @param SettingsPendingEventsInterface|null $pendingEvents dispatches the events committed by {@see transactional()}
+     *                                                           once it returned (1.11.1)
      */
     public function __construct(
         ManagerRegistry $registry,
         ?string $entityManagerName = null,
         ?SettingsEntityManager $entityManager = null,
+        private readonly ?SettingsPendingEventsInterface $pendingEvents = null,
     ) {
         $this->entityManager = $entityManager ?? new SettingsEntityManager($registry, $entityManagerName);
     }
@@ -100,13 +104,26 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
         // @igor-ignore - Nesting counter of the running call, back to 0 in finally (never spans requests).
         ++$this->depth;
         try {
-            return $this->entityManager->get()->wrapInTransaction(static fn (): mixed => $callback());
+            $result = $this->entityManager->get()->wrapInTransaction(static fn (): mixed => $callback());
         } finally {
             // @igor-ignore - Nesting counter of the running call, back to 0 in finally (never spans requests).
             if (--$this->depth === 0) {
                 // @igor-ignore - Clears the bundle's own private unit of work at the end of the write unit (rule 6).
                 $this->entityManager->clear();
             }
+        }
+        $this->afterTransactional();
+
+        return $result;
+    }
+
+    /**
+     * After the outermost {@see transactional()} returned: its committed events, when no transaction is open any more.
+     */
+    private function afterTransactional(): void
+    {
+        if ($this->depth === 0) {
+            $this->pendingEvents?->dispatchPending();
         }
     }
 

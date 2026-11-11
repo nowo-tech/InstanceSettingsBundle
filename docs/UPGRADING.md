@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [To 1.11.1](#to-1111)
 - [To 1.11.0](#to-1110)
 - [To 1.10.0](#to-1100)
 - [To 1.10.0](#to-1100-1)
@@ -27,6 +28,15 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+### To 1.11.1
+
+From **1.11.0**: `composer update nowo-tech/instance-settings-bundle`. No configuration change.
+
+Inside your own transaction, `SettingsChangedEvent` is no longer dispatched from inside your commit but right after
+it, at the next safe point (the next settings event, a Doctrine `postFlush`, the end of the request / command /
+message). A listener that writes to the database now commits its own work normally. To get the events at once after
+your commit, call `Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface::dispatchPending()`.
 
 ## To 1.11.0
 

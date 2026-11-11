@@ -13,6 +13,7 @@ use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtensio
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
+use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
@@ -22,6 +23,7 @@ use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityProviderInterface;
+use Nowo\InstanceSettingsBundle\Repository\DoctrineSettingValueRepository;
 use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowReader;
 use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowWriter;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
@@ -78,6 +80,10 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $dispatcher = $container->getDefinition(AfterCommitEventDispatcher::class);
         self::assertTrue($dispatcher->hasTag('kernel.reset'));
         self::assertSame('event_dispatcher', (string) $dispatcher->getArgument(0));
+        self::assertCount(4, $dispatcher->getTag('kernel.event_listener'), '1.11.1: the end of the request / command / message');
+        self::assertSame([['event' => 'postFlush']], $dispatcher->getTag('doctrine.event_listener'));
+        self::assertSame(AfterCommitEventDispatcher::class, (string) $container->getAlias(SettingsPendingEventsInterface::class));
+        self::assertSame(SettingsPendingEventsInterface::class, (string) $container->getDefinition(DoctrineSettingValueRepository::class)->getArgument(3));
         $middleware = $container->getDefinition(FileStoreTransactionMiddleware::class);
         self::assertTrue($middleware->hasTag('doctrine.middleware'), 'always registered since 1.10');
         self::assertSame([AfterCommitEventDispatcher::class], array_map('strval', $middleware->getArguments()));

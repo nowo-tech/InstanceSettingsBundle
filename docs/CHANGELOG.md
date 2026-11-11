@@ -24,6 +24,24 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.11.1.
+
+### Fixed
+
+- **`SettingsChangedEvent` was dispatched from inside the commit.** Inside an application transaction (a `save()` or an
+  import wrapped by the host, or the bundle's own import transaction), the held event was dispatched from the DBAL
+  middleware's commit, where the connection still reports the transaction as active: a listener that writes (an audit
+  row flushed on the application manager) nested into a transaction that was ending. The outermost commit now only
+  marks the events committed; they are dispatched at the next point where the bundle's connection reports no open
+  transaction: the next settings event, a Doctrine `postFlush`, the end of the bundle's own import transaction, the
+  end of the request / console command / Messenger message, or `SettingsPendingEventsInterface::dispatchPending()`.
+  Rollback and savepoint rollback still drop them; `save()` outside a transaction still dispatches at once.
+
+### Added
+
+- `Event\SettingsPendingEventsInterface` (public alias of the after-commit dispatcher): `dispatchPending()` and
+  `countPending()`, for a host that wants the events right after its own commit.
+
 ## [1.11.0] - 2026-11-11
 
 Settings are written through a private entity manager: a save no longer commits unrelated pending host changes or resets a host manager; doctrine.entity_manager is now a real dedicated-manager option. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.11.0/docs/UPGRADING.md#to-1110).

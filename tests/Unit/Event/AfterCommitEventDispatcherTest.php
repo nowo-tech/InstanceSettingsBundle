@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\Event;
 
+use ArrayObject;
 use Doctrine\DBAL\Configuration;
 use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\DBAL\DriverManager;
+use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
+use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Doctrine\TransactionObserverInterface;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
@@ -16,6 +20,7 @@ use Psr\Log\AbstractLogger;
 use RuntimeException;
 use Stringable;
 use Symfony\Component\EventDispatcher\EventDispatcher;
+use Symfony\Component\HttpKernel\KernelEvents;
 
 use function gc_collect_cycles;
 
@@ -31,13 +36,15 @@ final class AfterCommitEventDispatcherTest extends TestCase
 
     private AfterCommitEventDispatcher $dispatcher;
 
+    private ?DbalConnection $conn = null;
+
     protected function setUp(): void
     {
         $this->inner = new EventDispatcher();
         $this->inner->addListener(SettingsChangedEvent::class, function (SettingsChangedEvent $event): void {
             $this->seen[] = $event->section;
         });
-        $this->dispatcher = new AfterCommitEventDispatcher($this->inner);
+        $this->dispatcher = new AfterCommitEventDispatcher($this->inner, null, fn (): ?DbalConnection => $this->conn);
     }
 
     public function testWithoutATransactionTheEventIsDispatchedAtOnce(): void
@@ -61,7 +68,16 @@ final class AfterCommitEventDispatcherTest extends TestCase
         $this->dispatcher->dispatch(new SettingsChangedEvent('general', ['a']));
         self::assertSame([], $this->seen, 'not before the commit');
         $connection->commit();
-        self::assertSame(['general'], $this->seen);
+        self::assertSame([], $this->seen, 'committed, but never dispatched from inside the commit');
+        self::assertSame(1, $this->dispatcher->countPending());
+
+        // A new transaction is open: the committed event still waits (counted with the held one).
+        $connection->beginTransaction();
+        $this->dispatcher->dispatch(new SettingsChangedEvent('held', ['a']));
+        self::assertSame(2, $this->dispatcher->countPending());
+        self::assertSame(0, $this->dispatcher->dispatchPending());
+        $connection->rollBack();
+        self::assertSame(1, $this->dispatcher->countPending());
 
         $this->dispatcher->dispatch(new SettingsChangedEvent('after', ['a']));
         self::assertSame(['general', 'after'], $this->seen, 'no transaction left open');
@@ -78,6 +94,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
         $this->dispatcher->dispatch(new SettingsChangedEvent('inner', ['a']));
         $connection->rollBack();
         $connection->commit();
+        self::assertSame(1, $this->dispatcher->dispatchPending());
         self::assertSame(['outer'], $this->seen);
 
         // Savepoint released, outer rolled back: nothing.
@@ -96,6 +113,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
         $connection->commit();
         self::assertSame([], $this->seen, 'a savepoint is not the real commit');
         $connection->commit();
+        $this->dispatcher->onBoundary();
         self::assertSame(['inner'], $this->seen);
     }
 
@@ -117,6 +135,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
         $connection->beginTransaction();
         $this->dispatcher->dispatch(new SettingsChangedEvent('reconnected', ['a']));
         $connection->commit();
+        $this->dispatcher->postFlush();
         self::assertSame(['after_close', 'reconnected'], $this->seen);
     }
 
@@ -149,6 +168,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
             }
         };
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], (new Configuration())->setMiddlewares([new FileStoreTransactionMiddleware($failing, $this->dispatcher)]));
+        $this->conn = $connection;
 
         $connection->beginTransaction();
         $this->dispatcher->dispatch(new SettingsChangedEvent('general', ['a']));
@@ -158,6 +178,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
         } catch (RuntimeException $e) {
             self::assertSame('file write failed after the commit', $e->getMessage());
         }
+        $this->dispatcher->dispatchPending();
         self::assertSame(['general'], $this->seen, 'the dispatcher was told although the first observer threw');
 
         $this->dispatcher->dispatch(new SettingsChangedEvent('after', ['a']));
@@ -186,6 +207,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
         $this->dispatcher->dispatch(new SettingsChangedEvent('second', ['a']));
         $this->dispatcher->savepointRolledBack($connection, 'SP');
         $this->dispatcher->transactionEnded($connection, true);
+        $this->dispatcher->dispatchPending();
 
         self::assertSame(['first'], $this->seen, 'the first level was implicitly committed into its parent');
     }
@@ -201,7 +223,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
                 $this->records[] = [(string) $level, (string) $message, $context];
             }
         };
-        $this->dispatcher = new AfterCommitEventDispatcher($this->inner, $logger);
+        $this->dispatcher = new AfterCommitEventDispatcher($this->inner, $logger, fn (): ?DbalConnection => $this->conn);
         $this->inner->addListener(SettingsChangedEvent::class, static function (SettingsChangedEvent $event): void {
             if ($event->section === 'broken') {
                 throw new RuntimeException('listener failed with a secret detail');
@@ -213,6 +235,7 @@ final class AfterCommitEventDispatcherTest extends TestCase
         $this->dispatcher->dispatch(new SettingsChangedEvent('broken', ['a']));
         $this->dispatcher->dispatch(new SettingsChangedEvent('general', ['a']));
         $connection->commit();
+        self::assertSame(2, $this->dispatcher->dispatchPending());
 
         self::assertSame(['broken', 'general'], $this->seen);
         self::assertCount(1, $logger->records);
@@ -241,8 +264,63 @@ final class AfterCommitEventDispatcherTest extends TestCase
         $silent->transactionEnded($connection, true);
     }
 
+    /**
+     * 1.11.1: a listener that writes to the database during the deferred dispatch sees no open transaction and commits
+     * its own row normally.
+     */
+    public function testAListenerThatWritesCommitsItsOwnRow(): void
+    {
+        $connection = $this->connection();
+        $connection->executeStatement('CREATE TABLE audit_row (section VARCHAR(20))');
+        $active = new ArrayObject();
+        $this->inner->addListener(SettingsChangedEvent::class, static function (SettingsChangedEvent $event) use ($connection, $active): void {
+            $active->append($connection->isTransactionActive());
+            $connection->transactional(static fn (DbalConnection $c): int|string => $c->insert('audit_row', ['section' => $event->section]));
+        });
+
+        $connection->beginTransaction();
+        $this->dispatcher->dispatch(new SettingsChangedEvent('committed', ['a']));
+        $connection->commit();
+        self::assertSame([], $active->getArrayCopy(), 'nothing from inside the commit');
+        self::assertSame(1, $this->dispatcher->dispatchPending());
+
+        self::assertSame([false], $active->getArrayCopy(), 'the listener runs outside any transaction');
+        self::assertFalse($connection->isTransactionActive());
+        self::assertSame(['committed'], $connection->fetchFirstColumn('SELECT section FROM audit_row'));
+        self::assertSame(0, $this->dispatcher->countPending());
+    }
+
+    /**
+     * An event dispatched while DBAL still reports a transaction the middleware no longer tracks (inside a driver
+     * commit) waits for the next safe point; the private manager's connection is used when given.
+     */
+    public function testAnEventDuringTheDriverCommitWaits(): void
+    {
+        $this->conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
+        $this->conn->beginTransaction();
+        $this->dispatcher->dispatch(new SettingsChangedEvent('waits', ['a']));
+        self::assertSame([], $this->seen);
+        self::assertSame(0, $this->dispatcher->dispatchPending());
+        $this->conn->commit();
+        self::assertSame(1, $this->dispatcher->dispatchPending());
+        self::assertSame(['waits'], $this->seen);
+        self::assertContains(KernelEvents::TERMINATE, AfterCommitEventDispatcher::BOUNDARY_EVENTS);
+
+        $source = $this->createStub(EntityManagerInterface::class);
+        $source->method('getConnection')->willReturn($this->conn);
+        $registry = $this->createStub(ManagerRegistry::class);
+        $registry->method('getManagerForClass')->willReturn($source);
+        $viaManager = new AfterCommitEventDispatcher($this->inner, null, static fn (): SettingsEntityManager => new SettingsEntityManager($registry));
+        $this->conn->beginTransaction();
+        $viaManager->dispatch(new SettingsChangedEvent('via_manager', ['a']));
+        self::assertSame(['waits'], $this->seen, 'the private manager connection is in a transaction');
+        $this->conn->commit();
+        self::assertSame(1, $viaManager->dispatchPending());
+        self::assertSame(['waits', 'via_manager'], $this->seen);
+    }
+
     private function connection(): DbalConnection
     {
-        return DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], (new Configuration())->setMiddlewares([new FileStoreTransactionMiddleware($this->dispatcher)]));
+        return $this->conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], (new Configuration())->setMiddlewares([new FileStoreTransactionMiddleware($this->dispatcher)]));
     }
 }
