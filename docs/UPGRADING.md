@@ -3,7 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
-  - [To 1.11.1](#to-1111)
+- [To 1.11.1](#to-1111)
 - [To 1.11.0](#to-1110)
 - [To 1.10.0](#to-1100)
 - [To 1.10.0](#to-1100-1)
@@ -29,7 +29,7 @@
 
 ## Unreleased
 
-### To 1.11.1
+## To 1.11.1
 
 From **1.11.0**: `composer update nowo-tech/instance-settings-bundle`. No configuration change.
 
