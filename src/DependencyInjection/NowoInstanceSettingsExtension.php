@@ -33,6 +33,7 @@ use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
+use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
@@ -78,6 +79,7 @@ use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Resource\FileResource;
+use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -449,6 +451,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('doctrine'),
             $doctrine['entity_manager'],
             new Reference(SettingsEntityManager::class),
+            new Reference(SettingsPendingEventsInterface::class),
         ]));
         $container->setAlias(SettingValueRepositoryInterface::class, DoctrineSettingValueRepository::class);
 
@@ -461,10 +464,19 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 
         // 1.10 (DDD P2): SettingsChangedEvent is dispatched after the outermost commit of the bundle's connection,
         // dropped on rollback; the middleware reports the real transactions (the file store joins it, JG-M1).
+        // 1.11.1: committed events are dispatched outside the driver commit, at the next safe point (the private manager's
+        // connection reports no transaction): the next event, postFlush, the end of the request / command / message.
         $container->setDefinition(AfterCommitEventDispatcher::class, (new Definition(AfterCommitEventDispatcher::class, [
             new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-        ]))->addTag('kernel.reset', ['method' => 'reset']));
+            new ServiceClosureArgument(new Reference(SettingsEntityManager::class)),
+        ]))->addTag('kernel.reset', ['method' => 'reset'])
+            ->addTag('doctrine.event_listener', ['event' => 'postFlush']));
+        foreach (AfterCommitEventDispatcher::BOUNDARY_EVENTS as $boundary) {
+            $container->getDefinition(AfterCommitEventDispatcher::class)
+                ->addTag('kernel.event_listener', ['event' => $boundary, 'method' => 'onBoundary', 'priority' => 1024]);
+        }
+        $container->setAlias(SettingsPendingEventsInterface::class, AfterCommitEventDispatcher::class)->setPublic(true);
         $container->setDefinition(FileStoreTransactionMiddleware::class, (new Definition(FileStoreTransactionMiddleware::class, [new Reference(AfterCommitEventDispatcher::class)]))
             ->addTag('doctrine.middleware'));
 

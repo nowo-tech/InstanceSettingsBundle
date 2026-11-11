@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
+use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
 use Nowo\InstanceSettingsBundle\Repository\StoredSettingRow;
@@ -43,7 +44,11 @@ final class SettingsChangedAfterCommitTest extends KernelTestCase
         $this->settings($kernel)->save('general', ['site_name' => 'Beacon']);
         self::assertSame([], $this->events, 'not before the host commit');
         $connection->commit();
+        self::assertSame([], $this->events, 'never from inside the commit (1.11.1)');
 
+        $pending = $this->container($kernel)->get(SettingsPendingEventsInterface::class);
+        self::assertInstanceOf(SettingsPendingEventsInterface::class, $pending);
+        self::assertSame(1, $pending->dispatchPending(), 'the next safe point');
         self::assertSame(['general:site_name'], $this->events);
     }
 
