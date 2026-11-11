@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.13.0] - 2026-11-11](#1130---2026-11-11)
 - [[1.12.0] - 2026-11-11](#1120---2026-11-11)
 - [[1.11.1] - 2026-11-11](#1111---2026-11-11)
 - [[1.11.0] - 2026-11-11](#1110---2026-11-11)
@@ -25,6 +26,10 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.13.0] - 2026-11-11
+
+Error page illustrations from the brand (Beacon 1.147), the LM-L3 colour fix and the 1.12 image-input follow-ups. Audit: Appendix LS and Delta LS, Pass.
 
 ### Added
 
