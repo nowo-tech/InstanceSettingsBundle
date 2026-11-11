@@ -74,6 +74,11 @@ image:
 color:
   reset: 'Voreingestellte Farbe verwenden'
 brand:
+  group:
+    identity: Identität
+    logos: Logos
+    extra_images: Weitere Bilder
+    advanced: Erweitert
   section:
     label: Marke
     intro: Name, Texte und Bilder dieser Instanz. Bilder sind PNG, JPEG oder WebP (kein SVG-Upload), werden beim Hochladen neu kodiert und öffentlich ausgeliefert.
@@ -99,6 +104,11 @@ brand:
     app_icon: Quadratisch, deckend, mindestens 512 × 512 px; Versionen mit 512, 192 und 180 px werden erzeugt. Leer = ein quadratisches Zeichen ab 512 px.
     favicon: Quadratisch, mindestens 32 × 32 px; Versionen mit 32 und 16 px werden erzeugt. Leer = das Zeichen, dann das App-Symbol.
 appearance:
+  group:
+    theme: Design
+    light_colors: Helle Farben
+    dark_colors: Dunkle Farben
+    shape: Form
   section:
     label: Erscheinungsbild
     intro: Farben und Layout der Oberfläche. Eine leere Farbe folgt der gewählten Vorlage.
@@ -140,3 +150,8 @@ appearance:
       text_on_surface: 'Dunkler Modus: Text auf der Fläche erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
       primary_contrast_on_primary: 'Dunkler Modus: Text auf der Akzentfarbe erreicht den WCAG-AA-Kontrast (4,5:1) nicht.'
       primary_on_surface: 'Dunkler Modus: die Akzentfarbe auf der Fläche erreicht 3:1 nicht (WCAG 1.4.11).'
+group:
+  other: Sonstiges
+tabs:
+  label: Einstellungsgruppen
+  errors: '%count% Feld(er) mit Fehlern'

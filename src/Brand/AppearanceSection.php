@@ -11,6 +11,8 @@ use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\InstanceSettingsBundle\Section\SectionFallbackProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
+use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionGroupsInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionSaveFilterInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
@@ -40,8 +42,11 @@ use function ucfirst;
  * input, following the selected preset). An empty colour follows the selected preset, and a saved colour equal to it is
  * dropped (not stored), so changing the preset later still reaches untouched fields. Contrast below
  * WCAG AA is a notice, never a refusal (owner decision Q-O8).
+ *
+ * 1.14: four field groups (subtabs with `web_ui.section_layout: tabs`): theme presets, light colours, dark colours and
+ * shape (corners, borders, footer).
  */
-final class AppearanceSection extends AbstractSettingsSection implements SettingsSectionSaveFilterInterface, SettingsSectionNoticesInterface, SectionFallbackProviderInterface
+final class AppearanceSection extends AbstractSettingsSection implements SettingsSectionSaveFilterInterface, SettingsSectionNoticesInterface, SectionFallbackProviderInterface, SettingsSectionGroupsInterface
 {
     /** Section name. */
     public const NAME = 'appearance';
@@ -51,6 +56,15 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
 
     /** Translation domain of UiKit's preset names (theme cards, 1.6). */
     public const UI_KIT_DOMAIN = 'NowoUiKitBundle';
+
+    /** Field groups (1.14): codes of the subtabs, in order. */
+    public const GROUP_THEME = 'theme';
+
+    public const GROUP_LIGHT_COLORS = 'light_colors';
+
+    public const GROUP_DARK_COLORS = 'dark_colors';
+
+    public const GROUP_SHAPE = 'shape';
 
     /** Modes and their field prefixes. */
     private const MODES = [AppearancePreset::MODE_LIGHT => 'light_', AppearancePreset::MODE_DARK => 'dark_'];
@@ -148,6 +162,22 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
         $fields[] = (new SettingField('footer_fixed', SettingType::Bool, $defaults->footerFixed, 'appearance.field.footer_fixed', 'appearance.help.footer_fixed'))->withGroup('layout');
 
         return $fields;
+    }
+
+    /**
+     * 1.14: Theme (the two presets), Light colours, Dark colours and Shape (corner style, border strength, fixed
+     * footer), from the fields' form groups. Labels `appearance.group.<code>` in the bundle domain.
+     *
+     * @return list<SettingsGroup>
+     */
+    public function getGroups(): iterable
+    {
+        return [
+            new SettingsGroup(self::GROUP_THEME, fieldGroups: ['theme']),
+            new SettingsGroup(self::GROUP_LIGHT_COLORS, fieldGroups: ['colors.' . AppearancePreset::MODE_LIGHT]),
+            new SettingsGroup(self::GROUP_DARK_COLORS, fieldGroups: ['colors.' . AppearancePreset::MODE_DARK]),
+            new SettingsGroup(self::GROUP_SHAPE, fieldGroups: ['layout'], rest: true),
+        ];
     }
 
     /**

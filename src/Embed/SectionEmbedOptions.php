@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Embed;
 
 use InvalidArgumentException;
+use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
 use Nowo\UiKitBundle\View\PageHeader;
 
 use function get_debug_type;
@@ -46,6 +47,7 @@ final readonly class SectionEmbedOptions
      * @param string|null $layout layout the scaffold extends (null = `web_ui.layout_template`, else UiKit's admin layout)
      * @param PageHeader|null $header page header (null = the bundle's title and intro, without the import / export link)
      * @param array<string, mixed> $context extra template variables (the bundle's variables win on a name clash)
+     * @param SectionLayout|null $sectionLayout 1.14: field groups as subtabs or stacked (null = `web_ui.section_layout`)
      */
     private function __construct(
         array $sections,
@@ -56,6 +58,7 @@ final readonly class SectionEmbedOptions
         public ?string $layout = null,
         public ?PageHeader $header = null,
         public array $context = [],
+        public ?SectionLayout $sectionLayout = null,
     ) {
         if ($sections === []) {
             throw new InvalidArgumentException('SectionEmbedOptions needs at least one section.');
@@ -126,7 +129,7 @@ final readonly class SectionEmbedOptions
      */
     public function withTemplate(?string $template): self
     {
-        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $template, $this->layout, $this->header, $this->context);
+        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $template, $this->layout, $this->header, $this->context, $this->sectionLayout);
     }
 
     /**
@@ -134,7 +137,7 @@ final readonly class SectionEmbedOptions
      */
     public function withLayout(?string $layout): self
     {
-        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $this->template, $layout, $this->header, $this->context);
+        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $this->template, $layout, $this->header, $this->context, $this->sectionLayout);
     }
 
     /**
@@ -142,7 +145,7 @@ final readonly class SectionEmbedOptions
      */
     public function withHeader(?PageHeader $header): self
     {
-        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $this->template, $this->layout, $header, $this->context);
+        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $this->template, $this->layout, $header, $this->context, $this->sectionLayout);
     }
 
     /**
@@ -152,7 +155,20 @@ final readonly class SectionEmbedOptions
      */
     public function withContext(array $context): self
     {
-        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $this->template, $this->layout, $this->header, $context);
+        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $this->template, $this->layout, $this->header, $context, $this->sectionLayout);
+    }
+
+    /**
+     * Copy with its own section layout (1.14): `tabs` shows the field groups of the embedded sections as subtabs,
+     * `stacked` keeps one column, null follows `web_ui.section_layout`.
+     */
+    public function withSectionLayout(SectionLayout|string|null $layout): self
+    {
+        if (is_string($layout)) {
+            $layout = SectionLayout::tryFrom($layout) ?? throw new InvalidArgumentException(sprintf('Invalid section layout "%s" (expected "stacked" or "tabs").', $layout));
+        }
+
+        return new self($this->sections, $this->routes, $this->routeParameters, $this->sectionParameter, $this->template, $this->layout, $this->header, $this->context, $layout);
     }
 
     /**

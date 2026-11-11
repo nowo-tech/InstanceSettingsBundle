@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.14.0](#to-1140)
 - [To 1.13.1](#to-1131)
 - [To 1.13.0](#to-1130)
 - [To 1.12.0](#to-1120)
@@ -31,6 +32,39 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.14.0
+
+From **1.13.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+php bin/console assets:install
+```
+
+To **1.14.0** (minor): nothing changes until you opt in. The default `web_ui.section_layout: stacked` renders the same
+markup as 1.13.
+
+To show long sections as subtabs:
+
+```yaml
+# config/packages/nowo_instance_settings.yaml
+nowo_instance_settings:
+    web_ui:
+        section_layout: tabs
+```
+
+- Run `assets:install` (new `bundles/nowoinstancesettings/js/nowo-instance-settings-tabs.js`).
+- Your layout must load UiKit's `tabs` runtime: UiKit's document layout and the `scripts` partial
+  (`{{ include(nowo_ui_partial('scripts')) }}`) do by default. Without it every group stays visible, stacked.
+- The bundle's `brand` and `appearance` sections declare their groups. Your own sections: implement
+  `SettingsSectionGroupsInterface` (see [USAGE](USAGE.md#field-groups-and-subtabs-114)), or rely on the 1.5
+  `SettingField::withGroup()` groups (labels `<section>.group.<code>` in the section domain).
+- A host that overrides the theme partial `section_form` keeps it in the stacked layout; the tabs layout renders
+  `settings/_section_form_tabs.html.twig`. A host template for `web_ui.templates.section` that does not extend the
+  bundle template must include that partial when the `section_groups` variable is set.
+- Embeds follow the config; `SectionEmbedOptions::withSectionLayout('tabs')` opts one embed in (or out).
+- Links may carry `?group=<code>` to open a tab (e.g. `/developer/appearance/brand?group=logos`).
 
 ## To 1.13.1
 

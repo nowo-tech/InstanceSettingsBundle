@@ -36,6 +36,14 @@ final readonly class EmbedHostController
         return $this->embedder->handle($request, 'mailer', SectionEmbedOptions::routes(['mailer' => 'host_mailer']));
     }
 
+    /**
+     * 1.14: field groups as subtabs in an embed (the host route carries a query parameter).
+     */
+    public function grouped(Request $request): Response
+    {
+        return $this->embedder->handle($request, 'grouped', SectionEmbedOptions::routes(['grouped' => 'host_grouped'], ['tenant' => 'acme'])->withSectionLayout('tabs'));
+    }
+
     public function look(Request $request): Response
     {
         return $this->embedder->handle($request, 'look', SectionEmbedOptions::routes(['look' => 'host_look']));

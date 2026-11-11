@@ -74,6 +74,11 @@ image:
 color:
   reset: 'Utiliser la couleur prédéfinie'
 brand:
+  group:
+    identity: Identité
+    logos: Logos
+    extra_images: Images supplémentaires
+    advanced: Avancé
   section:
     label: Marque
     intro: Nom, textes et images de cette instance. Les images sont en PNG, JPEG ou WebP (pas d'envoi SVG), réencodées à l'envoi et servies publiquement.
@@ -99,6 +104,11 @@ brand:
     app_icon: Carré, opaque, au moins 512 × 512 px ; des versions de 512, 192 et 180 px sont générées. Vide = un symbole carré de 512 px ou plus.
     favicon: Carré, au moins 32 × 32 px ; des versions de 32 et 16 px sont générées. Vide = le symbole, puis l'icône de l'application.
 appearance:
+  group:
+    theme: Thème
+    light_colors: Couleurs claires
+    dark_colors: Couleurs sombres
+    shape: Forme
   section:
     label: Apparence
     intro: Couleurs et mise en page de l'interface. Une couleur vide suit le thème choisi.
@@ -140,3 +150,8 @@ appearance:
       text_on_surface: 'Mode sombre: le texte sur la surface n''atteint pas le contraste WCAG AA (4,5:1).'
       primary_contrast_on_primary: 'Mode sombre: le texte sur la couleur d''accent n''atteint pas le contraste WCAG AA (4,5:1).'
       primary_on_surface: 'Mode sombre: la couleur d''accent sur la surface n''atteint pas 3:1 (WCAG 1.4.11).'
+group:
+  other: Autres
+tabs:
+  label: Groupes de réglages
+  errors: '%count% champ(s) en erreur'

@@ -28,6 +28,50 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target: 1.14.0 (minor). Opt-in subtabs for long settings sections (Beacon brand page, `/developer/appearance/brand`).
+
+### Added
+
+- **Field groups as subtabs** (`web_ui.section_layout: tabs`, default `stacked`): a section page shows one UiKit subtab
+  per field group. Groups come from the new optional interface `Section\SettingsSectionGroupsInterface::getGroups()`
+  (`Section\SettingsGroup`: a code, an optional label key / domain, the field names it claims, the 1.5 form groups it
+  claims, `rest` for the fields no other group claims), else from the fields' 1.5 form groups
+  (`SettingField::withGroup()`, labels `<section>.group.<code>`). A separate interface, so existing sections keep
+  compiling; `Section\SectionGroups::resolve()` assigns every field to exactly one group (fields claimed by none go
+  to the `rest` group, else an automatic "Other" group), drops empty groups and renders stacked below two groups. A
+  duplicate code or a group listing an unknown field is a `LogicException`.
+  - **One form:** Save saves every group. Inactive panels are only `hidden` (never disabled), so their fields, file
+    inputs included, are submitted; write-only secrets left blank keep their stored value, encrypted secrets and
+    "blank = keep" / "clear" are unchanged.
+  - **URL:** the open tab is `?group=<code>` (read on GET; unknown or non-string values ignored), kept by the redirect
+    after a save (bundle route and embeds; a host route URL that already has a query gets `&group=`). The new
+    `bundles/nowoinstancesettings/js/nowo-instance-settings-tabs.js` (plain, deferred, CSP nonce, idempotent) updates
+    the URL with `history.replaceState` on every tab change, so a reload or the form post come back to the same tab.
+  - **Accessible:** UiKit's in-page tabs runtime (`nowo-ui-tabs.js`, in UiKit's default script set): role `tablist` /
+    `tab` / `tabpanel`, `aria-controls`, `aria-selected`, roving tabindex, ArrowLeft / ArrowRight (mirrored in RTL),
+    Home / End, a browser-invalid control in a hidden panel opens it. Without JavaScript every panel is visible as a
+    stacked `<fieldset><legend>` and the tab list stays hidden (progressive upgrade).
+  - **Errors:** a tab whose fields have validation errors carries `data-invalid` and a badge with the count (plus
+    screen-reader text, `tabs.errors`); after a failed save the first tab with an error opens.
+  - **Embeds:** `SettingsSectionEmbedder` renders the same subtabs; `SectionEmbedOptions::withSectionLayout('tabs' |
+    'stacked' | null)` overrides the config per embed.
+  - Markup: `settings/_section_form_tabs.html.twig` (the form of UiKit's `section_form` partial with the rows of each
+    group in a panel; UiKit's in-page tab classes and theme slots `locale_tabs_nav`, `tab`, `tab_active`,
+    `tab_panel`). UiKit 2.48.1 has no generic in-page tabs partial (only `locale_tabs`, bound to languages: `lang`,
+    `dir`, language names), so the bundle prints the markup contract of UiKit's tabs runtime itself. The section page
+    gets a `section_groups` variable (`Ui\SectionGroupTabs`) only in the tabs layout.
+- **Default groups of the bundle's sections:** `brand` — Identity (name, short name, eyebrow, wordmark), Logos (light,
+  dark, mark, favicon, app icon), Extra images (`brand.extra_images`), Advanced (any other field; not shown while
+  empty); `appearance` — Theme (presets), Light colours, Dark colours, Shape (corners, borders, footer). Group labels
+  in the 7 catalogues (`brand.group.*`, `appearance.group.*`, `group.other`, `tabs.label`, `tabs.errors`).
+
+### Unchanged
+
+- The default `stacked` layout renders byte-identical markup (golden tests); the 1.5 row attribute
+  `data-nowo-instance-settings-group` keeps its values (`identity`, `images`, `theme`, `colors.light`, …). No new
+  request state (REQ-RUNTIME-002): the groups and the open tab are computed per page; the 1.13.1 boundary listener is
+  untouched. New ports use plain PHP types only (REQ-ARCH-001).
+
 ## [1.13.1] - 2026-11-11
 
 Target: 1.13.1 (patch).

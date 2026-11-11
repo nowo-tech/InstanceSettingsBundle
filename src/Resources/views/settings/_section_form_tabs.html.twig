@@ -1,0 +1,74 @@
+{#
+  Section form with its field groups as subtabs (1.14, web_ui.section_layout: tabs; the stacked layout keeps UiKit's
+  `section_form` partial). The same form as UiKit's `section_form` partial (classes, submit row, actions after the
+  </form> through form="…"), with the rows of each group in one in-page panel.
+
+  UiKit's in-page tabs (nowo-ui-tabs.js, in UiKit's default script set; the markup contract and classes of UiKit's
+  `locale_tabs` partial, without its language semantics): no-JS first, every panel is visible as a stacked
+  <fieldset><legend> and the tab list stays hidden until the runtime upgrades the root (WAI-ARIA tabs: role tablist /
+  tab / tabpanel, aria-controls, aria-selected, roving tabindex, ArrowLeft / ArrowRight, Home / End; a browser
+  `invalid` control in a hidden panel opens it). Inactive panels are only `hidden`, never disabled: Save submits every
+  group (file inputs and write-only secrets included: a blank secret keeps its stored value). The open tab is reflected
+  in the URL as ?group=<code> by nowo-instance-settings-tabs.js (history.replaceState; the form posts to that URL).
+
+  Required:
+    - form: FormView (SettingsSectionType)
+    - groups: Ui\SectionGroupTabs (id, active, tabs: code, tabId, label, fields, errors, active, href)
+  Optional:
+    - submit_label, actions (View\Action list), bundle, nowo_ui_page_type, nonce (default the request csp_nonce)
+#}
+{%- set bundle = bundle|default(null) -%}
+{%- set _pt = nowo_ui_page_type|default(null) -%}
+{%- set _actions = actions|default([]) -%}
+{%- set _form_id = _actions is empty ? null : (form.vars.attr.id ?? (form.vars.id ? form.vars.id ~ '-form' : 'nowo-ui-section-form')) -%}
+{%- set _request = app is defined and app ? app.request : null -%}
+{%- set _nonce = nonce|default(_request ? _request.attributes.get('csp_nonce') : null) -%}
+{%- set _tab_class = nowo_ui_class('tab', bundle) -%}
+{%- set _tab_active_class = nowo_ui_class('tab_active', bundle) -%}
+{%- macro errors(tab) -%}
+    {%- if tab.invalid -%}
+        <span class="nowo-ui-locale-tabs__marker nowo-ui-locale-tabs__marker--invalid nowo-instance-settings-tabs__errors" aria-hidden="true" data-testid="instance-settings-group-errors">{{ tab.errors }}</span>
+        {{- '' }}<span class="visually-hidden"> ({{ 'tabs.errors'|trans({'%count%': tab.errors}, 'NowoInstanceSettingsBundle') }})</span>
+    {%- endif -%}
+{%- endmacro -%}
+{% set _row %}
+    <div class="{{ nowo_ui_class('form_actions', bundle) }}"{{ nowo_ui_attrs('form_actions', bundle) }}>
+        <button type="submit" class="{{ nowo_ui_class('btn_primary', bundle) }}"{% if _form_id %} form="{{ _form_id }}"{% endif %}>{{ submit_label|default(null) is null ? 'action.save'|trans({}, 'NowoUiKitBundle') : submit_label|nowo_ui_trans }}</button>
+        {% for action in _actions %}
+            {{ include(nowo_ui_partial('action', bundle), {action: action, context: 'toolbar', bundle: bundle, nowo_ui_page_type: _pt}, false) }}
+        {% endfor %}
+    </div>
+{% endset %}
+{{ form_start(form, {attr: {class: nowo_ui_class('form', bundle), 'data-nowo-ui-region': 'form'}|merge(_form_id ? {id: _form_id} : {})|merge(nowo_ui_theme.attributesFor('form', bundle, {}, _pt))}) }}
+    <div id="{{ groups.id }}" class="nowo-ui-locale-tabs nowo-instance-settings-tabs" data-nowo-instance-settings-tabs data-nowo-ui-tabs data-nowo-ui-tabs-upgrade data-nowo-ui-tabs-active="{{ groups.id ~ '-' ~ groups.active }}" data-nowo-ui-tabs-tab-class="{{ _tab_class }}" data-nowo-ui-tabs-tab-active-class="{{ _tab_active_class }}">
+        <div role="tablist" aria-label="{{ 'tabs.label'|trans({}, 'NowoInstanceSettingsBundle') }}" class="{{ nowo_ui_class('locale_tabs_nav', bundle) }}" data-nowo-ui-tabs-list hidden{{ nowo_ui_attrs('locale_tabs_nav', bundle) }}>
+            {%- for tab in groups.tabs %}
+            <button type="button" role="tab" id="tab-{{ tab.tabId }}" aria-controls="tab-{{ tab.tabId }}-panel" aria-selected="{{ tab.active ? 'true' : 'false' }}" tabindex="{{ tab.active ? '0' : '-1' }}" class="{{ tab.active ? _tab_active_class : _tab_class }}" data-nowo-ui-tabs-trigger data-nowo-ui-tab-id="{{ tab.tabId }}" data-nowo-instance-settings-group-tab="{{ tab.code }}"
+                {%- if tab.active %} data-active{% endif %}{% if tab.invalid %} data-invalid{% endif %}{{ nowo_ui_attrs(tab.active ? 'tab_active' : 'tab', bundle) }}>
+                {{- tab.label|nowo_ui_trans }}{{ _self.errors(tab) -}}
+            </button>
+            {%- endfor %}
+        </div>
+        {%- for tab in groups.tabs %}
+        <div id="tab-{{ tab.tabId }}-panel" class="{{ nowo_ui_class('tab_panel', bundle) }} nowo-ui-locale-tabs__panel" data-state="active" data-nowo-ui-tabs-panel data-nowo-ui-tab-id="{{ tab.tabId }}" data-nowo-instance-settings-group-panel="{{ tab.code }}"
+            {%- if tab.active %} data-active{% endif %}{% if tab.invalid %} data-invalid{% endif %}{{ nowo_ui_attrs('tab_panel', bundle) }}>
+            <fieldset class="nowo-ui-locale-tabs__fieldset">
+                <legend class="nowo-ui-locale-tabs__legend" data-nowo-ui-tabs-legend>{{ tab.label|nowo_ui_trans }}{{ _self.errors(tab) }}</legend>
+                {% for name in tab.fields %}
+                    {% if form[name] is defined and not form[name].rendered %}
+                        {{ form_row(form[name]) }}
+                    {% endif %}
+                {% endfor %}
+            </fieldset>
+        </div>
+        {%- endfor %}
+    </div>
+    {% for child in form %}
+        {% if not child.rendered %}
+            {{ form_row(child) }}
+        {% endif %}
+    {% endfor %}
+    {% if _form_id is null %}{{ _row }}{% endif %}
+{{ form_end(form) }}
+{% if _form_id %}{{ _row }}{% endif %}
+<script src="{{ asset('bundles/nowoinstancesettings/js/nowo-instance-settings-tabs.js') }}" defer{% if _nonce %} nonce="{{ _nonce }}"{% endif %} data-nowo-instance-settings-tabs-script></script>

@@ -74,6 +74,11 @@ image:
 color:
   reset: 'Use the preset colour'
 brand:
+  group:
+    identity: Identity
+    logos: Logos
+    extra_images: Extra images
+    advanced: Advanced
   section:
     label: Brand
     intro: Name, texts and images of this instance. Images are PNG, JPEG or WebP (no SVG upload), re-encoded on upload and served publicly.
@@ -99,6 +104,11 @@ brand:
     app_icon: Square, opaque, at least 512 × 512 px; 512, 192 and 180 px versions are generated. Empty = a square mark of 512 px or more.
     favicon: Square, at least 32 × 32 px; 32 and 16 px versions are generated. Empty = the mark, then the app icon.
 appearance:
+  group:
+    theme: Theme
+    light_colors: Light colours
+    dark_colors: Dark colours
+    shape: Shape
   section:
     label: Appearance
     intro: Colours and layout of the interface. An empty colour follows the selected preset.
@@ -140,3 +150,8 @@ appearance:
       text_on_surface: 'Dark mode: text on the surface is below WCAG AA contrast (4.5:1).'
       primary_contrast_on_primary: 'Dark mode: text on the accent colour is below WCAG AA contrast (4.5:1).'
       primary_on_surface: 'Dark mode: the accent colour on the surface is below 3:1 contrast (WCAG 1.4.11).'
+group:
+  other: Other
+tabs:
+  label: Setting groups
+  errors: '%count% field(s) with errors'
