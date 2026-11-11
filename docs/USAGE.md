@@ -696,8 +696,11 @@ How it resolves, given an error page often renders because the database is down:
 - **No database, no HTTP.** It needs `files.store: filesystem` and reads the field's file on disk
   (`<files.directory>/brand/extra_<id>.<png|jpg|webp>`) and the store's own metadata file next to it
   (`brand/.variants/extra_<id>.meta`: SHA-256, type, width and height, trusted while the file's size, mtime, ctime and
-  inode match: one `stat()`). Without valid metadata (a file replaced by a deployment before the next save) the file
-  itself is read, sniffed and hashed (≤ 5 MiB). The metadata format stays private to the bundle.
+  inode match: one `stat()`). Without valid metadata (a fresh checkout, where `.variants/` is git-ignored, or a file
+  copied by a deployment) the first lookup reads, sniffs and hashes the file (≤ 5 MiB) and writes the metadata (best
+  effort, atomic); later lookups are warm again. On a read-only `files.directory` the metadata cannot be written: every
+  lookup reads the file (a debug line is logged), so make the directory writable or run the seed / a save after a
+  deployment. The metadata format stays private to the bundle.
 - **URL**: the file route of the original, `{files.path_prefix}/brand/extra_<id>/<hash12>.<png|jpg|webp>` (e.g.
   `/_settings-file/brand/extra_mascot/3f1c9a0b7e21.png`), built by the router; `width` / `height` are the stored
   image's; no WebP `<source>` (`webp: false`). The file route serves a filesystem-store file only while its setting

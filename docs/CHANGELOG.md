@@ -43,7 +43,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - The bundle stylesheet `nowo-instance-settings.css` sits in UiKit's cascade layer `nowo-ui` (with UiKit's layer order
-  statement), so host utilities and unlayered host CSS win over it (audit LM29-I1). See [UPGRADING](UPGRADING.md#unreleased).
+  statement), so host utilities and unlayered host CSS win over it (audit LM29-I1). Visual change for hosts with
+  unlayered global CSS. See [UPGRADING](UPGRADING.md#unreleased).
 - The demo pins the bundle's path package as `1.13.0` (`versions` option) instead of the checked-out branch name
   (audit LM29-I4).
 
@@ -53,6 +54,13 @@ All notable changes to this project are documented here. The format follows
   equal to the selected preset, so an untouched save, or switching the preset to one matching a stored colour, deleted
   the stored row. It now follows the 1.12 rule of colour fields: a colour re-submitted equal to its stored value is
   kept; a colour changed to the preset is still stored as null.
+- **Filesystem store metadata after a cold read** (audit LS-L1): a lookup that had to read and hash an original (no
+  `.variants/<field>.meta` after a checkout, or a file copied by a deployment) now writes the metadata, best effort and
+  atomically (a temporary file renamed into place, bound to the stat taken before the read), so the next lookup (an
+  error page, the file route) is one `stat()`. A read-only directory or any write failure only logs at debug level
+  (`logger` service, new optional constructor argument) and the lookup answers as before.
+- `BrandSection::EXTRA_ID_PATTERN` uses the `D` modifier (audit LS-I4): an `extra_images` id ending with a newline is
+  refused by the configuration.
 - **`image_input: false`** (audit LM29-I3): such an image field keeps its pre-1.12 row (label and help, no card), and
   the section page loads UiKit's `image-input` script and the bundle stylesheet only when a field shows the image
   input box (`SettingImageType::inputInForm()`).

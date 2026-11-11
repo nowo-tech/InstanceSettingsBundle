@@ -616,7 +616,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         ]));
         if ($files['store'] === 'filesystem') {
             // 1.7 (owner decision D-20261109-03): stable files per field in files.directory, no database blob.
-            $container->setDefinition(FilesystemSettingFileStore::class, (new Definition(FilesystemSettingFileStore::class, [$files['directory'], ['%kernel.project_dir%/public', $files['public_dir']]]))
+            $container->setDefinition(FilesystemSettingFileStore::class, (new Definition(FilesystemSettingFileStore::class, [$files['directory'], ['%kernel.project_dir%/public', $files['public_dir']], new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE)]))
                 ->addTag('kernel.reset', ['method' => 'reset']));
             // Follows the real transactions (a host transaction around a bundle call) for the file changes (JG-M1).
             $container->getDefinition(FileStoreTransactionMiddleware::class)->setArguments([

@@ -39,7 +39,7 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
     public const EXTRA_FIELD_PREFIX = 'extra_';
 
     /** Extra image ids (the field name `extra_<id>` stays within 64 characters). */
-    public const EXTRA_ID_PATTERN = '/^[a-z][a-z0-9_]{0,57}$/';
+    public const EXTRA_ID_PATTERN = '/^[a-z][a-z0-9_]{0,57}$/D';
 
     /** Longest name. */
     public const NAME_MAX = 80;
