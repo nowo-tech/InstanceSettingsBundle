@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.11.0] - 2026-11-11](#1110---2026-11-11)
 - [[1.10.0] - 2026-11-10](#1100---2026-11-10)
 - [[1.9.0] - 2026-11-10](#190---2026-11-10)
 - [[1.8.0] - 2026-11-09](#180---2026-11-09)
@@ -23,7 +24,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-Target 1.11.0. Architecture bar (standard Symfony and DDD hosts, rules 3 and 6; audit 2026-11-10).
+## [1.11.0] - 2026-11-11
+
+Settings are written through a private entity manager: a save no longer commits unrelated pending host changes or resets a host manager; doctrine.entity_manager is now a real dedicated-manager option. See [UPGRADING](https://github.com/nowo-tech/InstanceSettingsBundle/blob/v1.11.0/docs/UPGRADING.md#to-1110).
+
 
 ### Fixed
 

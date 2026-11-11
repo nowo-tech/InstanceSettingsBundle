@@ -3,7 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
-  - [To 1.11.0](#to-1110)
+- [To 1.11.0](#to-1110)
 - [To 1.10.0](#to-1100)
 - [To 1.10.0](#to-1100-1)
 - [To 1.9.0](#to-190)
@@ -28,7 +28,7 @@
 
 ## Unreleased
 
-### To 1.11.0
+## To 1.11.0
 
 Target **1.11.0**, from **1.10.0**:
 
