@@ -48,8 +48,9 @@ abstract class KernelTestCase extends TestCase
      * @param list<string> $without bundles to leave out
      * @param Closure(RoutingConfigurator): void|null $routes routes (default: the bundle loader)
      * @param array<string, array<string, mixed>> $extensions other extension configs (e.g. nowo_ui_kit)
+     * @param bool $hostDefaultDriver catch-all default driver on the host's default manager (DoctrineBundle 3.4 auto-discovery)
      */
-    protected function bootKernel(array $config = [], array $services = [], array $without = [], ?Closure $routes = null, bool $debug = false, bool $fixtures = true, array $extensions = []): InstanceSettingsTestKernel
+    protected function bootKernel(array $config = [], array $services = [], array $without = [], ?Closure $routes = null, bool $debug = false, bool $fixtures = true, array $extensions = [], bool $hostDefaultDriver = false): InstanceSettingsTestKernel
     {
         $id     = (string) preg_replace('/\W+/', '_', static::class . '_' . $this->name() . '_' . count($this->kernels));
         $kernel = new InstanceSettingsTestKernel(
@@ -74,6 +75,7 @@ abstract class KernelTestCase extends TestCase
             },
             $without,
             $debug,
+            $hostDefaultDriver,
         );
         $this->kernels[] = $kernel;
         $kernel->boot();

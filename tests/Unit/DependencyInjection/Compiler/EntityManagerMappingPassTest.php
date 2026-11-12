@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\DependencyInjection\Compiler;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\EntityManagerMappingPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
+use Nowo\InstanceSettingsBundle\Doctrine\ExcludedEntityNamespaceDriver;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -28,8 +29,21 @@ final class EntityManagerMappingPassTest extends TestCase
 
         (new EntityManagerMappingPass())->process($container);
 
-        self::assertSame(['addDriver:App\Entity', 'setDefaultDriver:'], $this->calls($container, 'default'));
-        self::assertSame(['addDriver:' . EntityManagerMappingPass::ENTITY_NAMESPACE, 'addDriver:' . EntityManagerMappingPass::FILE_ENTITY_NAMESPACE], $this->calls($container, 'settings'));
+        // Other managers: the host's drivers for the namespaces are gone; drivers that map nothing come first, before the
+        // host's drivers and before any default driver (DoctrineBundle 3.4 auto_discover_entities).
+        $excluded = ['addDriver:' . EntityManagerMappingPass::ENTITY_NAMESPACE, 'addDriver:' . EntityManagerMappingPass::FILE_ENTITY_NAMESPACE];
+        self::assertSame([...$excluded, 'addDriver:App\Entity', 'setDefaultDriver:'], $this->calls($container, 'default'));
+        foreach ([0, 1] as $index) {
+            $driver = $container->getDefinition('doctrine.orm.default_metadata_driver')->getMethodCalls()[$index][1][0];
+            self::assertInstanceOf(Definition::class, $driver);
+            self::assertSame(ExcludedEntityNamespaceDriver::class, $driver->getClass());
+        }
+        self::assertSame($excluded, $this->calls($container, 'settings'));
+        self::assertEquals(new Reference('driver'), $container->getDefinition('doctrine.orm.settings_metadata_driver')->getMethodCalls()[0][1][0], 'the configured manager keeps its own drivers');
+
+        (new EntityManagerMappingPass())->process($container);
+        self::assertSame([...$excluded, 'addDriver:App\Entity', 'setDefaultDriver:'], $this->calls($container, 'default'), 'idempotent');
+        self::assertSame($excluded, $this->calls($container, 'settings'), 'idempotent');
     }
 
     public function testNothingWithoutADedicatedManager(): void
