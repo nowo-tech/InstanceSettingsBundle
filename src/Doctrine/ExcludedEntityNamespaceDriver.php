@@ -24,12 +24,19 @@ use function sprintf;
  */
 final class ExcludedEntityNamespaceDriver implements MappingDriver
 {
+    /**
+     * Always fails: no bundle class is mapped on this manager.
+     *
+     * @throws MappingException
+     */
     public function loadMetadataForClass(string $className, ClassMetadata $metadata): void
     {
         throw new MappingException(sprintf('Class "%s" is not mapped on this entity manager (nowo_instance_settings.doctrine.entity_manager maps it on another one).', $className));
     }
 
     /**
+     * No class: the bundle entities are listed by the configured manager only.
+     *
      * @return list<class-string>
      */
     public function getAllClassNames(): array
@@ -37,6 +44,9 @@ final class ExcludedEntityNamespaceDriver implements MappingDriver
         return [];
     }
 
+    /**
+     * Every bundle class is transient on this manager.
+     */
     public function isTransient(string $className): bool
     {
         return true;
