@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2dd8d2ad652f9c577fcaa094d32a043b",
+    "content-hash": "b108f865e0b13e8f7f33b68c7a7059f7",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -1166,7 +1166,7 @@
             "dist": {
                 "type": "path",
                 "url": "/var/instance-settings-bundle",
-                "reference": "269edf2e1801a8e9b69192fb4a1f7739034b07dc"
+                "reference": "f9832163f7a59fa012177b56883503eb9c7c0990"
             },
             "require": {
                 "doctrine/dbal": "^4.0",
@@ -1341,16 +1341,16 @@
         },
         {
             "name": "nowo-tech/ui-kit-bundle",
-            "version": "v2.47.0",
+            "version": "v2.49.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/UiKitBundle.git",
-                "reference": "1d0adb84a30bc3c965b16f5d02d53ccb15d59363"
+                "reference": "38f5a1e26f360bda0fe7e1f88a5182c47081b8ce"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/1d0adb84a30bc3c965b16f5d02d53ccb15d59363",
-                "reference": "1d0adb84a30bc3c965b16f5d02d53ccb15d59363",
+                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/38f5a1e26f360bda0fe7e1f88a5182c47081b8ce",
+                "reference": "38f5a1e26f360bda0fe7e1f88a5182c47081b8ce",
                 "shasum": ""
             },
             "require": {
@@ -1439,8 +1439,8 @@
                 "issues": "https://github.com/nowo-tech/UiKitBundle/issues",
                 "source": "https://github.com/nowo-tech/UiKitBundle"
             },
-            "time": "2026-11-11T08:14:45+00:00",
-            "published-time": "2026-11-11T08:18:29+00:00"
+            "time": "2026-11-11T22:37:57+00:00",
+            "published-time": "2026-11-11T22:41:16+00:00"
         },
         {
             "name": "paragonie/constant_time_encoding",

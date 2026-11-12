@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Demo uses the UiKit base style (REQ-DEMO-014)
+
 ## [1.14.0] - 2026-11-11
 
 Target: 1.14.0 (minor). Opt-in subtabs for long settings sections (Beacon brand page, `/developer/appearance/brand`).
