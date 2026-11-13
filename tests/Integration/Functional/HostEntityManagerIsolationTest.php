@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\ORM\Tools\SchemaTool;
 use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
@@ -19,6 +20,7 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\HostXml\HostXmlNote;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\WorkerProbeController;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -26,6 +28,7 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 use Symfony\Component\HttpKernel\TerminableInterface;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
+use function array_map;
 use function json_decode;
 use function memory_get_usage;
 
@@ -174,6 +177,55 @@ final class HostEntityManagerIsolationTest extends KernelTestCase
         self::assertSame(0, (int) $host->getConnection()->fetchOne('SELECT COUNT(*) FROM host_xml_note'));
         self::assertTrue($host->getUnitOfWork()->isScheduledForInsert($note));
         self::assertNotContains('instance_setting_value', $host->getConnection()->createSchemaManager()->listTableNames(), 'nothing on the host database');
+    }
+
+    /**
+     * DoctrineBundle 3.4 regression: `auto_discover_entities` (on by default for a manager without `mappings` and
+     * `auto_mapping`) gives the host manager's chain a default attribute driver, which claims every `#[ORM\Entity]`
+     * class, so `doctrine`'s `getManagerForClass()` answered the host manager and host-facing code (EntityType,
+     * UniqueEntity, MapEntity, `getRepository()`) used its database. The explicit catch-all default driver reproduces
+     * it on every DoctrineBundle version.
+     */
+    #[DataProvider('hostManagersWithADefaultDriver')]
+    public function testDedicatedManagerWinsOverADefaultDriverOfTheHostManager(bool $explicitDefaultDriver): void
+    {
+        $doctrine = $this->twoManagers(autoMapping: false);
+        unset($doctrine['orm']['entity_managers']['default']['auto_mapping'], $doctrine['orm']['entity_managers']['default']['mappings']);
+        $kernel   = $this->bootKernel(['doctrine' => ['entity_manager' => 'settings'], 'files' => ['enabled' => true]], extensions: ['doctrine' => $doctrine], hostDefaultDriver: $explicitDefaultDriver);
+        $registry = $this->registry($kernel);
+
+        // The bundle manager is not initialized yet: DoctrineBundle 3.4 asks its metadata driver.
+        $beforeInit = $registry->getManagerForClass(SettingValue::class);
+        $host       = $this->hostManager($kernel, 'default');
+        $settings   = $this->hostManager($kernel, 'settings');
+        self::assertSame($settings, $beforeInit);
+
+        foreach ([SettingValue::class, SettingFile::class] as $class) {
+            self::assertTrue($host->getMetadataFactory()->isTransient($class), $class . ' is not mapped on the host manager');
+            self::assertSame($settings, $registry->getManagerForClass($class), $class);
+        }
+        (new SchemaTool($settings))->createSchema($settings->getMetadataFactory()->getAllMetadata());
+
+        $this->settings($kernel)->save('general', ['site_name' => 'Auto-discovered host']);
+
+        self::assertSame('"Auto-discovered host"', $settings->getConnection()->fetchOne('SELECT value FROM instance_setting_value'));
+        $repository = $registry->getRepository(SettingValue::class);
+        self::assertCount(1, $repository->findAll(), 'getRepository() reads the bundle database');
+        self::assertNotContains('instance_setting_value', $host->getConnection()->createSchemaManager()->listTableNames(), 'nothing on the host database');
+        if ($explicitDefaultDriver) {
+            // The host manager keeps its own entities, and only them.
+            self::assertSame([HostNote::class], array_map(static fn (ClassMetadata $metadata): string => $metadata->getName(), $host->getMetadataFactory()->getAllMetadata()));
+            self::assertSame($host, $registry->getManagerForClass(HostNote::class));
+        }
+    }
+
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function hostManagersWithADefaultDriver(): iterable
+    {
+        yield 'host manager without mappings (DoctrineBundle 3.4 auto-discovery)' => [false];
+        yield 'host manager with a catch-all default driver' => [true];
     }
 
     public function testDedicatedManagerWithoutDefaultEntityManagerKey(): void

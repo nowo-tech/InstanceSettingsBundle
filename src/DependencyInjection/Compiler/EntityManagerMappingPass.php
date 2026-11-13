@@ -6,11 +6,14 @@ namespace Nowo\InstanceSettingsBundle\DependencyInjection\Compiler;
 
 use Doctrine\Bundle\DoctrineBundle\DependencyInjection\Compiler\DoctrineOrmMappingsPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
+use Nowo\InstanceSettingsBundle\Doctrine\ExcludedEntityNamespaceDriver;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 
 use function array_keys;
+use function array_unshift;
 use function implode;
 use function is_array;
 use function is_string;
@@ -23,7 +26,10 @@ use function str_starts_with;
  * With a dedicated manager the bundle maps its entities on that manager ({@see DoctrineOrmMappingsPass},
  * registered by the bundle class). DoctrineBundle's `auto_mapping` (the Flex default on the default manager) would map
  * them a second time, and `getManagerForClass()` would then return the default manager. This pass removes the bundle
- * namespaces from the mapping driver chain of every other manager and fails the build when the configured manager does
+ * namespaces from the mapping driver chain of every other manager and registers an
+ * {@see ExcludedEntityNamespaceDriver} for each of them there instead (first in the chain), so a default driver of that
+ * chain cannot claim the entities either (DoctrineBundle 3.4 `auto_discover_entities`); only the public `addDriver()`
+ * of the `doctrine.orm.<manager>_metadata_driver` chain is used. It fails the build when the configured manager does
  * not exist or does not map {@see self::ENTITY_NAMESPACE}. Without `doctrine.entity_manager` it does nothing (the
  * mapping is prepended to the default manager, as before 1.11).
  */
@@ -84,6 +90,15 @@ final class EntityManagerMappingPass implements CompilerPassInterface
 
                 $maps    = $maps || ($isBundle && str_starts_with((string) $namespace, self::ENTITY_NAMESPACE));
                 $calls[] = $call;
+            }
+
+            if ($manager !== $name) {
+                // First in the chain: a chain asks its namespace drivers in order, then its default driver.
+                array_unshift(
+                    $calls,
+                    ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::ENTITY_NAMESPACE]],
+                    ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::FILE_ENTITY_NAMESPACE]],
+                );
             }
 
             $chain->setMethodCalls($calls);
