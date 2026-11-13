@@ -9,7 +9,7 @@
     {% set _route = app.request.attributes.get('_route') %}
     <header class="nowo-ui-header" data-testid="demo-masthead">
         <a class="nowo-ui-brand" href="{{ path('demo_home') }}">Instance Settings Bundle Demo</a>
-        <nav class="nowo-ui-menu" aria-label="Demo">
+        <nav class="nowo-ui-header__nav" aria-label="Demo">
             <a class="nowo-ui-link" href="{{ path('demo_home') }}"{% if _route == 'demo_home' %} aria-current="page"{% endif %}>Home</a>
             <a class="nowo-ui-link" href="{{ path('nowo_instance_settings_index') }}"{% if _route starts with 'nowo_instance_settings' %} aria-current="page"{% endif %}>Settings</a>
         </nav>
