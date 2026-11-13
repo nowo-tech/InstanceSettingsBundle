@@ -15,6 +15,7 @@ use Nowo\InstanceSettingsBundle\Form\SettingImageType;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
 use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SectionActionContext;
 use Nowo\InstanceSettingsBundle\Section\SectionGroups;
@@ -30,6 +31,7 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Ui\ImagePreview;
+use Nowo\InstanceSettingsBundle\Ui\SecretReveal;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
 use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
@@ -50,6 +52,7 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
 
+use function array_keys;
 use function array_push;
 use function explode;
 use function http_build_query;
@@ -93,6 +96,8 @@ final readonly class SettingsSectionEmbedder
      * @param bool $unlayeredStyles `web_ui.unlayered_styles` (1.13): the pages link the unlayered bundle stylesheet
      * @param SectionLayout $sectionLayout `web_ui.section_layout` (1.14): field groups as subtabs or stacked (default)
      * @param string $groupParameter `web_ui.section_group_parameter` (1.14, audit MP-L1): query parameter of the open subtab
+     * @param SecretRevealer|null $revealer secret reveal (1.15): the Reveal control of the revealable secret rows, for a
+     *                                      user who may reveal; null = no reveal control at all
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -110,6 +115,7 @@ final readonly class SettingsSectionEmbedder
         private bool $unlayeredStyles = false,
         private SectionLayout $sectionLayout = SectionLayout::Stacked,
         private string $groupParameter = SectionGroupTabs::QUERY_PARAMETER,
+        private ?SecretRevealer $revealer = null,
     ) {
     }
 
@@ -219,14 +225,18 @@ final readonly class SettingsSectionEmbedder
             }
         }
 
+        // 1.15: the Reveal control, only for a user who may reveal (the plaintext itself never reaches the page).
+        $reveal = $this->secretReveal($section);
+
         $form = $this->formFactory->create(SettingsSectionType::class, $data, [
-            'section'           => $definition,
-            'fields'            => $fields,
-            'stored_secrets'    => $stored,
-            'stored_images'     => $images,
-            'stored_image_urls' => $imageUrls,
-            'csrf_token_id'     => self::CSRF_TOKEN_PREFIX . $section,
-            'hidden_secrets'    => $hiddenSecrets,
+            'section'            => $definition,
+            'fields'             => $fields,
+            'stored_secrets'     => $stored,
+            'stored_images'      => $images,
+            'stored_image_urls'  => $imageUrls,
+            'csrf_token_id'      => self::CSRF_TOKEN_PREFIX . $section,
+            'hidden_secrets'     => $hiddenSecrets,
+            'revealable_secrets' => $reveal instanceof SecretReveal ? array_keys($reveal->urls) : [],
         ]);
         $form->handleRequest($request);
         // 1.14: the field groups as subtabs (one form: hidden panels still submit their fields); [] = stacked.
@@ -299,10 +309,31 @@ final readonly class SettingsSectionEmbedder
             'unlayered_styles' => $this->unlayeredStyles,
             // 1.14: subtabs of the field groups (web_ui.section_layout: tabs); null in the stacked layout. A reserved key
             // (audit MP-I3): always set here, so a host context value never wins.
+            // 1.15: the Reveal control of the revealable secret rows (null = none, or the user may not reveal).
+            'secret_reveal'  => $reveal,
             'section_groups' => $groups === [] ? null : SectionGroupTabs::build($section, $groups, $definition->getTranslationDomain(), $formView, $requestedGroup, $groupParameter),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);
+    }
+
+    /**
+     * The Reveal control of `$section` (1.15): the endpoint URL of every revealable secret field the current user may
+     * reveal, or null when the section declares none, the revealer is missing, or the user may not reveal. The
+     * permission is checked here only to decide whether the control is rendered; the endpoint checks it again.
+     */
+    private function secretReveal(string $section): ?SecretReveal
+    {
+        $fields = $this->revealer?->revealableFields($section) ?? [];
+        if ($fields === [] || $this->revealer?->canReveal($section) !== true) {
+            return null;
+        }
+        $urls = [];
+        foreach ($fields as $field) {
+            $urls[$field] = $this->urlGenerator->generate(InstanceSettingsRoutes::REVEAL, ['section' => $section, 'field' => $field]);
+        }
+
+        return new SecretReveal($section, $urls);
     }
 
     /**

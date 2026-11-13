@@ -16,6 +16,8 @@
   the csp_nonce request attribute; the runtime binds once even when the host layout loads it too).
   Optional (1.12): color_picker (true when a colour field is on the form): loads the bundle's colour script and
   stylesheet (bundles/nowoinstancesettings/, assets:install; script deferred with the csp_nonce request attribute).
+  Optional (1.15): secret_reveal (Ui\SecretReveal, only for a user who may reveal a revealable secret of the section):
+  the Reveal control of those rows (settings/_secret_reveal.html.twig); the plaintext is never in the page.
   Optional (1.14): section_groups (Ui\SectionGroupTabs, only with web_ui.section_layout: tabs and two or more field
   groups): the section form renders through settings/_section_form_tabs.html.twig (one UiKit subtab per group, one
   form); absent, the scaffold's own section_form partial renders it as before.
@@ -29,5 +31,5 @@
             <div class="{{ nowo_ui_class('flash_warning', page.bundle) }}" role="alert" data-testid="instance-settings-notice">{{ notice|nowo_ui_trans }}</div>
         {% endfor %}
     {% endif %}
-    {% if image_input|default(false) or image_crop|default(false) %}{{ include(nowo_ui_partial('scripts', page.bundle), {script_names: (image_input|default(false) ? ['image-input'] : [])|merge(image_crop|default(false) ? ['image-crop'] : [])}) }}{% endif %}{% if color_picker|default(false) %}{{ include('@NowoInstanceSettingsBundle/settings/_color_assets.html.twig') }}{% elseif image_input|default(false) %}{{ include('@NowoInstanceSettingsBundle/settings/_styles.html.twig') }}{% endif %}{% if section_groups|default(null) and section.form %}{{ include('@NowoInstanceSettingsBundle/settings/_section_form_tabs.html.twig', {form: section.form, groups: section_groups, submit_label: section.submitLabel, actions: section.actions, bundle: page.bundle, nowo_ui_page_type: 'settings'}, false) }}{% else %}{{ parent() }}{% endif %}{{ '' }}
+    {% if image_input|default(false) or image_crop|default(false) %}{{ include(nowo_ui_partial('scripts', page.bundle), {script_names: (image_input|default(false) ? ['image-input'] : [])|merge(image_crop|default(false) ? ['image-crop'] : [])}) }}{% endif %}{% if color_picker|default(false) %}{{ include('@NowoInstanceSettingsBundle/settings/_color_assets.html.twig') }}{% elseif image_input|default(false) or secret_reveal|default(null) %}{{ include('@NowoInstanceSettingsBundle/settings/_styles.html.twig') }}{% endif %}{% if secret_reveal|default(null) and section.form %}{{ include('@NowoInstanceSettingsBundle/settings/_secret_reveal.html.twig', {bundle: page.bundle, secret_reveal: secret_reveal}, false) }}{% endif %}{% if section_groups|default(null) and section.form %}{{ include('@NowoInstanceSettingsBundle/settings/_section_form_tabs.html.twig', {form: section.form, groups: section_groups, submit_label: section.submitLabel, actions: section.actions, bundle: page.bundle, nowo_ui_page_type: 'settings'}, false) }}{% else %}{{ parent() }}{% endif %}{{ '' }}
 {% endblock %}

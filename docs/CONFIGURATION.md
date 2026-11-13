@@ -7,6 +7,7 @@
 - [web_ui](#web_ui)
   - [Layout and CSS stack (UiKit)](#layout-and-css-stack-uikit)
 - [security](#security)
+  - [Revealing a stored secret (1.15)](#revealing-a-stored-secret-115)
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
@@ -44,7 +45,9 @@ nowo_instance_settings:
         templates: {}                  # page id => template: section, portability
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
-        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles
+        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles ("_reveal" is refused)
+        reveal_roles: [ROLE_DEVELOPER] # 1.15: roles that may reveal a stored secret of a revealable field ([] refuses every reveal)
+        reveal_rate_limiter: null      # 1.15: service id of a RateLimiterFactory consuming one token per reveal
         access_checker: null           # service id implementing InstanceSettingsAccessCheckerInterface
         allow_unauthenticated: false   # DEV / DEMO only; refused unless kernel.debug is true
     portability:
@@ -162,6 +165,8 @@ Bundle pages add no CSS / JS of their own; host assets stack with `{{ parent() }
 | --- | --- | --- |
 | `access_roles` | `[ROLE_ADMIN]` | The user must hold **any** of these roles to open the UI. An empty list is refused at compile time (it would deny everybody) unless `access_checker` is set or `allow_unauthenticated` is true. |
 | `area_roles` | `{}` | Map `<area> => [roles]` that **replaces** `access_roles` for one area: a section name (`mailer: [ROLE_SUPER_ADMIN]`) or `_portability` (the import / export page, which can download sealed secrets). Lists must not be empty. Sections the user cannot open are not shown as tabs and are left out of (and refused in) the user's web export / import. When any section is listed, **`_portability` must be listed too** (compile error otherwise) unless `portability.web_ui: false` or a custom `access_checker` is used. |
+| `reveal_roles` | `[ROLE_DEVELOPER]` | **1.15.** Roles that may reveal a stored secret of a field declared `revealable: true`, asked **on top of** the section's own area (both are needed). They never fall back to `access_roles`, and `area_roles._reveal` is refused (compile error) so there is one place to look. An empty list refuses every reveal, which is how you turn the feature off for the whole instance. Ignored when `access_checker` is set: the custom checker decides the `_reveal` area (`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`). |
+| `reveal_rate_limiter` | `null` | **1.15.** Service id of a Symfony `RateLimiterFactory` (`framework.rate_limiter.<name>` registers `limiter.<name>`) consuming one token per reveal, keyed by the SHA-256 of the actor's user identifier. `null` = no limit. Needs `symfony/rate-limiter`. |
 | `access_checker` | `null` | Service id implementing `InstanceSettingsAccessCheckerInterface` (`canAccess(?object $user, ?string $area): bool`; `$area` null = the UI itself). Replaces the role checker. |
 | `allow_unauthenticated` | `false` | **DEV / DEMO only.** Opens the UI without login; the container refuses it unless `kernel.debug` is true. |
 
@@ -177,6 +182,67 @@ security:
     access_control:
         - { path: ^/admin/settings, roles: ROLE_ADMIN }
 ```
+
+### Revealing a stored secret (1.15)
+
+A secret field is write-only by default: the admin form never renders it back ("leave blank to keep"). A host that
+declares a field `revealable: true` adds an explicit **Reveal** action to its row, for a user holding `reveal_roles`:
+
+```php
+// A credential the admin has to read somewhere else: revealable.
+yield SettingField::secret('client_secret', 'oauth.client_secret', revealable: true);
+// A key whose plaintext nobody needs again: left write-only (the default).
+yield SettingField::secret('signing_key', 'oauth.signing_key');
+```
+
+```yaml
+nowo_instance_settings:
+    security:
+        access_roles: [ROLE_ADMIN]
+        reveal_roles: [ROLE_DEVELOPER]          # only these users may reveal; [] refuses every reveal
+        reveal_rate_limiter: limiter.instance_settings_reveal
+
+framework:
+    rate_limiter:
+        instance_settings_reveal:
+            policy: fixed_window
+            limit: 10
+            interval: '1 hour'
+```
+
+How it works, and what you accept by turning it on:
+
+- The control is a button, not a hidden value: the plaintext is **never** rendered into the page. Clicking Reveal
+  POSTs to `nowo_instance_settings_secret_reveal`
+  (`<web_ui.path_prefix>/sections/{section}/secrets/{field}/reveal`, POST only, with this section's CSRF token) and the
+  endpoint answers `{"key": "<section>.<field>", "value": "<secret>"}` with `Cache-Control: private, no-store`,
+  `nosniff`, `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`. One call reveals the single named field, never
+  a payload of several secrets, and the value is never part of a URL.
+- Every check is server-side and runs again on every call: the UI gate, the section's area, `reveal_roles`, the field's
+  own `revealable: true` and the rate limiter. A field without the opt-in, a plain field, a look-alike field name (the
+  names are compared byte for byte with the declared ones) and a user without the roles are all refused by the
+  endpoint, not only hidden in the UI.
+- Every reveal is audited: a `Event\SecretRevealedEvent` (PSR-14: section, field, actor, time, whether a secret was
+  stored) and a log line at `info`. A refusal is logged at `warning` with its reason. Neither ever carries the value
+  (REQ-OBS-001). Listen to the event to write the reveal into your own audit trail:
+
+  ```php
+  #[AsEventListener]
+  public function __invoke(SecretRevealedEvent $event): void
+  {
+      $this->audit->record('instance_settings.secret_revealed', $event->key(), $event->actor, $event->revealedAt);
+  }
+  ```
+
+- **The trade-off.** A revealed secret is plaintext in a browser: it can be screenshotted, read over the shoulder,
+  pasted into the wrong window, or kept by a browser extension. The script drops it again on Hide, after one minute,
+  and whenever the tab is hidden, but it cannot undo any of those. That is why the opt-in is per field and defaults to
+  false: turn it on for a credential the admin genuinely has to read elsewhere (an OAuth client secret), and leave it
+  off for encryption keys, webhook signing keys and anything a person never needs to see again. With
+  `security.allow_unauthenticated: true` (dev / demo only) everybody may reveal, as everybody may already read and
+  change every setting.
+- The endpoint belongs to the admin UI: it exists only with `web_ui.enabled: true`. Without JavaScript the row stays
+  write-only, as before 1.15.
 
 ## portability
 

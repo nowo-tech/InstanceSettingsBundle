@@ -155,3 +155,10 @@ group:
 tabs:
   label: Einstellungsgruppen
   errors: '%count% Feld(er) mit Fehlern'
+reveal:
+  show: Anzeigen
+  hide: Verbergen
+  copy: Kopieren
+  copied: Kopiert
+  error: Das Geheimnis konnte nicht angezeigt werden.
+  not_stored: Für dieses Feld ist kein Geheimnis gespeichert.

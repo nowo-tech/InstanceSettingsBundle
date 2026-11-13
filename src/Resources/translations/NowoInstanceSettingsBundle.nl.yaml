@@ -155,3 +155,10 @@ group:
 tabs:
   label: Instellingsgroepen
   errors: '%count% veld(en) met fouten'
+reveal:
+  show: Weergeven
+  hide: Verbergen
+  copy: Kopiëren
+  copied: Gekopieerd
+  error: Het geheim kon niet worden weergegeven.
+  not_stored: Er is geen geheim opgeslagen voor dit veld.

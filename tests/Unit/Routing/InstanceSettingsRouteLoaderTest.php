@@ -30,7 +30,13 @@ final class InstanceSettingsRouteLoaderTest extends TestCase
         self::assertSame(['GET', 'POST'], $section->getMethods());
         self::assertSame(SettingsController::class . '::section', $section->getDefault('_controller'));
         self::assertSame(['POST'], $routes->get('nowo_instance_settings_import')?->getMethods());
-        self::assertCount(5, $routes);
+        // 1.15: the reveal endpoint, POST only, under the same prefix.
+        $reveal = $routes->get(InstanceSettingsRoutes::REVEAL);
+        self::assertNotNull($reveal);
+        self::assertSame('/ops/settings/sections/{section}/secrets/{field}/reveal', $reveal->getPath());
+        self::assertSame(['POST'], $reveal->getMethods());
+        self::assertSame('[a-z][a-z0-9_]{0,63}', $reveal->getRequirement('field'));
+        self::assertCount(6, $routes);
 
         $this->expectException(RuntimeException::class);
         $loader->load('.', 'nowo_instance_settings');
@@ -39,7 +45,7 @@ final class InstanceSettingsRouteLoaderTest extends TestCase
     public function testFileRouteOnlyWithImageFields(): void
     {
         $without = (new InstanceSettingsRouteLoader(true, '/admin/settings', true, null, new SettingsSectionRegistry([new GeneralFixtureSection()])))->load('.');
-        self::assertCount(5, $without);
+        self::assertCount(6, $without);
         self::assertNull($without->get(InstanceSettingsRoutes::FILE));
         self::assertNotEmpty($without->getResources(), 'section classes are tracked');
 
@@ -59,6 +65,6 @@ final class InstanceSettingsRouteLoaderTest extends TestCase
         self::assertCount(0, (new InstanceSettingsRouteLoader(false, '/admin/settings'))->load('.'));
 
         $routes = (new InstanceSettingsRouteLoader(true, '/admin/settings', false))->load('.');
-        self::assertSame(['nowo_instance_settings_index', 'nowo_instance_settings_section'], array_keys($routes->all()));
+        self::assertSame(['nowo_instance_settings_index', 'nowo_instance_settings_section', InstanceSettingsRoutes::REVEAL], array_keys($routes->all()));
     }
 }

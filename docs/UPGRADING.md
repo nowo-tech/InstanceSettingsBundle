@@ -35,6 +35,52 @@
 
 ## Unreleased
 
+Nothing to do: the secret reveal is off until a host asks for it.
+
+To use it (owner decision of 2026-11-13):
+
+1. Declare the secret fields whose stored value an admin must be able to read back — and only those:
+
+   ```php
+   yield SettingField::secret('client_secret', 'oauth.client_secret', revealable: true);
+   yield SettingField::secret('signing_key', 'oauth.signing_key');   // unchanged: write-only
+   ```
+
+2. Say who may reveal. The default is `ROLE_DEVELOPER`, asked **on top of** the section's own area; the roles never
+   fall back to `access_roles`, and `security.area_roles._reveal` is now refused at compile time (use
+   `security.reveal_roles`). `security.reveal_roles: []` refuses every reveal, whatever the fields declare:
+
+   ```yaml
+   nowo_instance_settings:
+       security:
+           reveal_roles: [ROLE_DEVELOPER]
+   ```
+
+3. Optionally rate-limit it (recommended for an instance with many revealable fields; needs `symfony/rate-limiter`):
+
+   ```yaml
+   nowo_instance_settings:
+       security:
+           reveal_rate_limiter: limiter.instance_settings_reveal
+   framework:
+       rate_limiter:
+           instance_settings_reveal: { policy: fixed_window, limit: 10, interval: '1 hour' }
+   ```
+
+4. `php bin/console assets:install` (the page loads the new `nowo-instance-settings-reveal.js`), and if your Content
+   Security Policy lists script sources, the script is served from `bundles/nowoinstancesettings/js/` like the colour
+   and tabs scripts and is loaded with the request `csp_nonce`.
+
+What you accept with `revealable: true`: the plaintext reaches the admin's browser, where screenshots, shoulder
+surfing and pasting into the wrong window are possible. The reveal is explicit and audited (`SecretRevealedEvent`, log
+line: field, actor, time, never the value) but none of that is undone by the audit trail — see
+[`CONFIGURATION.md`](CONFIGURATION.md#revealing-a-stored-secret-115).
+
+New host-visible API: `SettingField::secret(..., revealable: true)`, `InstanceSettingsRoutes::REVEAL`,
+`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`, `Event\SecretRevealedEvent`, `Secret\SecretRevealer`
+(public service) and the `revealable_secrets` option of `SettingsSectionType`. A custom
+`SettingsSectionInterface` implementation needs no change.
+
 ## To 1.14.1
 
 From **1.14.0**:

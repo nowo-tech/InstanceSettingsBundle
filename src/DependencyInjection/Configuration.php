@@ -10,6 +10,7 @@ use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityEnvelope;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
+use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
@@ -18,6 +19,7 @@ use Symfony\Component\Config\Definition\ConfigurationInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 
 use function array_diff;
+use function array_key_exists;
 use function array_keys;
 use function array_values;
 use function implode;
@@ -165,6 +167,15 @@ final class Configuration implements ConfigurationInterface
                                 ->requiresAtLeastOneElement()
                             ->end()
                         ->end()
+                        ->arrayNode('reveal_roles')
+                            ->info('1.15: roles that may reveal a stored secret of a field declared revealable (any of them), asked on top of the section\'s own area. Default ROLE_DEVELOPER; an empty list refuses every reveal. Ignored when access_checker is set (the custom checker decides the "_reveal" area).')
+                            ->scalarPrototype()->end()
+                            ->defaultValue(['ROLE_DEVELOPER'])
+                        ->end()
+                        ->scalarNode('reveal_rate_limiter')
+                            ->info('1.15: service id of a Symfony RateLimiterFactory (framework.rate_limiter.<name> gives limiter.<name>) consuming one token per reveal, keyed by the hashed actor; null = no limit.')
+                            ->defaultNull()
+                        ->end()
                         ->scalarNode('access_checker')
                             ->info('Service id implementing InstanceSettingsAccessCheckerInterface; null = role-based default.')
                             ->defaultNull()
@@ -183,6 +194,10 @@ final class Configuration implements ConfigurationInterface
                             return self::roles($v['access_roles'] ?? []) === [];
                         })
                         ->thenInvalid('nowo_instance_settings.security.access_roles must contain at least one non-empty role when no access_checker is set and allow_unauthenticated is false (an empty list would deny everybody).')
+                    ->end()
+                    ->validate()
+                        ->ifTrue(static fn (array $v): bool => array_key_exists(InstanceSettingsAccessCheckerInterface::AREA_REVEAL, $v['area_roles'] ?? []))
+                        ->thenInvalid('nowo_instance_settings.security.area_roles must not define "_reveal": the roles of the secret reveal are security.reveal_roles (got %s).')
                     ->end()
                 ->end()
                 ->arrayNode('portability')

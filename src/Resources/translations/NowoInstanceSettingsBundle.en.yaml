@@ -155,3 +155,10 @@ group:
 tabs:
   label: Setting groups
   errors: '%count% field(s) with errors'
+reveal:
+  show: Reveal
+  hide: Hide
+  copy: Copy
+  copied: Copied
+  error: The secret could not be revealed.
+  not_stored: No secret is stored for this field.

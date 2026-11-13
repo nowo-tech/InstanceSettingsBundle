@@ -30,6 +30,37 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Reveal a stored secret (opt-in per field).** `SettingField::secret(..., revealable: true)` adds an explicit
+  **Reveal** action to that secret's row of the admin form, for a user holding `security.reveal_roles`
+  (`ROLE_DEVELOPER` by default) on top of the section's own area. Default `false`: a secret stays write-only ("leave
+  blank to keep") unless the host opts in, field by field — for an OAuth client secret, not for an encryption or
+  signing key (owner decision of 2026-11-13, from SYMFONY-BEACON Development → Settings).
+  - New endpoint `nowo_instance_settings_secret_reveal`
+    (`<web_ui.path_prefix>/sections/{section}/secrets/{field}/reveal`, POST + this section's CSRF token), part of the
+    admin UI routes. It answers the single named field as `{"key": "<section>.<field>", "value": "…"}` with
+    `Cache-Control: private, no-store`, `nosniff`, `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`; a
+    revealable field with nothing stored answers 404 `{"error": "not_stored"}`. The secret is never in a URL and never
+    rendered into a page: the page carries the button, the endpoint URL and the token only.
+  - Every check is server-side, on every call: the UI gate, the section area, `reveal_roles`, the field's `revealable`
+    flag and the rate limiter. The section and field names from the client are matched byte for byte against the
+    declared ones before any lookup (REQ-SEC-006), so a look-alike name cannot reach another field; a field without
+    the opt-in and a user without the roles are refused by the endpoint, not only hidden in the UI.
+  - Every reveal writes an audit entry naming the field, the actor and the time, never the value (REQ-OBS-001): the
+    PSR-14 `Event\SecretRevealedEvent` and an `info` log line; a refusal is a `warning` with its reason
+    (`forbidden`, `not_revealable`, `rate_limited`).
+  - New configuration `security.reveal_roles` (default `[ROLE_DEVELOPER]`; `[]` refuses every reveal, and
+    `security.area_roles._reveal` is refused so there is one place to look) and `security.reveal_rate_limiter`
+    (service id of a Symfony `RateLimiterFactory`, one token per reveal keyed by the hashed actor; `null` = no limit).
+    A custom `security.access_checker` decides the new area `InstanceSettingsAccessCheckerInterface::AREA_REVEAL`.
+  - UI: the revealable row carries `data-nowo-instance-settings-reveal="<field>"` and the page ships
+    `nowo-instance-settings-reveal.js` (deferred, CSP nonce, no inline handler) with Reveal / Copy / Hide buttons
+    (UiKit classes, 7 locales). The value is dropped on Hide, after a minute and when the tab is hidden. Without
+    JavaScript the row stays write-only, as before.
+  - Stateless (REQ-RUNTIME-002): nothing about a reveal — value, permission or limiter — is kept on a service between
+    requests; the limiter is built per call from its factory.
+
 ## [1.14.1] - 2026-11-13
 
 ### Fixed

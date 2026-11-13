@@ -36,3 +36,7 @@ grouped:
   group:
     basics: Basics
     misc: Miscellaneous
+oauth:
+  client_id: Client id
+  client_secret: Client secret
+  signing_key: Webhook signing key

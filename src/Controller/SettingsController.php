@@ -13,6 +13,7 @@ use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\JsonUploadReader;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityException;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
@@ -25,6 +26,7 @@ use Symfony\Component\Form\FormFactoryInterface;
 use Symfony\Component\Form\FormInterface;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
 use Symfony\Component\HttpFoundation\HeaderUtils;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
@@ -56,12 +58,20 @@ use const JSON_UNESCAPED_UNICODE;
  */
 final class SettingsController extends AbstractController
 {
+    /** CSRF token id prefix of the reveal endpoint (1.15): one id per section. */
+    public const REVEAL_TOKEN_PREFIX = 'nowo_instance_settings_secret_reveal_';
+
+    /** Request body parameter carrying the CSRF token of a reveal call (1.15). */
+    public const REVEAL_TOKEN_FIELD = '_token';
+
     /**
      * @param InstanceSettingsInterface $settings used only to build the section page when no embedder is given
      * @param bool $portabilityEnabled `portability.web_ui` (import / export page)
      * @param SettingsSectionEmbedder|null $embedder section page (1.6: shared with host embeds; wired by the extension).
      *                                               Null (a controller built by hand, 1.5 signature): section() builds
      *                                               one from this controller's arguments and its service locator
+     * @param SecretRevealer|null $revealer secret reveal (1.15; wired by the extension). Null (a controller built by
+     *                                      hand with an older signature): {@see self::revealSecret()} refuses to run
      */
     public function __construct(
         private readonly SettingsSectionRegistry $registry,
@@ -73,6 +83,7 @@ final class SettingsController extends AbstractController
         private readonly bool $portabilityEnabled = true,
         private readonly ?TranslatorInterface $translator = null,
         private readonly ?SettingsSectionEmbedder $embedder = null,
+        private readonly ?SecretRevealer $revealer = null,
     ) {
     }
 
@@ -100,6 +111,37 @@ final class SettingsController extends AbstractController
     public function section(Request $request, string $section): Response
     {
         return ($this->embedder ?? $this->fallbackEmbedder())->handleBundlePage($request, $section);
+    }
+
+    /**
+     * Reveals one stored secret of a section (1.15, POST + CSRF): the plaintext of the single named field, in the
+     * response body only.
+     *
+     * The checks are {@see SecretRevealer}'s (UI gate, section area, reveal area, `revealable: true`, byte-exact field
+     * name, rate limit) plus this section's CSRF token, and they all run here, on the server: the page itself only
+     * carries a button, never the value.
+     * The answer is `{"key": "<section>.<field>", "value": "<secret>"}`, never cacheable (`no-store`, private) and
+     * never in a URL; a revealable field without a stored secret answers 404 `{"key": …, "error": "not_stored"}`.
+     */
+    #[Route(path: '/sections/{section}/secrets/{field}/reveal', name: InstanceSettingsRoutes::REVEAL, requirements: ['section' => '[a-z][a-z0-9_]{0,63}', 'field' => '[a-z][a-z0-9_]{0,63}'], methods: ['POST'])]
+    public function revealSecret(Request $request, string $section, string $field): JsonResponse
+    {
+        if (!$this->revealer instanceof SecretRevealer) {
+            throw new LogicException('SettingsController::revealSecret() needs the SecretRevealer service (pass it to the constructor).');
+        }
+        // The roles and the opt-in first, so a call without them is refused and audited whatever else it carries;
+        // then the CSRF token of this section, so a forged request never reaches the secret itself.
+        $this->revealer->assertRevealable($section, $field);
+        if (!$this->isCsrfTokenValid(self::REVEAL_TOKEN_PREFIX . $section, (string) $request->request->get(self::REVEAL_TOKEN_FIELD))) {
+            throw new AccessDeniedHttpException('Invalid CSRF token.');
+        }
+
+        $value = $this->revealer->reveal($section, $field);
+        $key   = $section . '.' . $field;
+
+        return $this->noStore($value === null
+            ? new JsonResponse(['key' => $key, 'error' => 'not_stored'], Response::HTTP_NOT_FOUND)
+            : new JsonResponse(['key' => $key, 'value' => $value]));
     }
 
     /**
@@ -202,7 +244,7 @@ final class SettingsController extends AbstractController
             throw new LogicException('SettingsController::section() needs the form factory, Twig and the router (or the SettingsSectionEmbedder service).');
         }
 
-        return new SettingsSectionEmbedder($this->registry, $this->settings, $this->guard, $this->pages, $formFactory, $twig, $router, $stack, $this->portabilityEnabled, $this->translator);
+        return new SettingsSectionEmbedder($this->registry, $this->settings, $this->guard, $this->pages, $formFactory, $twig, $router, $stack, $this->portabilityEnabled, $this->translator, revealer: $this->revealer);
     }
 
     /**
@@ -266,6 +308,23 @@ final class SettingsController extends AbstractController
             'action'    => $this->generateUrl(InstanceSettingsRoutes::IMPORT),
             'max_bytes' => $this->reader->maxBytes(),
         ]);
+    }
+
+    /**
+     * Marks a response as never cacheable and never indexed: a revealed secret must not be stored anywhere
+     * (`no-store`, private, `nosniff`, no referrer).
+     */
+    private function noStore(JsonResponse $response): JsonResponse
+    {
+        $response->setPrivate();
+        $response->headers->addCacheControlDirective('no-store');
+        $response->headers->add([
+            'X-Content-Type-Options' => 'nosniff',
+            'Referrer-Policy'        => 'no-referrer',
+            'X-Robots-Tag'           => 'noindex',
+        ]);
+
+        return $response;
     }
 
     /**

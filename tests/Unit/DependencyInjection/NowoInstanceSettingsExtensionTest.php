@@ -104,7 +104,10 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertSame('app.checker', (string) $custom->getAlias(InstanceSettingsAccessCheckerInterface::class));
 
         $areas = $this->load(['security' => ['area_roles' => ['mailer' => [' ROLE_SUPER_ADMIN '], '_portability' => ['ROLE_ADMIN']]]], withSecurity: true);
-        self::assertSame(['mailer' => ['ROLE_SUPER_ADMIN'], '_portability' => ['ROLE_ADMIN']], $areas->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
+        // 1.15: the reveal area is always present and never falls back to access_roles.
+        self::assertSame(['mailer' => ['ROLE_SUPER_ADMIN'], '_portability' => ['ROLE_ADMIN'], '_reveal' => ['ROLE_DEVELOPER']], $areas->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
+        $revealRoles = $this->load(['security' => ['reveal_roles' => [' ROLE_OPS ', '']]], withSecurity: true);
+        self::assertSame(['_reveal' => ['ROLE_OPS']], $revealRoles->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
 
         // Without an explicit _portability area: fine with a custom checker or without the import / export page.
         $this->load(['security' => ['area_roles' => ['mailer' => ['ROLE_X']], 'access_checker' => 'app.checker']], withSecurity: true);

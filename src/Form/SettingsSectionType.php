@@ -39,6 +39,7 @@ use Symfony\Component\OptionsResolver\OptionsResolver;
 
 use function array_replace_recursive;
 use function array_reverse;
+use function in_array;
 use function is_array;
 use function is_string;
 use function sprintf;
@@ -78,9 +79,16 @@ final class SettingsSectionType extends AbstractType
     public const GROUP_ATTRIBUTE = 'data-nowo-instance-settings-group';
 
     /**
+     * Row attribute marking a revealable secret row for the reveal script (1.15), carrying the field name. It is set
+     * only for the fields listed in the `revealable_secrets` option, which the page fills only for a user who may
+     * reveal: the attribute is a marker for the script, never a value.
+     */
+    public const REVEAL_ATTRIBUTE = 'data-nowo-instance-settings-reveal';
+
+    /**
      * Adds one form field per setting field.
      *
-     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets} $options
+     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -110,6 +118,10 @@ final class SettingsSectionType extends AbstractType
 
             if ($field->secret) {
                 $stored = $options['stored_secrets'][$name] ?? false;
+                if (in_array($name, $options['revealable_secrets'], true)) {
+                    // 1.15: the Reveal control of this row is cloned into it by the page script.
+                    $rowAttr[self::REVEAL_ATTRIBUTE] = $name;
+                }
                 $this->addWithDefaults($builder, $name, SecretType::class, array_replace_recursive([
                     'label'              => $field->labelKey(),
                     'help'               => $field->help,
@@ -253,7 +265,8 @@ final class SettingsSectionType extends AbstractType
     /**
      * Options: `section` and `fields` (required), `stored_secrets` and `stored_images` (field => bool), `stored_image_urls`
      * (1.12: field => URL of the stored image, shown in the image input box),
-     * `hidden_secrets` (1.9: {@see HiddenSecrets} or its value, default `drop`).
+     * `hidden_secrets` (1.9: {@see HiddenSecrets} or its value, default `drop`), `revealable_secrets` (1.15: the secret
+     * field names whose row carries the Reveal marker; the page passes them only for a user who may reveal).
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -273,6 +286,8 @@ final class SettingsSectionType extends AbstractType
         $resolver->setAllowedTypes('stored_secrets', 'array');
         $resolver->setAllowedTypes('stored_images', 'array');
         $resolver->setAllowedTypes('stored_image_urls', 'array');
+        $resolver->setDefault('revealable_secrets', []);
+        $resolver->setAllowedTypes('revealable_secrets', 'string[]');
         $resolver->setAllowedTypes('csrf_token_id', 'string');
         $resolver->setDefault('hidden_secrets', HiddenSecrets::Drop);
         $resolver->setAllowedTypes('hidden_secrets', [HiddenSecrets::class, 'string']);
