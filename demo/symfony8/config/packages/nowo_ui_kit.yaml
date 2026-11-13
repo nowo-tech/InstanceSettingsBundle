@@ -5,3 +5,4 @@ nowo_ui_kit:
     icon_set: none
     layouts:
         admin: 'base.html.twig'
+    base_stylesheet: true

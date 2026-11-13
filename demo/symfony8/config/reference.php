@@ -1327,6 +1327,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *             testid?: scalar|Param|null, // Default: null
  *         }>,
  *     },
+ *     base_stylesheet?: bool|Param, // 2.51: link UiKit's opt-in default theme (css/nowo-ui-base.css) before nowo-ui.css in the document / error layouts: body font stack, page gutters and masthead height for hosts that bring no CSS framework and no theme stylesheet. Its rules nest in `@layer theme.nowo-ui-base`, below `base`, so a framework, host utilities and unlayered host CSS still win. Leave it false when the host already has a framework or a theme file. // Default: false
  *     font_preload?: array{ // 2.21: <link rel="preload" as="font" crossorigin> tags printed in the <head> of the document and error layouts (Twig nowo_ui_font_preload()) for the fonts painted above the fold. Empty = no tags.
  *         fonts?: list<scalar|Param|null>,
  *         manifest?: array{ // Hashed builds: pick the fonts from a Vite manifest (.vite/manifest.json). A missing manifest (dev server) prints nothing.
@@ -1644,6 +1645,9 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         layout_template?: scalar|Param|null, // Layout the pages extend. Null (default) = nowo_ui_kit.layouts.admin. // Default: null
  *         hidden_secrets?: "drop"|"keep_typed"|Param, // 1.9: a secret typed into a provider-dependent row hidden for the submitted provider: "drop" (default: ignored, only an explicit clear deletes) or "keep_typed" (saved whichever provider is selected; never required, its own constraints run). A section implementing SettingsSectionHiddenSecretsInterface overrides it. // Default: "drop"
  *         hidden_secrets_notice?: bool|Param, // 1.9: while hidden secrets are dropped, a section with provider-dependent secrets shows a notice above its form (translation key notice.hidden_secrets_dropped, NowoInstanceSettingsBundle domain). // Default: false
+ *         unlayered_styles?: bool|Param, // 1.13: the bundle stylesheet (colour input, image cards) sits in UiKit's cascade layer nowo-ui (default false: nowo-instance-settings.css, so host utilities and unlayered host CSS win). true links nowo-instance-settings.unlayered.css instead, for hosts that link UiKit's nowo-ui.unlayered.css. // Default: false
+ *         section_layout?: "stacked"|"tabs"|Param, // 1.14: how a section page lays out its field groups (SettingsSectionGroupsInterface, else the fields' form groups): "stacked" (default: one column, unchanged markup) or "tabs" (one UiKit subtab per group, ?settings_group=<code> in the URL; one form: Save saves every group). A section with fewer than two groups always renders stacked. SectionEmbedOptions::withSectionLayout() overrides it per embed. // Default: "stacked"
+ *         section_group_parameter?: scalar|Param|null, // 1.14 (audit MP-L1): query parameter of the open subtab with section_layout: tabs (default "settings_group", namespaced so a host page keeps its own ?group=). Letters, digits and underscores; SectionEmbedOptions::withGroupParameter() overrides it per embed. // Default: "settings_group"
  *         templates?: array<string, scalar|Param|null>,
  *     },
  *     security?: array{ // REQ-UI-002 private access of the admin UI.
@@ -1705,6 +1709,10 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *             square?: bool|Param, // Default: false
  *             default?: scalar|Param|null, // Default: null
  *         }>,
+ *         error_illustrations?: array{ // 1.13: UiKit error page illustrations from the uploaded brand extra images (service nowo_instance_settings.brand.error_illustration_provider, set it as nowo_ui_kit.error_pages.illustration_provider). For status N: the uploaded extra image error_<N>, else the uploaded base extra image, else UiKit's error_pages.illustrations map. Configured defaults never count. Needs files.store: filesystem.
+ *             base?: scalar|Param|null, // Id of the extra image used for every status without its own uploaded error_<N> image (e.g. mascot). Null = none. // Default: null
+ *             per_code?: bool|Param, // Use the uploaded extra images error_<N> (N = 400 to 599) for their status. // Default: true
+ *         },
  *     },
  * }
  * @psalm-type DebugConfig = array{
