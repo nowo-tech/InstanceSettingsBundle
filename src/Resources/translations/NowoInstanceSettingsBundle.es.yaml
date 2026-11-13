@@ -155,3 +155,10 @@ group:
 tabs:
   label: Grupos de ajustes
   errors: '%count% campo(s) con errores'
+reveal:
+  show: Mostrar
+  hide: Ocultar
+  copy: Copiar
+  copied: Copiado
+  error: No se ha podido mostrar el secreto.
+  not_stored: No hay ningún secreto guardado en este campo.

@@ -8,6 +8,8 @@ use InvalidArgumentException;
 use Nowo\InstanceSettingsBundle\Form\SettingColorType;
 use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
+use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Symfony\Component\Validator\Constraint;
 
@@ -36,7 +38,7 @@ use function strtolower;
 final readonly class SettingField
 {
     /** Allowed field names: lower snake case, 1–64 characters. */
-    public const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
+    public const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
 
     /** Prefix of a stored image reference (`isf:<sha256>`, 1.4). */
     public const IMAGE_REFERENCE_PREFIX = 'isf:';
@@ -48,7 +50,7 @@ final readonly class SettingField
     public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/D';
 
     /** Allowed form groups (1.5): dot-separated lower snake case segments, e.g. `colors.light`. */
-    public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/';
+    public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/D';
 
     /** @var list<Constraint> */
     public array $constraints;
@@ -83,6 +85,9 @@ final readonly class SettingField
      *                                                           that field of the section holds one of the values (1.3)
      * @param ImageSpec|null $image upload rules of an image field (1.4; null = the defaults); only for {@see SettingType::Image}
      * @param string|null $group form group (1.5, {@see self::GROUP_PATTERN}); null = no group
+     * @param bool $revealable 1.15: a stored secret may be read back through the reveal endpoint by a user holding the
+     *                         reveal roles ({@see InstanceSettingsAccessCheckerInterface::AREA_REVEAL}). Only for secret
+     *                         fields, default false: a secret is never revealable unless the host says so
      */
     public function __construct(
         public string $name,
@@ -99,6 +104,7 @@ final readonly class SettingField
         ?array $visibleWhen = null,
         ?ImageSpec $image = null,
         ?string $group = null,
+        public bool $revealable = false,
     ) {
         if (preg_match(self::NAME_PATTERN, $name) !== 1) {
             throw new InvalidArgumentException(sprintf('Invalid setting field name "%s": expected lower snake case matching %s.', $name, self::NAME_PATTERN));
@@ -108,6 +114,9 @@ final readonly class SettingField
         }
         if ($secret && $default !== null) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": a secret field cannot declare a default value.', $name));
+        }
+        if ($revealable && !$secret) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": only a secret field can be revealable.', $name));
         }
         if ($type === SettingType::Choice && $choices === []) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": a choice field needs at least one choice.', $name));
@@ -233,11 +242,17 @@ final readonly class SettingField
     /**
      * Encrypted secret (API key, password, DSN, token): never rendered back and exported only sealed.
      *
+     * With `$revealable` (1.15) a user holding the reveal roles can read the stored secret back, one field per call,
+     * through the reveal endpoint ({@see InstanceSettingsRoutes::REVEAL}); every reveal is audited. Default false: turn
+     * it on for a secret the admin has to read somewhere else (an OAuth client secret), never for a key whose plaintext
+     * nobody needs again (an encryption key, a webhook signing key). See `docs/SECURITY.md`.
+     *
      * @param iterable<Constraint> $constraints
+     * @param bool $revealable the stored secret may be read back through the reveal endpoint (1.15)
      */
-    public static function secret(string $name, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = [], SettingType $type = SettingType::String): self
+    public static function secret(string $name, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = [], SettingType $type = SettingType::String, bool $revealable = false): self
     {
-        return new self($name, $type, null, $label, $help, $required, secret: true, constraints: $constraints);
+        return new self($name, $type, null, $label, $help, $required, secret: true, constraints: $constraints, revealable: $revealable);
     }
 
     /**
@@ -275,7 +290,7 @@ final readonly class SettingField
      */
     public function notPortable(): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $this->group);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $this->group, $this->revealable);
     }
 
     /**
@@ -285,7 +300,7 @@ final readonly class SettingField
      */
     public function withFormOptions(array $formOptions): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image, $this->group);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image, $this->group, $this->revealable);
     }
 
     /**
@@ -458,7 +473,7 @@ final readonly class SettingField
             $values[] = $value;
         }
 
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values], $this->image, $this->group);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values], $this->image, $this->group, $this->revealable);
     }
 
     /**
@@ -470,7 +485,7 @@ final readonly class SettingField
      */
     public function withGroup(string $group): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $group);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $group, $this->revealable);
     }
 
     /**

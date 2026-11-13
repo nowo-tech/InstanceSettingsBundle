@@ -14,8 +14,15 @@ interface InstanceSettingsAccessCheckerInterface
     public const AREA_PORTABILITY = '_portability';
 
     /**
-     * Whether the user may open the admin UI at all (`$area` null) or one area: a settings section name or
-     * {@see self::AREA_PORTABILITY}.
+     * Area id of the secret reveal endpoint (1.15): asked on top of the section's own area, so revealing a stored
+     * secret needs both. With the role-based default checker its roles are `security.reveal_roles`
+     * (`ROLE_DEVELOPER` unless the host says otherwise), never `access_roles`.
+     */
+    public const AREA_REVEAL = '_reveal';
+
+    /**
+     * Whether the user may open the admin UI at all (`$area` null) or one area: a settings section name,
+     * {@see self::AREA_PORTABILITY} or {@see self::AREA_REVEAL}.
      *
      * @param object|null $user authenticated user of the main request firewall (null = anonymous)
      */

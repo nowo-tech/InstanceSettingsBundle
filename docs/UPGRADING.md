@@ -35,6 +35,77 @@
 
 ## Unreleased
 
+Nothing to do: the secret reveal is off until a host asks for it.
+
+To use it (owner decision of 2026-11-13):
+
+1. Declare the secret fields whose stored value an admin must be able to read back — and only those:
+
+   ```php
+   yield SettingField::secret('client_secret', 'oauth.client_secret', revealable: true);
+   yield SettingField::secret('signing_key', 'oauth.signing_key');   // unchanged: write-only
+   ```
+
+2. Say who may reveal. The default is `ROLE_DEVELOPER`, asked **on top of** the section's own area; the roles never
+   fall back to `access_roles`, and `security.area_roles._reveal` is now refused at compile time (use
+   `security.reveal_roles`). `security.reveal_roles: []` refuses every reveal, whatever the fields declare:
+
+   ```yaml
+   nowo_instance_settings:
+       security:
+           reveal_roles: [ROLE_DEVELOPER]
+   ```
+
+3. **Rate-limit it — this step is required** as soon as any field declares `revealable: true` (owner decision of
+   2026-11-13). Install `symfony/rate-limiter`, declare a limiter and point the bundle at it:
+
+   ```bash
+   composer require symfony/rate-limiter
+   ```
+
+   ```yaml
+   nowo_instance_settings:
+       security:
+           reveal_rate_limiter: limiter.instance_settings_reveal
+   framework:
+       rate_limiter:
+           instance_settings_reveal: { policy: fixed_window, limit: 10, interval: '1 hour' }
+   ```
+
+   Without it the section definitions refuse to load (router warm-up, so `cache:warmup` fails in the build, else the
+   first request) with a message naming the field and the option. Its two ways out: drop `revealable: true`, or set
+   `security.reveal_roles: []` (the kill switch — with reveals switched off a missing limiter blocks nothing).
+   Hosts that declare **no** revealable field are untouched: no limiter, no new dependency, no behaviour change.
+
+4. **Exclude the reveal answer from every response-body log.** The answer carries the plaintext in a JSON body, and
+   `no-store` only instructs clients. With our own HttpLogBundle installed, JSON response bodies are captured by
+   default and `value` is not among the redacted paths, so the secret would land in the `http_log` table in clear for
+   its retention, readable by whoever may read HTTP logs:
+
+   ```yaml
+   # config/packages/nowo_http_log.yaml
+   nowo_http_log:
+       ignore_path_prefixes: ['/admin/http-log', '/admin/settings/sections']
+       redaction:
+           json_paths: ['*.password', '*._password', '*.token', '*._token', '*._csrf_token', '*.value']
+   ```
+
+   Do the same in any reverse proxy, WAF or APM agent that records response bodies.
+
+5. `php bin/console assets:install` (the page loads the new `nowo-instance-settings-reveal.js`), and if your Content
+   Security Policy lists script sources, the script is served from `bundles/nowoinstancesettings/js/` like the colour
+   and tabs scripts and is loaded with the request `csp_nonce`.
+
+What you accept with `revealable: true`: the plaintext reaches the admin's browser, where screenshots, shoulder
+surfing and pasting into the wrong window are possible. The reveal is explicit and audited (`SecretRevealedEvent`, log
+line: field, actor, time, never the value) but none of that is undone by the audit trail — see
+[`CONFIGURATION.md`](CONFIGURATION.md#revealing-a-stored-secret-115).
+
+New host-visible API: `SettingField::secret(..., revealable: true)`, `InstanceSettingsRoutes::REVEAL`,
+`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`, `Event\SecretRevealedEvent`, `Secret\SecretRevealer`
+(public service) and the `revealable_secrets` option of `SettingsSectionType`. A custom
+`SettingsSectionInterface` implementation needs no change.
+
 ## To 1.14.1
 
 From **1.14.0**:

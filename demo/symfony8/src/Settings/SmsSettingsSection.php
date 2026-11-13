@@ -28,7 +28,10 @@ final class SmsSettingsSection extends AbstractSettingsSection
         yield SettingField::string('sender', null, 'sms.sender');
         // Provider-dependent fields (1.3): shown only for Twilio / SMS Bridge; their values survive a provider switch.
         yield SettingField::string('account_id', null, 'sms.account_id')->withVisibleWhen('provider', ['twilio', 'sms_bridge']);
-        yield SettingField::secret('auth_token', 'sms.auth_token')->withVisibleWhen('provider', ['twilio', 'sms_bridge']);
+        // 1.15: the provider credential is revealable (the admin has to paste it into the provider's console); the
+        // reveal is an explicit, audited action, allowed to ROLE_DEVELOPER only — see docs/CONFIGURATION.md. The demo
+        // runs with security.allow_unauthenticated, so here anyone opening the demo can reveal it.
+        yield SettingField::secret('auth_token', 'sms.auth_token', revealable: true)->withVisibleWhen('provider', ['twilio', 'sms_bridge']);
         yield SettingField::url('bridge_url', null, 'sms.bridge_url')->withVisibleWhen('provider', ['sms_bridge']);
     }
 }

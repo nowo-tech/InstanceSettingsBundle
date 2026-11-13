@@ -85,6 +85,7 @@
         "symfony/dom-crawler": "^7.4 || ^8.0",
         "symfony/filesystem": "^7.4 || ^8.0",
         "symfony/phpunit-bridge": "^7.4 || ^8.0",
+        "symfony/rate-limiter": "^7.4 || ^8.0",
         "symfony/security-bundle": "^7.4 || ^8.0",
         "symfony/translation": "^7.4 || ^8.0",
         "symfony/yaml": "^7.4 || ^8.0"
@@ -93,6 +94,7 @@
         "ext-gd": "Required (with PNG, JPEG and WebP support) when a section declares an image field (1.4)",
         "nowo-tech/brand-contracts": "Required for the brand bridge (brand.enabled: true, 1.5): BrandProviderInterface for UiKit, Pwa, MailKit, LegalKit and SeoKit",
         "symfony/flex": "For automatic recipe installation",
+        "symfony/rate-limiter": "To rate-limit the secret reveal endpoint (security.reveal_rate_limiter, 1.15)",
         "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
         "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()",
         "symfony/yaml": "To load YAML seed files with nowo:instance-settings:seed (1.7; JSON seed files need nothing)"

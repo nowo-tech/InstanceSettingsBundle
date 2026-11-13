@@ -31,7 +31,14 @@ Every view model passes `bundle: 'NowoInstanceSettingsBundle'` (theme exception
 | Section (`section`) | `settings/section.html.twig` | `page/settings` | `SettingsPage` from `SettingsPageFactory::section()`: header `settings.title` + `settings.intro`, header action "Import / export" (`kind: export`, `data-testid="instance-settings-portability-link"`, only when the user may open it); one `SettingsSection` per section the user may open (`id` = section name, label / intro in the section domain, `href` = its page, `icon`), `current` = the open section, which carries the `SettingsSectionType` FormView, the submit label `settings.save` and the section's extra actions; root `data-testid="instance-settings-section"`, `data-section`. Without any section: `SettingsPageFactory::empty()` (one `SettingsSection` `empty` with `settings.empty_title` / `settings.empty`, `data-testid="instance-settings-empty"`) | none — `nowo_ui_settings_section` is the scaffold default (`_section_form`: `form_start`, REQ-TWIG-003 child loop, submit, actions, `form_end`); 1.14: with `section_groups` (`web_ui.section_layout: tabs`, `Ui\SectionGroupTabs`) the bundle block includes `settings/_section_form_tabs.html.twig` (one UiKit subtab per field group) instead of UiKit's `section_form` partial: override that template, not the partial, to change the tabs form; without UiKit's `nowo-ui-tabs.js` it falls back to stacked fieldsets; `section_groups` is reserved (a host context value never wins) |
 | Import / export (`portability`) | `settings/portability.html.twig` | `page/settings` | `SettingsPage` from `SettingsPageFactory::portability()`: header `portability.title` + `portability.intro`, back link to the settings (`data-testid="instance-settings-back"`); sections `export` (`PortabilityExportType`, intro `portability.export.intro` / `intro_secrets`, submit `portability.export.submit`) and `import` (`PortabilityImportType`, multipart, intro `portability.import.intro`, submit `portability.import.submit`), stacked (no tabs); root `data-testid="instance-settings-portability"` | none (scaffold default) |
 
-Other variables passed by the controller: `section` (current section name, section page).
+Other variables passed by the controller: `section` (current section name, section page) and, since 1.15,
+`secret_reveal` (`Ui\SecretReveal`, or null): the Reveal control of the section's revealable secret rows, rendered by
+`settings/_secret_reveal.html.twig` and set only for a user who may reveal. It carries the endpoint URL of each field
+and the section's CSRF token, never a secret; a host section template that wants the control includes that partial
+(`{{ include('@NowoInstanceSettingsBundle/settings/_secret_reveal.html.twig') }}`) and the bundle stylesheet. A page
+that embeds two sections includes the partial once per section: each root names its section, every revealable row
+carries the same name, and the script binds each row to the root of its own section, so two sections declaring the same
+field name keep their own URLs, token and answers (audit F3).
 
 ## Secrets in the pages
 

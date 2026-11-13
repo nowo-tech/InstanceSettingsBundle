@@ -30,6 +30,63 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Reveal a stored secret (opt-in per field).** `SettingField::secret(..., revealable: true)` adds an explicit
+  **Reveal** action to that secret's row of the admin form, for a user holding `security.reveal_roles`
+  (`ROLE_DEVELOPER` by default) on top of the section's own area. Default `false`: a secret stays write-only ("leave
+  blank to keep") unless the host opts in, field by field — for an OAuth client secret, not for an encryption or
+  signing key (owner decision of 2026-11-13, from SYMFONY-BEACON Development → Settings).
+  - New endpoint `nowo_instance_settings_secret_reveal`
+    (`<web_ui.path_prefix>/sections/{section}/secrets/{field}/reveal`, POST + this section's CSRF token), part of the
+    admin UI routes. It answers the single named field as `{"key": "<section>.<field>", "value": "…"}` with
+    `Cache-Control: private, no-store`, `nosniff`, `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`; a
+    revealable field with nothing stored answers 404 `{"error": "not_stored"}`. The secret is never in a URL and never
+    rendered into a page: the page carries the button, the endpoint URL and the token only.
+  - Every check is server-side, on every call: the UI gate, the section area, `reveal_roles`, the field's `revealable`
+    flag and the rate limiter. The section and field names from the client are matched byte for byte against the
+    declared ones before any lookup (REQ-SEC-006), so a look-alike name cannot reach another field; a field without
+    the opt-in and a user without the roles are refused by the endpoint, not only hidden in the UI.
+  - Every reveal writes an audit entry naming the field, the actor and the time, never the value (REQ-OBS-001): the
+    PSR-14 `Event\SecretRevealedEvent` and an `info` log line; a refusal is a `warning` with its reason
+    (`forbidden`, `not_revealable`, `rate_limited`).
+  - New configuration `security.reveal_roles` (default `[ROLE_DEVELOPER]`; `[]` refuses every reveal, and
+    `security.area_roles._reveal` is refused so there is one place to look) and `security.reveal_rate_limiter`
+    (service id of a Symfony `RateLimiterFactory`, one token per reveal keyed by the hashed actor). A custom
+    `security.access_checker` decides the new area `InstanceSettingsAccessCheckerInterface::AREA_REVEAL`.
+  - **The rate limiter is required with any revealable field** (owner decision of 2026-11-13): a field declaring
+    `revealable: true` without `security.reveal_rate_limiter` makes the section definitions fail to load (router
+    warm-up, so `cache:warmup` fails in the build, else the first request) with a message naming the field, the option
+    and the two ways out (drop the opt-in, or switch reveals off with `security.reveal_roles: []`, which then needs no
+    limiter). `symfony/rate-limiter` stays a suggested dependency: a host with no revealable field is untouched — no
+    error, no dependency, no behaviour change. Reveal rights are per field, never per section.
+  - UI: the revealable row carries `data-nowo-instance-settings-reveal="<field>"` and the page ships
+    `nowo-instance-settings-reveal.js` (deferred, CSP nonce, no inline handler) with Reveal / Copy / Hide buttons
+    (UiKit classes, 7 locales). The value is dropped on Hide, after a minute and when the tab is hidden. Without
+    JavaScript the row stays write-only, as before.
+  - Security audit of 2026-11-13 (F1–F6, I7): the reveal answer must be excluded from every server-side response-body
+    log — our own HttpLogBundle captures JSON bodies by default and does not redact `value` — which CONFIGURATION,
+    UPGRADING and SECURITY now spell out with the configuration (F1); a stored secret that is not UTF-8 text answers a
+    clean 409 `{"error": "not_text"}` with the same headers instead of a 500, and is audited as a refusal, never as a
+    reveal (F2); a revealable row is bound to the Reveal root of its own section, so a page embedding two sections that
+    declare the same field name cannot show one section's secret under the other's label (F3); the documentation names
+    the operating system clipboard instead of claiming the value is never stored, and Hide asks for it to be emptied
+    (F4); the rate limiter key is salted with `%kernel.secret%` and a caller the host cannot name is keyed by its
+    client IP instead of sharing one bucket (F5); a reveal denied by the UI gate — before the endpoint runs — now
+    leaves the same reveal refusal line, with the reason `ui_gate`, so an alert on reveal refusals cannot miss it (F6);
+    the section, field and group name patterns carry the `D` modifier, so a trailing newline is refused by the pattern
+    itself as well as by the route (I7). SECURITY.md also states what the feature changes for a host-side XSS on the
+    admin layout (before 1.15 such a script could not obtain any stored secret), the detection that the
+    one-field-per-call shape makes possible, and that step-up re-authentication is a 1.16+ feature.
+  - The audit's probes are kept as a permanent `Probe` test suite (`tests/Probe`): the kill switch, host checkers that
+    grant only part of the three checks, an inconsistent checker, `allow_unauthenticated`, the same field name in two
+    sections, a 23-variant look-alike path battery and the non-text secret.
+  - Stateless (REQ-RUNTIME-002): nothing about a reveal — value, permission or limiter — is kept on a service between
+    requests; the limiter is built per call from its factory.
+  - Hiding the page (switching tab or window) still hides every revealed value, but no longer clears the clipboard:
+    the admin is usually switching away to paste. The clipboard is cleared by **Hide** and by the 60 s auto-hide only
+    (audit N1).
+
 ## [1.14.1] - 2026-11-13
 
 ### Fixed

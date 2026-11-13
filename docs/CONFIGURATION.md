@@ -7,6 +7,7 @@
 - [web_ui](#web_ui)
   - [Layout and CSS stack (UiKit)](#layout-and-css-stack-uikit)
 - [security](#security)
+  - [Revealing a stored secret (1.15)](#revealing-a-stored-secret-115)
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
@@ -44,7 +45,9 @@ nowo_instance_settings:
         templates: {}                  # page id => template: section, portability
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
-        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles
+        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles ("_reveal" is refused)
+        reveal_roles: [ROLE_DEVELOPER] # 1.15: roles that may reveal a stored secret of a revealable field ([] refuses every reveal)
+        reveal_rate_limiter: null      # 1.15: service id of a RateLimiterFactory consuming one token per reveal
         access_checker: null           # service id implementing InstanceSettingsAccessCheckerInterface
         allow_unauthenticated: false   # DEV / DEMO only; refused unless kernel.debug is true
     portability:
@@ -162,6 +165,8 @@ Bundle pages add no CSS / JS of their own; host assets stack with `{{ parent() }
 | --- | --- | --- |
 | `access_roles` | `[ROLE_ADMIN]` | The user must hold **any** of these roles to open the UI. An empty list is refused at compile time (it would deny everybody) unless `access_checker` is set or `allow_unauthenticated` is true. |
 | `area_roles` | `{}` | Map `<area> => [roles]` that **replaces** `access_roles` for one area: a section name (`mailer: [ROLE_SUPER_ADMIN]`) or `_portability` (the import / export page, which can download sealed secrets). Lists must not be empty. Sections the user cannot open are not shown as tabs and are left out of (and refused in) the user's web export / import. When any section is listed, **`_portability` must be listed too** (compile error otherwise) unless `portability.web_ui: false` or a custom `access_checker` is used. |
+| `reveal_roles` | `[ROLE_DEVELOPER]` | **1.15.** Roles that may reveal a stored secret of a field declared `revealable: true`, asked **on top of** the section's own area (both are needed). They never fall back to `access_roles`, and `area_roles._reveal` is refused (compile error) so there is one place to look. An empty list refuses every reveal, which is how you turn the feature off for the whole instance. Ignored when `access_checker` is set: the custom checker decides the `_reveal` area (`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`). |
+| `reveal_rate_limiter` | `null` | **1.15. Required as soon as any field declares `revealable: true`** (owner decision of 2026-11-13: a revealable secret is never served without a brake). Service id of a Symfony `RateLimiterFactory` (`framework.rate_limiter.<name>` registers `limiter.<name>`, needs `symfony/rate-limiter`) consuming one token per reveal, keyed by the SHA-256 of the actor's user identifier. Without it a revealable field fails closed when the section definitions load (router warm-up / `cache:warmup`, else the first request) with a message naming the field and this option. A host with **no** revealable field needs nothing: no limiter, no dependency, no change. |
 | `access_checker` | `null` | Service id implementing `InstanceSettingsAccessCheckerInterface` (`canAccess(?object $user, ?string $area): bool`; `$area` null = the UI itself). Replaces the role checker. |
 | `allow_unauthenticated` | `false` | **DEV / DEMO only.** Opens the UI without login; the container refuses it unless `kernel.debug` is true. |
 
@@ -177,6 +182,123 @@ security:
     access_control:
         - { path: ^/admin/settings, roles: ROLE_ADMIN }
 ```
+
+### Revealing a stored secret (1.15)
+
+A secret field is write-only by default: the admin form never renders it back ("leave blank to keep"). A host that
+declares a field `revealable: true` adds an explicit **Reveal** action to its row, for a user holding `reveal_roles`:
+
+```php
+// A credential the admin has to read somewhere else: revealable.
+yield SettingField::secret('client_secret', 'oauth.client_secret', revealable: true);
+// A key whose plaintext nobody needs again: left write-only (the default).
+yield SettingField::secret('signing_key', 'oauth.signing_key');
+```
+
+```yaml
+nowo_instance_settings:
+    security:
+        access_roles: [ROLE_ADMIN]
+        reveal_roles: [ROLE_DEVELOPER]          # only these users may reveal; [] refuses every reveal
+        reveal_rate_limiter: limiter.instance_settings_reveal   # required with any revealable field
+
+framework:
+    rate_limiter:
+        instance_settings_reveal:
+            policy: fixed_window
+            limit: 10
+            interval: '1 hour'
+```
+
+**The limiter is not optional.** As soon as a section declares `revealable: true`, the bundle refuses to run without
+`security.reveal_rate_limiter`: the section definitions fail to load (router warm-up, so `cache:warmup` fails during
+the build / deploy, and otherwise the first request) with
+
+```
+Instance settings section "oauth" declares the revealable secret field "client_secret", but
+nowo_instance_settings.security.reveal_rate_limiter is not set: a revealable secret is never served without a rate
+limit. Declare a limiter in the host (framework: rate_limiter: instance_settings_reveal: { policy: fixed_window,
+limit: 10, interval: '1 hour' }, which needs symfony/rate-limiter) and set
+nowo_instance_settings.security.reveal_rate_limiter: limiter.instance_settings_reveal. To do without it, drop
+revealable: true from the field, or switch every reveal off with nowo_instance_settings.security.reveal_roles: [].
+```
+
+The two ways out are in the message: drop the opt-in from the field, or set `security.reveal_roles: []`, the kill
+switch — with every reveal refused, a missing limiter blocks nothing, so switching the feature off is never harder
+than switching it on. `symfony/rate-limiter` stays a **dev / suggested** dependency: a host that declares no
+revealable field never needs it. `security.allow_unauthenticated: true` and a custom `security.access_checker` both
+count as "reveals are possible" (the bundle cannot tell who the checker allows), so they need the limiter too.
+
+How it works, and what you accept by turning it on:
+
+- The control is a button, not a hidden value: the plaintext is **never** rendered into the page. Clicking Reveal
+  POSTs to `nowo_instance_settings_secret_reveal`
+  (`<web_ui.path_prefix>/sections/{section}/secrets/{field}/reveal`, POST only, with this section's CSRF token) and the
+  endpoint answers `{"key": "<section>.<field>", "value": "<secret>"}` with `Cache-Control: private, no-store`,
+  `nosniff`, `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`. One call reveals the single named field, never
+  a payload of several secrets, and the value is never part of a URL.
+- Every check is server-side and runs again on every call: the UI gate, the section's area, `reveal_roles`, the field's
+  own `revealable: true` and the rate limiter (which is required, see below). A field without the opt-in, a plain field, a look-alike field name (the
+  names are compared byte for byte with the declared ones) and a user without the roles are all refused by the
+  endpoint, not only hidden in the UI.
+- Every reveal is audited: a `Event\SecretRevealedEvent` (PSR-14: section, field, actor, time, whether a secret was
+  stored) and a log line at `info`. A refusal is logged at `warning` with its reason. Neither ever carries the value
+  (REQ-OBS-001). Listen to the event to write the reveal into your own audit trail:
+
+  ```php
+  #[AsEventListener]
+  public function __invoke(SecretRevealedEvent $event): void
+  {
+      $this->audit->record('instance_settings.secret_revealed', $event->key(), $event->actor, $event->revealedAt);
+  }
+  ```
+
+- **Exclude the reveal answer from every response-body log (audit F1).** The answer carries the plaintext in a JSON
+  body, and `Cache-Control: no-store` is an instruction to clients: it stops nothing on the server side. Anything that
+  records response bodies — our own HttpLogBundle, a reverse proxy or WAF with body capture, an APM agent — will store
+  the secret in clear, for its own retention, readable by whoever may read those logs (a broader group than
+  `reveal_roles`) and no longer attributable to the actor who revealed it. Exclude the path **and** redact the `value`
+  key:
+
+  ```yaml
+  # config/packages/nowo_http_log.yaml — HttpLogBundle captures JSON response bodies by default
+  nowo_http_log:
+      ignore_path_prefixes: ['/admin/http-log', '/admin/settings/sections']   # the reveal lives under the admin prefix
+      redaction:
+          json_paths: ['*.password', '*._password', '*.token', '*._token', '*._csrf_token', '*.value']
+  ```
+
+  Do the same wherever else bodies are kept: drop or redact `POST <web_ui.path_prefix>/sections/*/secrets/*/reveal` in
+  the proxy, WAF and APM configuration. The audit trail this bundle writes names the field, the actor and the time and
+  never the value — a body log defeats that from outside the bundle.
+- **The trade-off.** A revealed secret is plaintext in a browser: it can be screenshotted, read over the shoulder,
+  pasted into the wrong window, or kept by a browser extension. The script drops it again on Hide, after one minute,
+  and whenever the tab is hidden, but it cannot undo any of those. That is why the opt-in is per field and defaults to
+  false: turn it on for a credential the admin genuinely has to read elsewhere (an OAuth client secret), and leave it
+  off for encryption keys, webhook signing keys and anything a person never needs to see again. With
+  `security.allow_unauthenticated: true` (dev / demo only) everybody may reveal, as everybody may already read and
+  change every setting.
+- **Copy puts it on the operating system clipboard**, which the page does not own: Windows Clipboard History and macOS
+  Universal Clipboard keep and sync it. Hide asks for the clipboard to be emptied, best effort only (audit F4).
+- **The rate limiter key.** One token per reveal, keyed by the salted SHA-256 (`%kernel.secret%`) of the actor's user
+  identifier, so the limiter storage holds neither an identifier nor a plain hash of one. A caller the host cannot name
+  — `security.allow_unauthenticated`, or a custom `access_checker` whose decision is not backed by a Symfony user — is
+  keyed by its client IP instead, so one such caller cannot spend the whole instance's budget; with neither a user nor
+  a request (a CLI caller of `SecretRevealer`) there is a single `anonymous` bucket (audit F5).
+  **The IP fallback only works if the host resolves client IPs correctly.** Behind a load balancer, a CDN or any
+  reverse proxy, `framework.trusted_proxies` (and `trusted_headers`) must be set, or every request appears to come
+  from the proxy: the fallback then keys every unnamed caller by that one address and is back to the single shared
+  bucket it exists to avoid, where one caller can spend the whole budget and deny the reveal to everybody else. It is
+  also only as trustworthy as those settings — with the forwarding headers trusted from an untrusted network, a caller
+  chooses its own key and therefore its own bucket. Both are reasons to name your users: a reveal by an identified
+  actor is keyed by that identity, audited with it, and not affected by any of this.
+- **Watch the refusals.** Because one call reveals one field, a harvest has a shape: more than N reveals for one actor
+  in a minute, or more than one distinct `key` in one session, is worth an alert; so is a burst of
+  `Instance settings: secret reveal refused` warnings. The reasons are `forbidden`, `not_revealable`, `rate_limited`,
+  `not_text` and `ui_gate` (the last one written by the UI gate, which refuses a caller who cannot open the UI at all
+  before the endpoint runs — audit F6).
+- The endpoint belongs to the admin UI: it exists only with `web_ui.enabled: true`. Without JavaScript the row stays
+  write-only, as before 1.15.
 
 ## portability
 

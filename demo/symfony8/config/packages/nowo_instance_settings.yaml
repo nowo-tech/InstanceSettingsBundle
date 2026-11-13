@@ -9,6 +9,11 @@ nowo_instance_settings:
     security:
         access_roles: [ROLE_ADMIN]
         allow_unauthenticated: true
+        # 1.15: the SMS provider token is declared revealable, so a reveal rate limiter is required (the container
+        # refuses to build a revealable secret without one). In a real host, reveal_roles keeps the action for
+        # ROLE_DEVELOPER; here allow_unauthenticated already opens the whole UI (dev / demo only).
+        reveal_roles: [ROLE_DEVELOPER]
+        reveal_rate_limiter: limiter.instance_settings_reveal
     portability:
         sealed_secrets: true
         max_upload_bytes: 1048576

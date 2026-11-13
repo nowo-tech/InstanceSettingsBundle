@@ -31,6 +31,15 @@ final class SettingFieldTest extends TestCase
         self::assertSame(SettingType::Text, $secret->type);
         self::assertCount(1, $secret->constraints);
         self::assertNull($secret->default);
+        self::assertFalse($secret->revealable, '1.15: a secret is not revealable unless the host says so');
+
+        // 1.15: the opt-in travels with every copy of the field.
+        $revealable = SettingField::secret('token', 'label', revealable: true);
+        self::assertTrue($revealable->revealable);
+        self::assertTrue($revealable->notPortable()->revealable);
+        self::assertTrue($revealable->withGroup('creds')->revealable);
+        self::assertTrue($revealable->withFormOptions(['attr' => []])->revealable);
+        self::assertTrue($revealable->withVisibleWhen('provider', ['a'])->revealable);
     }
 
     public function testCopiesAndLabelKey(): void
@@ -54,6 +63,7 @@ final class SettingFieldTest extends TestCase
         yield 'name' => [static fn (): SettingField => SettingField::string('Bad-Name'), 'Invalid setting field name'];
         yield 'secret bool' => [static fn (): SettingField => new SettingField('a', SettingType::Bool, secret: true), 'only string'];
         yield 'secret default' => [static fn (): SettingField => new SettingField('a', SettingType::String, 'x', secret: true), 'cannot declare a default'];
+        yield 'revealable plain' => [static fn (): SettingField => new SettingField('a', SettingType::String, revealable: true), 'only a secret field can be revealable'];
         yield 'choice empty' => [static fn (): SettingField => new SettingField('a', SettingType::Choice), 'at least one choice'];
         yield 'default type' => [static fn (): SettingField => new SettingField('a', SettingType::Int, 'x'), 'does not match the int type'];
         yield 'default choice' => [static fn (): SettingField => SettingField::choice('a', ['l' => 'x'], 'y'), 'does not match the choice type'];

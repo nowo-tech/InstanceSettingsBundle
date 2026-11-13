@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\EventListener;
 
+use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
@@ -21,6 +25,12 @@ use function str_starts_with;
  * Runs after the firewall (priority 7 < 8); registered with an explicit `kernel.event_listener` tag (the service is
  * not autoconfigured, the attribute documents the event). Guards every main request under the prefix and every bundle controller
  * wherever it is mounted (another routing prefix, a `render(controller())` sub-request).
+ *
+ * 1.15 (audit F6): this gate is in front of the secret reveal endpoint, so an account that cannot open the UI at all is
+ * refused here, before {@see SecretRevealer} ever runs. Such a call would otherwise leave no reveal-specific line in
+ * the log, and an alert counting reveal refusals per actor would miss exactly the probe that knows the least. The
+ * listener therefore writes the same refusal line itself, with the reason `ui_gate`, when the request it denies is the
+ * reveal route.
  */
 final readonly class InstanceSettingsAccessListener
 {
@@ -29,12 +39,17 @@ final readonly class InstanceSettingsAccessListener
     /** Namespace of the bundle controllers. */
     public const CONTROLLER_NAMESPACE = 'Nowo\\InstanceSettingsBundle\\Controller\\';
 
+    /** Refusal reason of a reveal denied by this gate (1.15, audit F6). */
+    public const REASON_UI_GATE = 'ui_gate';
+
     /**
      * @param string $pathPrefix `web_ui.path_prefix`
+     * @param LoggerInterface|null $logger receives the refusal line of a denied reveal (names and reason only, never a value)
      */
     public function __construct(
         private AccessGuard $guard,
         private string $pathPrefix,
+        private ?LoggerInterface $logger = null,
     ) {
     }
 
@@ -59,8 +74,31 @@ final readonly class InstanceSettingsAccessListener
         }
 
         if (!$this->guard->isGranted()) {
+            $this->logRevealRefusal($request);
             $this->guard->deny('Access denied to the instance settings UI.');
         }
+    }
+
+    /**
+     * Logs the reveal refusal of a request denied by the UI gate (1.15, audit F6): the same message and shape as
+     * {@see SecretRevealer}'s own refusals, so one alerting rule covers both, with the route's section and field names
+     * and never a value.
+     */
+    private function logRevealRefusal(Request $request): void
+    {
+        if (!$this->logger instanceof LoggerInterface || $request->attributes->get('_route') !== InstanceSettingsRoutes::REVEAL) {
+            return;
+        }
+        $parameters = $request->attributes->get('_route_params');
+        $parameters = is_array($parameters) ? $parameters : [];
+        $section    = $parameters['section'] ?? null;
+        $field      = $parameters['field'] ?? null;
+
+        $this->logger->warning(SecretRevealer::LOG_REFUSED, [
+            'key'    => (is_string($section) ? $section : '?') . '.' . (is_string($field) ? $field : '?'),
+            'actor'  => null,
+            'reason' => self::REASON_UI_GATE,
+        ]);
     }
 
     private function isBundleController(mixed $controller): bool
