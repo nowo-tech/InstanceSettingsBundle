@@ -30,6 +30,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- docs: demo screenshots regenerated on the UiKit base style
+
 ## [1.14.1] - 2026-11-13
 
 ### Fixed
