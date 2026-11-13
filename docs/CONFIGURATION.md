@@ -166,7 +166,7 @@ Bundle pages add no CSS / JS of their own; host assets stack with `{{ parent() }
 | `access_roles` | `[ROLE_ADMIN]` | The user must hold **any** of these roles to open the UI. An empty list is refused at compile time (it would deny everybody) unless `access_checker` is set or `allow_unauthenticated` is true. |
 | `area_roles` | `{}` | Map `<area> => [roles]` that **replaces** `access_roles` for one area: a section name (`mailer: [ROLE_SUPER_ADMIN]`) or `_portability` (the import / export page, which can download sealed secrets). Lists must not be empty. Sections the user cannot open are not shown as tabs and are left out of (and refused in) the user's web export / import. When any section is listed, **`_portability` must be listed too** (compile error otherwise) unless `portability.web_ui: false` or a custom `access_checker` is used. |
 | `reveal_roles` | `[ROLE_DEVELOPER]` | **1.15.** Roles that may reveal a stored secret of a field declared `revealable: true`, asked **on top of** the section's own area (both are needed). They never fall back to `access_roles`, and `area_roles._reveal` is refused (compile error) so there is one place to look. An empty list refuses every reveal, which is how you turn the feature off for the whole instance. Ignored when `access_checker` is set: the custom checker decides the `_reveal` area (`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`). |
-| `reveal_rate_limiter` | `null` | **1.15.** Service id of a Symfony `RateLimiterFactory` (`framework.rate_limiter.<name>` registers `limiter.<name>`) consuming one token per reveal, keyed by the SHA-256 of the actor's user identifier. `null` = no limit. Needs `symfony/rate-limiter`. |
+| `reveal_rate_limiter` | `null` | **1.15. Required as soon as any field declares `revealable: true`** (owner decision of 2026-11-13: a revealable secret is never served without a brake). Service id of a Symfony `RateLimiterFactory` (`framework.rate_limiter.<name>` registers `limiter.<name>`, needs `symfony/rate-limiter`) consuming one token per reveal, keyed by the SHA-256 of the actor's user identifier. Without it a revealable field fails closed when the section definitions load (router warm-up / `cache:warmup`, else the first request) with a message naming the field and this option. A host with **no** revealable field needs nothing: no limiter, no dependency, no change. |
 | `access_checker` | `null` | Service id implementing `InstanceSettingsAccessCheckerInterface` (`canAccess(?object $user, ?string $area): bool`; `$area` null = the UI itself). Replaces the role checker. |
 | `allow_unauthenticated` | `false` | **DEV / DEMO only.** Opens the UI without login; the container refuses it unless `kernel.debug` is true. |
 
@@ -200,7 +200,7 @@ nowo_instance_settings:
     security:
         access_roles: [ROLE_ADMIN]
         reveal_roles: [ROLE_DEVELOPER]          # only these users may reveal; [] refuses every reveal
-        reveal_rate_limiter: limiter.instance_settings_reveal
+        reveal_rate_limiter: limiter.instance_settings_reveal   # required with any revealable field
 
 framework:
     rate_limiter:
@@ -209,6 +209,25 @@ framework:
             limit: 10
             interval: '1 hour'
 ```
+
+**The limiter is not optional.** As soon as a section declares `revealable: true`, the bundle refuses to run without
+`security.reveal_rate_limiter`: the section definitions fail to load (router warm-up, so `cache:warmup` fails during
+the build / deploy, and otherwise the first request) with
+
+```
+Instance settings section "oauth" declares the revealable secret field "client_secret", but
+nowo_instance_settings.security.reveal_rate_limiter is not set: a revealable secret is never served without a rate
+limit. Declare a limiter in the host (framework: rate_limiter: instance_settings_reveal: { policy: fixed_window,
+limit: 10, interval: '1 hour' }, which needs symfony/rate-limiter) and set
+nowo_instance_settings.security.reveal_rate_limiter: limiter.instance_settings_reveal. To do without it, drop
+revealable: true from the field, or switch every reveal off with nowo_instance_settings.security.reveal_roles: [].
+```
+
+The two ways out are in the message: drop the opt-in from the field, or set `security.reveal_roles: []`, the kill
+switch — with every reveal refused, a missing limiter blocks nothing, so switching the feature off is never harder
+than switching it on. `symfony/rate-limiter` stays a **dev / suggested** dependency: a host that declares no
+revealable field never needs it. `security.allow_unauthenticated: true` and a custom `security.access_checker` both
+count as "reveals are possible" (the bundle cannot tell who the checker allows), so they need the limiter too.
 
 How it works, and what you accept by turning it on:
 
@@ -219,7 +238,7 @@ How it works, and what you accept by turning it on:
   `nosniff`, `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`. One call reveals the single named field, never
   a payload of several secrets, and the value is never part of a URL.
 - Every check is server-side and runs again on every call: the UI gate, the section's area, `reveal_roles`, the field's
-  own `revealable: true` and the rate limiter. A field without the opt-in, a plain field, a look-alike field name (the
+  own `revealable: true` and the rate limiter (which is required, see below). A field without the opt-in, a plain field, a look-alike field name (the
   names are compared byte for byte with the declared ones) and a user without the roles are all refused by the
   endpoint, not only hidden in the UI.
 - Every reveal is audited: a `Event\SecretRevealedEvent` (PSR-14: section, field, actor, time, whether a secret was

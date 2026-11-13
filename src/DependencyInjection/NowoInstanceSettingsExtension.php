@@ -242,7 +242,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->assertFilesMapped($container, $filesEnabled);
         $this->assertLocalPath($container, $config['files']['directory'], 'files.directory');
         $this->assertLocalPath($container, $config['seed']['base_dir'], 'seed.base_dir');
-        $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed']);
+        $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed'], self::revealNeedsRateLimiter($config));
         if ($filesEnabled && $config['files']['store'] === 'filesystem') {
             $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
         }
@@ -474,13 +474,15 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     /**
      * @param array{table_prefix: string, entity_manager: string|null} $doctrine
      * @param array{file: string|null, base_dir: string} $seed
+     * @param bool $revealNeedsRateLimiter 1.15: a revealable secret field fails closed without a reveal rate limiter
      */
-    private function registerStore(ContainerBuilder $container, array $doctrine, bool $filesEnabled, array $seed): void
+    private function registerStore(ContainerBuilder $container, array $doctrine, bool $filesEnabled, array $seed, bool $revealNeedsRateLimiter = false): void
     {
         $container->setDefinition(SettingsSectionRegistry::class, new Definition(SettingsSectionRegistry::class, [
             new TaggedIteratorArgument(NowoInstanceSettingsBundle::SECTION_TAG),
             null,
             $filesEnabled,
+            $revealNeedsRateLimiter,
         ]));
 
         // 1.11 (rule 6): the bundle's private entity manager on the connection of the manager that maps the entities;
@@ -867,6 +869,35 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             ->setPublic(true)
             ->addTag('controller.service_arguments')
             ->addTag('container.service_subscriber'));
+    }
+
+    /**
+     * Whether a field declaring `revealable: true` must fail closed because no reveal rate limiter is configured (1.15,
+     * owner decision of 2026-11-13).
+     *
+     * A reveal is possible when the admin UI is on (the endpoint lives with its routes) and reveals are not switched
+     * off: with the role-based checker that means a non-empty `security.reveal_roles`, and `allow_unauthenticated`
+     * (dev / demo) or a custom `access_checker` always count as possible, because then the bundle cannot tell. A host
+     * with no revealable field never reaches the check, so nothing changes for it: no error, no dependency.
+     *
+     * @param array{web_ui: array{enabled: bool}, security: array{reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}} $config
+     */
+    public static function revealNeedsRateLimiter(array $config): bool
+    {
+        $security = $config['security'];
+        $limiter  = $security['reveal_rate_limiter'];
+        if (is_string($limiter) && $limiter !== '') {
+            return false;
+        }
+        if (!$config['web_ui']['enabled']) {
+            // No admin UI, no reveal endpoint (REQ-UI-001): the flag cannot be reached from the web.
+            return false;
+        }
+        $custom = is_string($security['access_checker']) && $security['access_checker'] !== '';
+
+        // security.reveal_roles: [] is the kill switch: with every reveal refused, a missing limiter blocks nothing
+        // (turning the feature off must never be harder than turning it on).
+        return $custom || $security['allow_unauthenticated'] || Configuration::roles($security['reveal_roles']) !== [];
     }
 
     /**

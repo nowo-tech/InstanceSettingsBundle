@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b108f865e0b13e8f7f33b68c7a7059f7",
+    "content-hash": "4711b4757a31d9018bde9ec35ce883b2",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -1220,6 +1220,7 @@
                 "symfony/dom-crawler": "^7.4 || ^8.0",
                 "symfony/filesystem": "^7.4 || ^8.0",
                 "symfony/phpunit-bridge": "^7.4 || ^8.0",
+                "symfony/rate-limiter": "^7.4 || ^8.0",
                 "symfony/security-bundle": "^7.4 || ^8.0",
                 "symfony/translation": "^7.4 || ^8.0",
                 "symfony/yaml": "^7.4 || ^8.0"
@@ -1228,6 +1229,7 @@
                 "ext-gd": "Required (with PNG, JPEG and WebP support) when a section declares an image field (1.4)",
                 "nowo-tech/brand-contracts": "Required for the brand bridge (brand.enabled: true, 1.5): BrandProviderInterface for UiKit, Pwa, MailKit, LegalKit and SeoKit",
                 "symfony/flex": "For automatic recipe installation",
+                "symfony/rate-limiter": "To rate-limit the secret reveal endpoint (security.reveal_rate_limiter, 1.15)",
                 "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
                 "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()",
                 "symfony/yaml": "To load YAML seed files with nowo:instance-settings:seed (1.7; JSON seed files need nothing)"
@@ -4816,6 +4818,81 @@
             ],
             "time": "2026-11-02T10:58:30+00:00",
             "published-time": "2026-11-04T11:32:11+00:00"
+        },
+        {
+            "name": "symfony/rate-limiter",
+            "version": "v8.1.11",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/symfony/rate-limiter.git",
+                "reference": "6311b3a5d7448684894d6e184d963f4d504086a5"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/symfony/rate-limiter/zipball/6311b3a5d7448684894d6e184d963f4d504086a5",
+                "reference": "6311b3a5d7448684894d6e184d963f4d504086a5",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.4.1",
+                "symfony/options-resolver": "^7.4|^8.0"
+            },
+            "require-dev": {
+                "psr/cache": "^1.0|^2.0|^3.0",
+                "symfony/lock": "^7.4|^8.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Symfony\\Component\\RateLimiter\\": ""
+                },
+                "exclude-from-classmap": [
+                    "/Tests/"
+                ]
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Wouter de Jong",
+                    "email": "wouter@wouterj.nl"
+                },
+                {
+                    "name": "Symfony Community",
+                    "homepage": "https://symfony.com/contributors"
+                }
+            ],
+            "description": "Provides a Token Bucket implementation to rate limit input and output in your application",
+            "homepage": "https://symfony.com",
+            "keywords": [
+                "limiter",
+                "rate-limiter"
+            ],
+            "support": {
+                "source": "https://github.com/symfony/rate-limiter/tree/v8.1.11"
+            },
+            "funding": [
+                {
+                    "url": "https://symfony.com/sponsor",
+                    "type": "custom"
+                },
+                {
+                    "url": "https://github.com/fabpot",
+                    "type": "github"
+                },
+                {
+                    "url": "https://github.com/nicolas-grekas",
+                    "type": "github"
+                },
+                {
+                    "url": "https://tidelift.com/funding/github/packagist/symfony/symfony",
+                    "type": "tidelift"
+                }
+            ],
+            "time": "2026-11-01T19:30:44+00:00",
+            "published-time": "2026-11-04T11:31:47+00:00"
         },
         {
             "name": "symfony/routing",

@@ -56,7 +56,12 @@ To use it (owner decision of 2026-11-13):
            reveal_roles: [ROLE_DEVELOPER]
    ```
 
-3. Optionally rate-limit it (recommended for an instance with many revealable fields; needs `symfony/rate-limiter`):
+3. **Rate-limit it — this step is required** as soon as any field declares `revealable: true` (owner decision of
+   2026-11-13). Install `symfony/rate-limiter`, declare a limiter and point the bundle at it:
+
+   ```bash
+   composer require symfony/rate-limiter
+   ```
 
    ```yaml
    nowo_instance_settings:
@@ -66,6 +71,11 @@ To use it (owner decision of 2026-11-13):
        rate_limiter:
            instance_settings_reveal: { policy: fixed_window, limit: 10, interval: '1 hour' }
    ```
+
+   Without it the section definitions refuse to load (router warm-up, so `cache:warmup` fails in the build, else the
+   first request) with a message naming the field and the option. Its two ways out: drop `revealable: true`, or set
+   `security.reveal_roles: []` (the kill switch — with reveals switched off a missing limiter blocks nothing).
+   Hosts that declare **no** revealable field are untouched: no limiter, no new dependency, no behaviour change.
 
 4. `php bin/console assets:install` (the page loads the new `nowo-instance-settings-reveal.js`), and if your Content
    Security Policy lists script sources, the script is served from `bundles/nowoinstancesettings/js/` like the colour

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 
+use LogicException;
 use Nowo\InstanceSettingsBundle\Form\SettingsSectionType;
 use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\RevealAuditListener;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\RevealFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
@@ -14,6 +16,7 @@ use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\DomCrawler\Crawler;
 
+use function array_replace_recursive;
 use function json_decode;
 
 use const JSON_THROW_ON_ERROR;
@@ -28,6 +31,9 @@ final class SecretRevealTest extends KernelTestCase
     private const SECRET = 'placeholder-client-secret-7f3a';
 
     private const URL = '/admin/settings/sections/oauth/secrets/client_secret/reveal';
+
+    /** Service id of the demo / test reveal limiter (`framework.rate_limiter.instance_settings_reveal`). */
+    private const LIMITER = 'limiter.instance_settings_reveal';
 
     public function testADeveloperRevealsTheStoredSecretAndTheCallIsAudited(): void
     {
@@ -163,9 +169,7 @@ final class SecretRevealTest extends KernelTestCase
 
     public function testTheRateLimiterRefusesBulkHarvesting(): void
     {
-        $kernel = $this->boot(['security' => ['reveal_rate_limiter' => 'limiter.instance_settings_reveal']], [
-            'framework' => ['rate_limiter' => ['instance_settings_reveal' => ['policy' => 'fixed_window', 'limit' => 2, 'interval' => '1 hour']]],
-        ]);
+        $kernel = $this->boot(extensions: $this->limiter(2));
         $this->settings($kernel)->save('oauth', ['client_secret' => self::SECRET]);
         $client = $this->client($kernel, 'developer');
         $token  = $this->token($client->request('GET', '/admin/settings/sections/oauth'));
@@ -205,21 +209,82 @@ final class SecretRevealTest extends KernelTestCase
         self::assertSame(401, $anonymous->getResponse()->getStatusCode());
     }
 
+    public function testARevealableFieldWithoutARateLimiterFailsClosed(): void
+    {
+        // Owner decision of 2026-11-13: the feature cannot be deployed without a brake. The section definitions
+        // refuse to load (router warm-up / cache:warmup, else the first request), naming the field and the option.
+        $kernel = $this->bootKernel(services: [RevealFixtureSection::class => RevealFixtureSection::class]);
+
+        $registry = $this->container($kernel)->get(SettingsSectionRegistry::class);
+        self::assertInstanceOf(SettingsSectionRegistry::class, $registry);
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('Instance settings section "oauth" declares the revealable secret field "client_secret", but nowo_instance_settings.security.reveal_rate_limiter is not set');
+        $registry->all();
+    }
+
+    public function testAHostWithoutARevealableFieldNeedsNoRateLimiter(): void
+    {
+        // Nothing changes for a host that does not use the feature: no limiter, no error, no reveal markup.
+        $kernel  = $this->bootKernel();
+        $client  = $this->client($kernel, 'developer');
+        $crawler = $client->request('GET', '/admin/settings/sections/mailer');
+
+        self::assertSame(200, $client->getResponse()->getStatusCode());
+        self::assertCount(0, $crawler->filter('[data-testid="instance-settings-reveal"]'));
+        self::assertCount(0, $crawler->filter('[' . SettingsSectionType::REVEAL_ATTRIBUTE . ']'));
+        $registry = $this->container($kernel)->get(SettingsSectionRegistry::class);
+        self::assertInstanceOf(SettingsSectionRegistry::class, $registry);
+        self::assertFalse($registry->field('mailer', 'dsn')->revealable, 'the fixture secret is write-only');
+    }
+
+    public function testTheKillSwitchNeedsNoRateLimiterEither(): void
+    {
+        // reveal_roles: [] switches every reveal off, so a missing limiter blocks nothing: turning the feature off
+        // must never be harder than turning it on.
+        $kernel = $this->bootKernel(['security' => ['reveal_roles' => []]], services: [
+            RevealFixtureSection::class => RevealFixtureSection::class,
+            'logger'                    => RecordingLogger::class,
+        ]);
+        $this->settings($kernel)->save('oauth', ['client_secret' => self::SECRET]);
+        $client  = $this->client($kernel, 'developer');
+        $crawler = $client->request('GET', '/admin/settings/sections/oauth');
+
+        self::assertSame(200, $client->getResponse()->getStatusCode());
+        self::assertCount(0, $crawler->filter('[data-testid="instance-settings-reveal"]'), 'no control with reveals switched off');
+        $client->request('POST', self::URL, ['_token' => 'whatever']);
+        self::assertSame(403, $client->getResponse()->getStatusCode());
+        self::assertStringNotContainsString(self::SECRET, (string) $client->getResponse()->getContent());
+    }
+
     /**
-     * @param array<string, mixed> $config
-     * @param array<string, array<string, mixed>> $extensions
+     * A kernel with the revealable fixture section and a reveal rate limiter (required since the owner decision of
+     * 2026-11-13: a revealable field without one fails closed).
+     *
+     * @param array<string, mixed> $config nowo_instance_settings (the limiter is set unless `$config` says otherwise)
+     * @param array<string, array<string, mixed>> $extensions other extension configs (the limiter is declared unless `framework` is given)
+     * @param array<string, string> $services extra services (default: the fixture section, the audit listener, the logger)
      */
-    private function boot(array $config = [], array $extensions = []): InstanceSettingsTestKernel
+    private function boot(array $config = [], array $extensions = [], ?array $services = null): InstanceSettingsTestKernel
     {
         return $this->bootKernel(
-            $config,
-            services: [
+            array_replace_recursive(['security' => ['reveal_rate_limiter' => self::LIMITER]], $config),
+            services: $services ?? [
                 RevealFixtureSection::class => RevealFixtureSection::class,
                 'app.reveal_listener'       => RevealAuditListener::class,
                 'logger'                    => RecordingLogger::class,
             ],
-            extensions: $extensions,
+            extensions: $extensions === [] ? $this->limiter() : $extensions,
         );
+    }
+
+    /**
+     * `framework.rate_limiter` declaring {@see self::LIMITER} with `$limit` reveals per hour.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function limiter(int $limit = 100): array
+    {
+        return ['framework' => ['rate_limiter' => ['instance_settings_reveal' => ['policy' => 'fixed_window', 'limit' => $limit, 'interval' => '1 hour']]]];
     }
 
     private function value(KernelBrowser $client): string

@@ -38,11 +38,16 @@ final class SettingsSectionRegistry
      * @param array<string, mixed>|null $gdInfo gd_info() to check image fields against (null = the running PHP; tests)
      * @param bool $filesEnabled `files.enabled`: without it the file table is not mapped and an image field fails closed
      *                           (true when the registry is built by hand, outside the container)
+     * @param bool $revealNeedsRateLimiter 1.15: a reveal is possible (the admin UI is on and reveals are not switched
+     *                                     off) but `security.reveal_rate_limiter` is not set, so a field declaring
+     *                                     `revealable: true` fails closed ({@see self::assertRevealIsRateLimited()}).
+     *                                     False when the registry is built by hand, outside the container
      */
     public function __construct(
         private readonly iterable $sections = [],
         private readonly ?array $gdInfo = null,
         private readonly bool $filesEnabled = true,
+        private readonly bool $revealNeedsRateLimiter = false,
     ) {
     }
 
@@ -150,6 +155,20 @@ final class SettingsSectionRegistry
     }
 
     /**
+     * Fails closed when a field declares `revealable: true` while no reveal rate limiter is configured (1.15, owner
+     * decision of 2026-11-13: the feature cannot be deployed without a brake). The message names the field, the option
+     * and the two ways out.
+     */
+    private function assertRevealIsRateLimited(string $section, SettingField $field): void
+    {
+        if (!$this->revealNeedsRateLimiter) {
+            return;
+        }
+
+        throw new LogicException(sprintf('Instance settings section "%s" declares the revealable secret field "%s", but nowo_instance_settings.security.reveal_rate_limiter is not set: a revealable secret is never served without a rate limit. Declare a limiter in the host (framework: rate_limiter: instance_settings_reveal: { policy: fixed_window, limit: 10, interval: \'1 hour\' }, which needs symfony/rate-limiter) and set nowo_instance_settings.security.reveal_rate_limiter: limiter.instance_settings_reveal. To do without it, drop revealable: true from the field, or switch every reveal off with nowo_instance_settings.security.reveal_roles: [].', $section, $field->name));
+    }
+
+    /**
      * @return array{section: SettingsSectionInterface, fields: array<string, SettingField>}
      */
     private function entry(string $section): array
@@ -243,6 +262,10 @@ final class SettingsSectionRegistry
             foreach ($section->getFields() as $field) {
                 if (array_key_exists($field->name, $fields)) {
                     throw new LogicException(sprintf('Duplicate field "%s" in instance settings section "%s".', $field->name, $name));
+                }
+                if ($field->secret && $field->revealable) {
+                    // 1.15 (owner decision of 2026-11-13): a revealable secret is never served without a brake.
+                    $this->assertRevealIsRateLimited($name, $field);
                 }
                 if ($field->type === SettingType::Image) {
                     if (!$this->filesEnabled) {

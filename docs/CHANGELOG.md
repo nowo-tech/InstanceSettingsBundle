@@ -52,8 +52,14 @@ All notable changes to this project are documented here. The format follows
     (`forbidden`, `not_revealable`, `rate_limited`).
   - New configuration `security.reveal_roles` (default `[ROLE_DEVELOPER]`; `[]` refuses every reveal, and
     `security.area_roles._reveal` is refused so there is one place to look) and `security.reveal_rate_limiter`
-    (service id of a Symfony `RateLimiterFactory`, one token per reveal keyed by the hashed actor; `null` = no limit).
-    A custom `security.access_checker` decides the new area `InstanceSettingsAccessCheckerInterface::AREA_REVEAL`.
+    (service id of a Symfony `RateLimiterFactory`, one token per reveal keyed by the hashed actor). A custom
+    `security.access_checker` decides the new area `InstanceSettingsAccessCheckerInterface::AREA_REVEAL`.
+  - **The rate limiter is required with any revealable field** (owner decision of 2026-11-13): a field declaring
+    `revealable: true` without `security.reveal_rate_limiter` makes the section definitions fail to load (router
+    warm-up, so `cache:warmup` fails in the build, else the first request) with a message naming the field, the option
+    and the two ways out (drop the opt-in, or switch reveals off with `security.reveal_roles: []`, which then needs no
+    limiter). `symfony/rate-limiter` stays a suggested dependency: a host with no revealable field is untouched — no
+    error, no dependency, no behaviour change. Reveal rights are per field, never per section.
   - UI: the revealable row carries `data-nowo-instance-settings-reveal="<field>"` and the page ships
     `nowo-instance-settings-reveal.js` (deferred, CSP nonce, no inline handler) with Reveal / Copy / Hide buttons
     (UiKit classes, 7 locales). The value is dropped on Hide, after a minute and when the tab is hidden. Without

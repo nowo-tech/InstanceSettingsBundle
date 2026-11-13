@@ -39,6 +39,7 @@ use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ChildDefinition;
@@ -96,6 +97,61 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
 
         $filesystem = $this->load(['brand' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '/srv/files']], withSecurity: true);
         self::assertSame([FilesystemSettingFileStore::class, AfterCommitEventDispatcher::class], array_map('strval', $filesystem->getDefinition(FileStoreTransactionMiddleware::class)->getArguments()));
+    }
+
+    /**
+     * The part of the processed configuration the check reads.
+     *
+     * @param list<string> $roles
+     *
+     * @return array{web_ui: array{enabled: bool}, security: array{reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}}
+     */
+    private static function revealConfig(bool $webUi = true, array $roles = ['ROLE_DEVELOPER'], ?string $limiter = null, ?string $checker = null, bool $allowUnauthenticated = false): array
+    {
+        return [
+            'web_ui'   => ['enabled' => $webUi],
+            'security' => [
+                'reveal_roles'          => $roles,
+                'reveal_rate_limiter'   => $limiter,
+                'access_checker'        => $checker,
+                'allow_unauthenticated' => $allowUnauthenticated,
+            ],
+        ];
+    }
+
+    /**
+     * @return iterable<string, array{0: bool, 1: array{web_ui: array{enabled: bool}, security: array{reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}}}>
+     */
+    public static function revealLimiterSetups(): iterable
+    {
+        yield 'reveal possible, no limiter' => [true, self::revealConfig()];
+        yield 'limiter configured' => [false, self::revealConfig(limiter: 'limiter.reveal')];
+        yield 'empty limiter id' => [true, self::revealConfig(limiter: '')];
+        yield 'no admin UI, no endpoint' => [false, self::revealConfig(webUi: false)];
+        yield 'kill switch: no reveal roles' => [false, self::revealConfig(roles: [])];
+        yield 'kill switch: blank roles only' => [false, self::revealConfig(roles: ['  ', ''])];
+        yield 'custom checker decides' => [true, self::revealConfig(roles: [], checker: 'app.checker')];
+        yield 'allow_unauthenticated' => [true, self::revealConfig(roles: [], allowUnauthenticated: true)];
+    }
+
+    /**
+     * 1.15 (owner decision of 2026-11-13): when a revealable field must fail closed for want of a rate limiter.
+     *
+     * @param array{web_ui: array{enabled: bool}, security: array{reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}} $config
+     */
+    #[DataProvider('revealLimiterSetups')]
+    public function testWhenARevealableFieldNeedsARateLimiter(bool $expected, array $config): void
+    {
+        self::assertSame($expected, NowoInstanceSettingsExtension::revealNeedsRateLimiter($config));
+    }
+
+    public function testTheRegistryCarriesTheRevealRateLimiterRequirement(): void
+    {
+        $needs = $this->load(['security' => ['reveal_roles' => ['ROLE_DEVELOPER']]], withSecurity: true);
+        self::assertTrue($needs->getDefinition(SettingsSectionRegistry::class)->getArgument(3));
+
+        $configured = $this->load(['security' => ['reveal_rate_limiter' => 'limiter.reveal']], withSecurity: true);
+        self::assertFalse($configured->getDefinition(SettingsSectionRegistry::class)->getArgument(3));
     }
 
     public function testCustomCheckerAreaRolesAndDemoSwitch(): void
