@@ -28,7 +28,7 @@ use function sprintf;
 final class SettingsSectionRegistry
 {
     /** Allowed section names: lower snake case, 1–64 characters (also the URL segment). */
-    public const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
+    public const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
 
     /** @var array<string, array{section: SettingsSectionInterface, fields: array<string, SettingField>}>|null */
     private ?array $map = null;

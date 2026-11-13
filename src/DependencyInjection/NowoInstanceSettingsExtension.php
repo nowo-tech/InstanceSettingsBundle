@@ -811,6 +811,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setDefinition(InstanceSettingsAccessListener::class, (new Definition(InstanceSettingsAccessListener::class, [
             new Reference(AccessGuard::class),
             $webUi['path_prefix'],
+            // 1.15 (audit F6): a reveal denied by the UI gate still leaves a reveal refusal line.
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->addTag('kernel.event_listener', ['event' => KernelEvents::REQUEST, 'method' => 'onKernelRequest', 'priority' => InstanceSettingsAccessListener::PRIORITY]));
 
         // 1.15: the secret reveal (public: a host action can reveal with the same checks and the same audit entry).
@@ -822,6 +824,10 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             $this->revealRateLimiter($config['security']['reveal_rate_limiter'] ?? null),
+            // Audit F5: the limiter key is salted with the application secret (no plain hash of a user identifier in
+            // the limiter storage), and a caller the host cannot name is keyed by its client IP, not shared.
+            '%kernel.secret%',
+            new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->setPublic(true));
 
         // 1.6 (IS-1): the section page, shared by the bundle route and host embeds (public: hosts fetch it in their

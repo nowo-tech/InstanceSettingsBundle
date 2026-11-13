@@ -38,7 +38,7 @@ use function strtolower;
 final readonly class SettingField
 {
     /** Allowed field names: lower snake case, 1–64 characters. */
-    public const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
+    public const NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
 
     /** Prefix of a stored image reference (`isf:<sha256>`, 1.4). */
     public const IMAGE_REFERENCE_PREFIX = 'isf:';
@@ -50,7 +50,7 @@ final readonly class SettingField
     public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/D';
 
     /** Allowed form groups (1.5): dot-separated lower snake case segments, e.g. `colors.light`. */
-    public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/';
+    public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/D';
 
     /** @var list<Constraint> */
     public array $constraints;

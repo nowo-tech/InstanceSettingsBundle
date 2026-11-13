@@ -35,7 +35,10 @@ Other variables passed by the controller: `section` (current section name, secti
 `secret_reveal` (`Ui\SecretReveal`, or null): the Reveal control of the section's revealable secret rows, rendered by
 `settings/_secret_reveal.html.twig` and set only for a user who may reveal. It carries the endpoint URL of each field
 and the section's CSRF token, never a secret; a host section template that wants the control includes that partial
-(`{{ include('@NowoInstanceSettingsBundle/settings/_secret_reveal.html.twig') }}`) and the bundle stylesheet.
+(`{{ include('@NowoInstanceSettingsBundle/settings/_secret_reveal.html.twig') }}`) and the bundle stylesheet. A page
+that embeds two sections includes the partial once per section: each root names its section, every revealable row
+carries the same name, and the script binds each row to the root of its own section, so two sections declaring the same
+field name keep their own URLs, token and answers (audit F3).
 
 ## Secrets in the pages
 

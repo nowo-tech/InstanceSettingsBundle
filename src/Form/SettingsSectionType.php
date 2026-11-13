@@ -86,6 +86,13 @@ final class SettingsSectionType extends AbstractType
     public const REVEAL_ATTRIBUTE = 'data-nowo-instance-settings-reveal';
 
     /**
+     * Row attribute carrying the section name of a revealable secret row (1.15, audit F3): a page embedding two
+     * sections binds every row to the Reveal root of its own section, so a field name declared in both sections never
+     * reveals the other section's secret.
+     */
+    public const REVEAL_SECTION_ATTRIBUTE = 'data-nowo-instance-settings-reveal-section';
+
+    /**
      * Adds one form field per setting field.
      *
      * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>} $options
@@ -119,8 +126,10 @@ final class SettingsSectionType extends AbstractType
             if ($field->secret) {
                 $stored = $options['stored_secrets'][$name] ?? false;
                 if (in_array($name, $options['revealable_secrets'], true)) {
-                    // 1.15: the Reveal control of this row is cloned into it by the page script.
-                    $rowAttr[self::REVEAL_ATTRIBUTE] = $name;
+                    // 1.15: the Reveal control of this row is cloned into it by the page script, from the root of this
+                    // row's own section (audit F3).
+                    $rowAttr[self::REVEAL_ATTRIBUTE]         = $name;
+                    $rowAttr[self::REVEAL_SECTION_ATTRIBUTE] = $options['section']->getName();
                 }
                 $this->addWithDefaults($builder, $name, SecretType::class, array_replace_recursive([
                     'label'              => $field->labelKey(),

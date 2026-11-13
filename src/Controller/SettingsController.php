@@ -31,6 +31,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
@@ -121,7 +122,9 @@ final class SettingsController extends AbstractController
      * name, rate limit) plus this section's CSRF token, and they all run here, on the server: the page itself only
      * carries a button, never the value.
      * The answer is `{"key": "<section>.<field>", "value": "<secret>"}`, never cacheable (`no-store`, private) and
-     * never in a URL; a revealable field without a stored secret answers 404 `{"key": …, "error": "not_stored"}`.
+     * never in a URL; a revealable field without a stored secret answers 404 `{"key": …, "error": "not_stored"}`, and a
+     * stored secret that is not UTF-8 text answers 409 `{"key": …, "error": "not_text"}` (audit F2: a secret is never
+     * handed over mangled, and the audit trail then records the refusal, not a reveal).
      */
     #[Route(path: '/sections/{section}/secrets/{field}/reveal', name: InstanceSettingsRoutes::REVEAL, requirements: ['section' => '[a-z][a-z0-9_]{0,63}', 'field' => '[a-z][a-z0-9_]{0,63}'], methods: ['POST'])]
     public function revealSecret(Request $request, string $section, string $field): JsonResponse
@@ -136,8 +139,15 @@ final class SettingsController extends AbstractController
             throw new AccessDeniedHttpException('Invalid CSRF token.');
         }
 
-        $value = $this->revealer->reveal($section, $field);
-        $key   = $section . '.' . $field;
+        $key = $section . '.' . $field;
+
+        try {
+            $value = $this->revealer->reveal($section, $field);
+        } catch (ConflictHttpException) {
+            // Audit F2: the stored secret is not UTF-8 text, so it cannot be delivered as JSON. Answer the same
+            // never-cacheable shape instead of a 500 error page, and the audit trail records the refusal.
+            return $this->noStore(new JsonResponse(['key' => $key, 'error' => SecretRevealer::REASON_NOT_TEXT], Response::HTTP_CONFLICT));
+        }
 
         return $this->noStore($value === null
             ? new JsonResponse(['key' => $key, 'error' => 'not_stored'], Response::HTTP_NOT_FOUND)

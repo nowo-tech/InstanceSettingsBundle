@@ -6,8 +6,11 @@ namespace Nowo\InstanceSettingsBundle\Tests\Unit\EventListener;
 
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
+use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
+use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
@@ -56,6 +59,47 @@ final class InstanceSettingsAccessListenerTest extends TestCase
         $subscriber = new InstanceSettingsAccessListener(new AccessGuard($this->checker(true), true), '/admin/settings');
         $subscriber->onKernelRequest($this->event('/admin/settings/portability'));
         $this->addToAssertionCount(1);
+    }
+
+    public function testOnlyADeniedRevealIsLoggedAsARevealRefusal(): void
+    {
+        // 1.15 (audit F6): the gate denies before the endpoint runs, so it writes the reveal refusal line itself —
+        // and only for the reveal route, with the names of the route and never a value.
+        $logger   = new RecordingLogger();
+        $listener = new InstanceSettingsAccessListener(new AccessGuard($this->checker(false)), '/admin/settings', $logger);
+
+        // A denied section page is not a reveal: nothing is logged here.
+        $this->deny($listener, $this->event('/admin/settings/sections/mailer'));
+        self::assertSame([], $logger->records);
+
+        // A denied reveal: one warning, with the section and field of the matched route.
+        $reveal = $this->event('/admin/settings/sections/oauth/secrets/client_secret/reveal');
+        $reveal->getRequest()->attributes->set('_route', InstanceSettingsRoutes::REVEAL);
+        $reveal->getRequest()->attributes->set('_route_params', ['section' => 'oauth', 'field' => 'client_secret']);
+        $this->deny($listener, $reveal);
+        self::assertCount(1, $logger->records);
+        self::assertSame('warning', $logger->records[0]['level']);
+        self::assertSame(SecretRevealer::LOG_REFUSED, $logger->records[0]['message']);
+        self::assertSame('oauth.client_secret', $logger->records[0]['context']['key']);
+        self::assertSame(InstanceSettingsAccessListener::REASON_UI_GATE, $logger->records[0]['context']['reason']);
+        self::assertNull($logger->records[0]['context']['actor'], 'the gate cannot name an actor');
+
+        // A reveal route without usable parameters still logs, naming what it has.
+        $bare = $this->event('/admin/settings/sections/oauth/secrets/client_secret/reveal');
+        $bare->getRequest()->attributes->set('_route', InstanceSettingsRoutes::REVEAL);
+        $bare->getRequest()->attributes->set('_route_params', 'not-an-array');
+        $this->deny($listener, $bare);
+        self::assertSame('?.?', $logger->records[1]['context']['key']);
+    }
+
+    private function deny(InstanceSettingsAccessListener $listener, RequestEvent $event): void
+    {
+        try {
+            $listener->onKernelRequest($event);
+            self::fail('Expected AccessDeniedHttpException');
+        } catch (AccessDeniedHttpException) {
+            $this->addToAssertionCount(1);
+        }
     }
 
     /**

@@ -23,6 +23,7 @@ use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
@@ -34,7 +35,12 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Symfony\Component\Security\Core\User\InMemoryUser;
 use Symfony\Component\Validator\Validation;
 
+use function dirname;
+use function file_get_contents;
 use function in_array;
+use function json_decode;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * 1.15: the server-side checks and the audit entry of a secret reveal.
@@ -190,6 +196,94 @@ final class SecretRevealerTest extends TestCase
         }
     }
 
+    public function testANonTextSecretIsRefusedInsteadOfDeliveredMangled(): void
+    {
+        // Audit F2: a stored secret that is not UTF-8 text cannot be delivered as text. Refusing is the only honest
+        // answer, and the audit trail must then record a refusal, never a reveal.
+        $settings = $this->settings();
+        $settings->save('oauth', ['client_secret' => "binary-key-\xC3\x28-\xFF"]);
+        $revealer = $this->revealer($settings);
+
+        try {
+            $revealer->reveal('oauth', 'client_secret');
+            self::fail('a secret that is not text must be refused');
+        } catch (ConflictHttpException $e) {
+            self::assertStringNotContainsString('binary-key-', $e->getMessage());
+        }
+        self::assertSame([], $this->dispatcher->events, 'nothing left, so nothing is audited as revealed');
+        self::assertSame(SecretRevealer::REASON_NOT_TEXT, $this->logger->records[0]['context']['reason']);
+        self::assertStringNotContainsString('binary-key-', $this->logger->dump());
+    }
+
+    public function testCallersTheHostCannotNameDoNotShareOneRateLimitBucket(): void
+    {
+        // Audit F5: with no resolvable user the key is the client IP, so one caller cannot deny the feature to
+        // everybody; the key is salted, so the limiter storage holds no plain hash of an identifier either.
+        $settings = $this->settings();
+        $settings->save('oauth', ['client_secret' => self::SECRET]);
+        $storage = new InMemoryStorage();
+        $factory = new RateLimiterFactory(['id' => 'reveal', 'policy' => 'fixed_window', 'limit' => 1, 'interval' => '1 hour'], $storage);
+
+        self::assertSame(self::SECRET, $this->ipRevealer($settings, '203.0.113.9', $factory)->reveal('oauth', 'client_secret'));
+
+        // The same unnamed shape from another address still has its own bucket.
+        self::assertSame(self::SECRET, $this->ipRevealer($settings, '198.51.100.7', $factory)->reveal('oauth', 'client_secret'));
+
+        // And the first address is now out of tokens.
+        $this->expectException(TooManyRequestsHttpException::class);
+        $this->ipRevealer($settings, '203.0.113.9', $factory)->reveal('oauth', 'client_secret');
+    }
+
+    public function testWithoutARequestTheUnnamedCallerFallsBackToOneBucket(): void
+    {
+        $settings = $this->settings();
+        $settings->save('oauth', ['client_secret' => self::SECRET]);
+        $factory = new RateLimiterFactory(['id' => 'reveal', 'policy' => 'fixed_window', 'limit' => 1, 'interval' => '1 hour'], new InMemoryStorage());
+        // No request stack at all (a CLI caller): the single `anonymous` bucket is the honest answer.
+        $revealer = $this->revealer($settings, rateLimiter: $factory);
+
+        self::assertSame(self::SECRET, $revealer->reveal('oauth', 'client_secret'));
+        $this->expectException(TooManyRequestsHttpException::class);
+        $revealer->reveal('oauth', 'client_secret');
+    }
+
+    public function testTheRateLimiterIsNotARuntimeDependency(): void
+    {
+        // The limiter is required by configuration as soon as a field is revealable, but symfony/rate-limiter must
+        // stay out of `require`: a host that declares no revealable field installs nothing extra. The dev dependency
+        // makes the limiter testable here, so this is the standing guard that it is not a runtime requirement.
+        /** @var array{require: array<string, string>, require-dev: array<string, string>, suggest: array<string, string>} $composer */
+        $composer = json_decode((string) file_get_contents(dirname(__DIR__, 3) . '/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+
+        self::assertArrayNotHasKey('symfony/rate-limiter', $composer['require']);
+        self::assertArrayHasKey('symfony/rate-limiter', $composer['require-dev']);
+        self::assertArrayHasKey('symfony/rate-limiter', $composer['suggest']);
+    }
+
+    /**
+     * A revealer for a caller the host cannot name (`allow_unauthenticated`, or a custom checker without a Symfony
+     * user) coming from `$ip`: the guard and the revealer share that request.
+     */
+    private function ipRevealer(InstanceSettings $settings, string $ip, RateLimiterFactory $rateLimiter): SecretRevealer
+    {
+        $request = Request::create('/admin/settings', server: ['REMOTE_ADDR' => $ip]);
+        $request->attributes->set('_firewall_context', 'main');
+        $stack = new RequestStack();
+        $stack->push($request);
+
+        return new SecretRevealer(
+            $this->registry(),
+            $settings,
+            new AccessGuard(new AllowAllInstanceSettingsAccessChecker(), true, null, $stack),
+            $this->dispatcher,
+            $this->logger,
+            new MockClock('2026-11-13 09:00:00'),
+            $rateLimiter,
+            'test-salt',
+            $stack,
+        );
+    }
+
     public function testWithoutALoggerAClockAndADispatcherTheRevealStillWorks(): void
     {
         $settings = $this->settings();
@@ -209,6 +303,7 @@ final class SecretRevealerTest extends TestCase
             $this->logger,
             new MockClock('2026-11-13 09:00:00'),
             $rateLimiter,
+            'test-salt',
         );
     }
 

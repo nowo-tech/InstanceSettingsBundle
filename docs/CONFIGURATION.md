@@ -253,6 +253,24 @@ How it works, and what you accept by turning it on:
   }
   ```
 
+- **Exclude the reveal answer from every response-body log (audit F1).** The answer carries the plaintext in a JSON
+  body, and `Cache-Control: no-store` is an instruction to clients: it stops nothing on the server side. Anything that
+  records response bodies — our own HttpLogBundle, a reverse proxy or WAF with body capture, an APM agent — will store
+  the secret in clear, for its own retention, readable by whoever may read those logs (a broader group than
+  `reveal_roles`) and no longer attributable to the actor who revealed it. Exclude the path **and** redact the `value`
+  key:
+
+  ```yaml
+  # config/packages/nowo_http_log.yaml — HttpLogBundle captures JSON response bodies by default
+  nowo_http_log:
+      ignore_path_prefixes: ['/admin/http-log', '/admin/settings/sections']   # the reveal lives under the admin prefix
+      redaction:
+          json_paths: ['*.password', '*._password', '*.token', '*._token', '*._csrf_token', '*.value']
+  ```
+
+  Do the same wherever else bodies are kept: drop or redact `POST <web_ui.path_prefix>/sections/*/secrets/*/reveal` in
+  the proxy, WAF and APM configuration. The audit trail this bundle writes names the field, the actor and the time and
+  never the value — a body log defeats that from outside the bundle.
 - **The trade-off.** A revealed secret is plaintext in a browser: it can be screenshotted, read over the shoulder,
   pasted into the wrong window, or kept by a browser extension. The script drops it again on Hide, after one minute,
   and whenever the tab is hidden, but it cannot undo any of those. That is why the opt-in is per field and defaults to
@@ -260,6 +278,18 @@ How it works, and what you accept by turning it on:
   off for encryption keys, webhook signing keys and anything a person never needs to see again. With
   `security.allow_unauthenticated: true` (dev / demo only) everybody may reveal, as everybody may already read and
   change every setting.
+- **Copy puts it on the operating system clipboard**, which the page does not own: Windows Clipboard History and macOS
+  Universal Clipboard keep and sync it. Hide asks for the clipboard to be emptied, best effort only (audit F4).
+- **The rate limiter key.** One token per reveal, keyed by the salted SHA-256 (`%kernel.secret%`) of the actor's user
+  identifier, so the limiter storage holds neither an identifier nor a plain hash of one. A caller the host cannot name
+  — `security.allow_unauthenticated`, or a custom `access_checker` whose decision is not backed by a Symfony user — is
+  keyed by its client IP instead, so one such caller cannot spend the whole instance's budget; with neither a user nor
+  a request (a CLI caller of `SecretRevealer`) there is a single `anonymous` bucket (audit F5).
+- **Watch the refusals.** Because one call reveals one field, a harvest has a shape: more than N reveals for one actor
+  in a minute, or more than one distinct `key` in one session, is worth an alert; so is a burst of
+  `Instance settings: secret reveal refused` warnings. The reasons are `forbidden`, `not_revealable`, `rate_limited`,
+  `not_text` and `ui_gate` (the last one written by the UI gate, which refuses a caller who cannot open the UI at all
+  before the endpoint runs — audit F6).
 - The endpoint belongs to the admin UI: it exists only with `web_ui.enabled: true`. Without JavaScript the row stays
   write-only, as before 1.15.
 

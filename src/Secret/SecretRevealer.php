@@ -15,7 +15,9 @@ use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Clock\NativeClock;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
@@ -25,6 +27,7 @@ use Symfony\Component\Security\Core\User\UserInterface;
 use function array_keys;
 use function hash;
 use function max;
+use function mb_check_encoding;
 
 /**
  * Reads one stored secret back for a user who may reveal it (1.15, owner decision of 2026-11-13: an explicit Reveal
@@ -67,6 +70,9 @@ final readonly class SecretRevealer
     /** Refusal reason: the rate limiter refused the call. */
     public const REASON_RATE_LIMITED = 'rate_limited';
 
+    /** Refusal reason: the stored secret is not UTF-8 text, so it cannot be delivered (audit F2). */
+    public const REASON_NOT_TEXT = 'not_text';
+
     /**
      * @param SettingsSectionRegistry $registry declared sections and fields (the only source of names)
      * @param InstanceSettingsInterface $settings reads the decrypted secret
@@ -74,7 +80,14 @@ final readonly class SecretRevealer
      * @param EventDispatcherInterface|null $dispatcher receives the {@see SecretRevealedEvent} audit record
      * @param LoggerInterface|null $logger receives one line per reveal and per refusal (names only, never a value)
      * @param ClockInterface|null $clock time written to the audit record (null = the system clock)
-     * @param RateLimiterFactoryInterface|null $rateLimiter `security.reveal_rate_limiter` (null = no limit)
+     * @param RateLimiterFactoryInterface|null $rateLimiter `security.reveal_rate_limiter` (required as soon as a field
+     *                                                      declares `revealable: true`; see
+     *                                                      {@see SettingsSectionRegistry}, which fails closed without it)
+     * @param string $keySalt `%kernel.secret%`: salts the rate limiter key, so the stored key is not a plain hash of a
+     *                        user identifier that a known user list could be matched against (audit F5)
+     * @param RequestStack|null $requestStack client IP of the current request: the limiter key of a caller the host
+     *                                        cannot name (`allow_unauthenticated`, a custom checker without a Symfony
+     *                                        user), so such callers do not share one bucket (audit F5)
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -84,6 +97,8 @@ final readonly class SecretRevealer
         private ?LoggerInterface $logger = null,
         private ?ClockInterface $clock = null,
         private ?RateLimiterFactoryInterface $rateLimiter = null,
+        private string $keySalt = '',
+        private ?RequestStack $requestStack = null,
     ) {
     }
 
@@ -120,6 +135,8 @@ final readonly class SecretRevealer
      *                                                         exception inside an enabled firewall, else a plain 403)
      * @throws NotFoundHttpException the field is not a declared revealable secret of that section
      * @throws TooManyRequestsHttpException the rate limiter refused this call
+     * @throws ConflictHttpException the stored secret is not UTF-8 text, so it cannot be delivered as text (audit F2);
+     *                               nothing is handed over and the audit trail records the refusal, not a reveal
      */
     public function reveal(string $section, string $field): ?string
     {
@@ -127,6 +144,14 @@ final readonly class SecretRevealer
         $this->consumeRateLimit($section, $field);
 
         $value = $this->settings->getSecret($section . '.' . $field);
+        if ($value !== null && !mb_check_encoding($value, 'UTF-8')) {
+            // Audit F2: a secret that is not text cannot be delivered. Refusing is the only honest answer: substituting
+            // or escaping bytes would hand over a silently mangled secret, and the audit entry would claim a reveal
+            // the caller never received. The message and the log name the field, never a byte of the value.
+            $this->refuse($section, $field, self::REASON_NOT_TEXT);
+
+            throw new ConflictHttpException('The stored secret is not UTF-8 text and cannot be revealed.');
+        }
         $this->audit($section, $field, $value !== null);
 
         return $value;
@@ -197,12 +222,30 @@ final readonly class SecretRevealer
         if (!$this->rateLimiter instanceof RateLimiterFactoryInterface) {
             return;
         }
-        $limit = $this->rateLimiter->create(hash('sha256', (string) $this->actor()))->consume();
+        $limit = $this->rateLimiter->create($this->rateLimitKey())->consume();
         if (!$limit->isAccepted()) {
             $this->refuse($section, $field, self::REASON_RATE_LIMITED);
 
             throw new TooManyRequestsHttpException(max(1, $limit->getRetryAfter()->getTimestamp() - $this->now()->getTimestamp()), 'Too many secret reveals.');
         }
+    }
+
+    /**
+     * Rate limiter key of the current caller: the salted SHA-256 of its user identifier, so the limiter storage holds
+     * no user identifier and no plain hash of one (audit F5). A caller the host cannot name falls back to its client
+     * IP, so such callers are not all in one bucket (where a single caller would deny the feature to everybody); with
+     * neither, a reveal is only possible for a host that names nobody at all, and the single `anonymous` bucket is the
+     * honest answer.
+     */
+    private function rateLimitKey(): string
+    {
+        $actor = $this->actor();
+        if ($actor === null) {
+            $ip    = $this->requestStack?->getMainRequest()?->getClientIp();
+            $actor = $ip === null ? 'anonymous' : 'ip:' . $ip;
+        }
+
+        return hash('sha256', $this->keySalt . "\0" . $actor);
     }
 
     /**

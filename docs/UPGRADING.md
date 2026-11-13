@@ -77,7 +77,22 @@ To use it (owner decision of 2026-11-13):
    `security.reveal_roles: []` (the kill switch — with reveals switched off a missing limiter blocks nothing).
    Hosts that declare **no** revealable field are untouched: no limiter, no new dependency, no behaviour change.
 
-4. `php bin/console assets:install` (the page loads the new `nowo-instance-settings-reveal.js`), and if your Content
+4. **Exclude the reveal answer from every response-body log.** The answer carries the plaintext in a JSON body, and
+   `no-store` only instructs clients. With our own HttpLogBundle installed, JSON response bodies are captured by
+   default and `value` is not among the redacted paths, so the secret would land in the `http_log` table in clear for
+   its retention, readable by whoever may read HTTP logs:
+
+   ```yaml
+   # config/packages/nowo_http_log.yaml
+   nowo_http_log:
+       ignore_path_prefixes: ['/admin/http-log', '/admin/settings/sections']
+       redaction:
+           json_paths: ['*.password', '*._password', '*.token', '*._token', '*._csrf_token', '*.value']
+   ```
+
+   Do the same in any reverse proxy, WAF or APM agent that records response bodies.
+
+5. `php bin/console assets:install` (the page loads the new `nowo-instance-settings-reveal.js`), and if your Content
    Security Policy lists script sources, the script is served from `bundles/nowoinstancesettings/js/` like the colour
    and tabs scripts and is loaded with the request `csp_nonce`.
 

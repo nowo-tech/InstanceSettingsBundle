@@ -64,6 +64,23 @@ All notable changes to this project are documented here. The format follows
     `nowo-instance-settings-reveal.js` (deferred, CSP nonce, no inline handler) with Reveal / Copy / Hide buttons
     (UiKit classes, 7 locales). The value is dropped on Hide, after a minute and when the tab is hidden. Without
     JavaScript the row stays write-only, as before.
+  - Security audit of 2026-11-13 (F1–F6, I7): the reveal answer must be excluded from every server-side response-body
+    log — our own HttpLogBundle captures JSON bodies by default and does not redact `value` — which CONFIGURATION,
+    UPGRADING and SECURITY now spell out with the configuration (F1); a stored secret that is not UTF-8 text answers a
+    clean 409 `{"error": "not_text"}` with the same headers instead of a 500, and is audited as a refusal, never as a
+    reveal (F2); a revealable row is bound to the Reveal root of its own section, so a page embedding two sections that
+    declare the same field name cannot show one section's secret under the other's label (F3); the documentation names
+    the operating system clipboard instead of claiming the value is never stored, and Hide asks for it to be emptied
+    (F4); the rate limiter key is salted with `%kernel.secret%` and a caller the host cannot name is keyed by its
+    client IP instead of sharing one bucket (F5); a reveal denied by the UI gate — before the endpoint runs — now
+    leaves the same reveal refusal line, with the reason `ui_gate`, so an alert on reveal refusals cannot miss it (F6);
+    the section, field and group name patterns carry the `D` modifier, so a trailing newline is refused by the pattern
+    itself as well as by the route (I7). SECURITY.md also states what the feature changes for a host-side XSS on the
+    admin layout (before 1.15 such a script could not obtain any stored secret), the detection that the
+    one-field-per-call shape makes possible, and that step-up re-authentication is a 1.16+ feature.
+  - The audit's probes are kept as a permanent `Probe` test suite (`tests/Probe`): the kill switch, host checkers that
+    grant only part of the three checks, an inconsistent checker, `allow_unauthenticated`, the same field name in two
+    sections, a 23-variant look-alike path battery and the non-text secret.
   - Stateless (REQ-RUNTIME-002): nothing about a reveal — value, permission or limiter — is kept on a service between
     requests; the limiter is built per call from its factory.
 

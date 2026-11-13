@@ -71,7 +71,7 @@ final readonly class ConfigPortability
     public const CREDENTIAL_TOKENS = ['pwd', 'pass', 'key', 'dsn', 'auth', 'otp', 'pin', 'salt', 'session', 'jwt', 'mfa', 'seed', 'webhook'];
 
     /** Allowed provider names. */
-    private const PROVIDER_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
+    private const PROVIDER_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
 
     /** Default `portability.max_file_bytes`: decoded bytes of every file of one envelope (8 MiB). */
     public const DEFAULT_MAX_FILE_BYTES = 8_388_608;
