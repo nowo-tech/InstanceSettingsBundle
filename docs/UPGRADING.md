@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.15.0](#to-1150)
 - [To 1.14.1](#to-1141)
 - [To 1.14.0](#to-1140)
 - [To 1.14.0](#to-1140-1)
@@ -34,6 +35,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.15.0
+
+From **1.14.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 Nothing to do: the secret reveal is off until a host asks for it.
 
