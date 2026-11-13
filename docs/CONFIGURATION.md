@@ -285,6 +285,13 @@ How it works, and what you accept by turning it on:
   — `security.allow_unauthenticated`, or a custom `access_checker` whose decision is not backed by a Symfony user — is
   keyed by its client IP instead, so one such caller cannot spend the whole instance's budget; with neither a user nor
   a request (a CLI caller of `SecretRevealer`) there is a single `anonymous` bucket (audit F5).
+  **The IP fallback only works if the host resolves client IPs correctly.** Behind a load balancer, a CDN or any
+  reverse proxy, `framework.trusted_proxies` (and `trusted_headers`) must be set, or every request appears to come
+  from the proxy: the fallback then keys every unnamed caller by that one address and is back to the single shared
+  bucket it exists to avoid, where one caller can spend the whole budget and deny the reveal to everybody else. It is
+  also only as trustworthy as those settings — with the forwarding headers trusted from an untrusted network, a caller
+  chooses its own key and therefore its own bucket. Both are reasons to name your users: a reveal by an identified
+  actor is keyed by that identity, audited with it, and not affected by any of this.
 - **Watch the refusals.** Because one call reveals one field, a harvest has a shape: more than N reveals for one actor
   in a minute, or more than one distinct `key` in one session, is worth an alert; so is a burst of
   `Instance settings: secret reveal refused` warnings. The reasons are `forbidden`, `not_revealable`, `rate_limited`,
