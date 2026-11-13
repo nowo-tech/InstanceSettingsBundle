@@ -83,6 +83,9 @@ All notable changes to this project are documented here. The format follows
     sections, a 23-variant look-alike path battery and the non-text secret.
   - Stateless (REQ-RUNTIME-002): nothing about a reveal — value, permission or limiter — is kept on a service between
     requests; the limiter is built per call from its factory.
+  - Hiding the page (switching tab or window) still hides every revealed value, but no longer clears the clipboard:
+    the admin is usually switching away to paste. The clipboard is cleared by **Hide** and by the 60 s auto-hide only
+    (audit N1).
 
 ## [1.14.1] - 2026-11-13
 

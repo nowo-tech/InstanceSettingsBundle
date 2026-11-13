@@ -104,7 +104,7 @@
         }
     }
 
-    function clear(row) {
+    function clear(row, keepClipboard) {
         var p = parts(row);
         if (!p.output) {
             return;
@@ -125,7 +125,9 @@
             window.clearTimeout(timer);
             timers.delete(row);
         }
-        forgetClipboard(row);
+        if (!keepClipboard) {
+            forgetClipboard(row);
+        }
     }
 
     function render(row, text, revealed) {
@@ -238,7 +240,8 @@
         }
         var rows = document.querySelectorAll(ROW);
         for (var i = 0; i < rows.length; i++) {
-            clear(rows[i]);
+            // Audit N1: the page is hidden because the admin is switching away to paste, so keep the clipboard.
+            clear(rows[i], true);
         }
     }
 
