@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.17.0] - 2026-11-14](#1170---2026-11-14)
+- [[1.16.1] - 2026-11-14](#1161---2026-11-14)
+- [[1.16.0] - 2026-11-14](#1160---2026-11-14)
+- [[1.15.1] - 2026-11-14](#1151---2026-11-14)
+- [[1.15.0] - 2026-11-13](#1150---2026-11-13)
 - [[1.14.1] - 2026-11-13](#1141---2026-11-13)
 - [[1.14.0] - 2026-11-11](#1140---2026-11-11)
 - [[1.13.1] - 2026-11-11](#1131---2026-11-11)
@@ -34,6 +39,243 @@ All notable changes to this project are documented here. The format follows
 
 - docs: demo screenshots regenerated on the UiKit base style
 - demo: opt into UiKit 2.51 `nowo_ui_kit.base_stylesheet`, use `nowo-ui-header__nav` for the masthead nav, screenshots regenerated with the themed shell
+
+## [1.17.0] - 2026-11-14
+
+Target 1.17.0 (Symfony Beacon request, owner decision D-20261114-09).
+
+### Added
+
+- **Expiring secrets (opt-in).** `SettingField::secret(..., expires: true)` gives a secret field a companion expiry
+  date (date only), stored next to it in the new opt-in table `instance_setting_secret_expiry` and mapped only with
+  `nowo_instance_settings.expiring_secrets.enabled: true` (off by default: no schema change, and fields without
+  `expires` behave exactly as in 1.16).
+  - **Save rule.** Saving a **new secret** clears its date, or replaces it with the date given in the same save
+    (`'<field>:expires_on' => '2027-01-31'` in `InstanceSettingsInterface::save()`; the admin form passes the date only
+    when the user changed it). Removing the secret removes the date. A date alone updates it while a secret is stored
+    (refused with a violation otherwise). A date-only change dispatches no `SettingsChangedEvent`; `save()` returns
+    `<field>:expires_on` among the changed keys.
+  - **Admin UI.** A date row (`<field>:expires_on`, `DateType` single text, UTC on both sides) right after the secret
+    row, prefilled with the stored date, in the secret's subtab with `web_ui.section_layout: tabs`, hidden with its
+    secret for provider-dependent fields. Within `expiring_secrets.warning_days` (default 30) of the date, or once
+    expired, a warning above the section form and as the help text of the date row; every text is translated and
+    escaped (seven locales, keys `secret_expiry.*`).
+  - **Read port** `Expiry\ExpiringSecretSourceInterface::expiringWithin(int $days, DateTimeImmutable $today)` →
+    `list<Expiry\ExpiringSecret>` (section, field, label key, translation domain, date, days left; never the secret).
+  - **Threshold event** `Event\SecretExpiryThresholdReachedEvent` (scalars only) dispatched by
+    `nowo:instance-settings:check-expiring-secrets` once per threshold per expiry date (`expiring_secrets.thresholds`,
+    default `[30, 7, 1, 0]`). The last announced threshold is stored next to the date and claimed with one conditional
+    UPDATE, so restarts, workers and concurrent runs never announce it twice; a new date resets it; a failing listener
+    releases the claim (retried on the next run, exit code 1). Several thresholds crossed at once announce the smallest.
+  - **Store port** `Expiry\SecretExpiryStoreInterface` (`SecretExpiryRecord` VO) with the DBAL implementation
+    `DoctrineSecretExpiryStore` on the bundle's private entity manager (standard and DDD hosts, `doctrine.table_prefix`).
+  - **Clock.** "Today" comes from `ClockInterface` in `expiring_secrets.timezone` (default the PHP default zone) on
+    every call; nothing is memoized (FrankenPHP worker mode with kernel reset off).
+  - **Export / import** carry the dates in clear under `secret_expiry` (envelope version 3, only when a date is
+    exported; other exports keep version 1 / 2). An imported date is applied only with its own secret, sealed in the
+    same file; any other date is skipped, never attached to the secret the target already stores. A secret written or
+    deleted through `SettingRowWriterInterface`, or seeded without a date, loses the date row of the previous secret.
+    Note: an instance with a stored date exports version 3, which 1.4 – 1.16 refuse as a whole. **Fallback seeding**:
+    `SettingFallback::secret($field, $value, '2027-01-31')` seeds the date with the secret.
+- **Configuration** `expiring_secrets: {enabled, thresholds, warning, warning_days, timezone}`.
+- **Locked stored secrets: reveal in the input (`web_ui.reveal_in_input`, opt-in, default `false`).** Symfony Beacon
+  request, owner-approved design. With `reveal_on_toggle`, **every** secret row holding a stored secret (revealable or
+  not, owner decision D-I3) is **locked for every editor** of the section (an editor who may not reveal gets the same read-only input, PasswordToggle's eye hidden, and
+  the script alone through the new `settings/_secret_lock.html.twig`): the input is read-only and, for a user who may
+  reveal, the PasswordToggle eye shows the stored value in that same input
+  (`type=text`) through the existing reveal call (endpoint, CSRF token, limiter, roles, audit, one call at a time), then
+  hides it again (second click, 60-second auto-hide, hidden page, `pagehide`, `turbo:before-cache`, submit). While shown:
+  `autocomplete="off"`, `spellcheck="false"`, `autocapitalize="off"`, `autocorrect="off"`, `data-1p-ignore`,
+  `data-lpignore`, `data-bwignore`, all restored on hide; the type switch drops the undo history. A new value needs the
+  new **Replace the stored value** box (`<field>:replace`); unticking re-locks. The submit and `formdata` handlers
+  never post the revealed value, and **a value submitted for a locked row without Replace refuses the save with an
+  error on that row** (`reveal.replace_required`, 422; never dropped under "Settings saved.") — only with the option
+  on: hosts without it keep the 1.16 overwrite-by-typing behaviour. A polite status region announces
+  "shown" / "hidden", never the value. Four new translation keys (`reveal.replace`, `reveal.announce_shown`,
+  `reveal.announce_hidden`, `reveal.replace_required`) in the seven locales.
+
+### Changed
+
+- `PortabilityEnvelope::assertValid()` accepts versions 1 to 3 (`VERSION_WITH_SECRET_EXPIRY`); `KEYS` lists
+  `secret_expiry`. `PortabilityEnvelope::VERSION` stays 2.
+- Optional trailing constructor arguments: `InstanceSettings` (`expiryStore`), `ConfigPortability` (`expiryStore`),
+  `FallbackSeeder` (`expiryStore`), `SettingsSectionEmbedder` (`expiringSecrets`, `revealInInput`), `SecretReveal`
+  (`inInput`), `SettingsSectionRegistry`
+  (`expiryEnabled`), `SettingField` (`expires`), `SettingFallback` (`expiresOn`). Code building them by hand keeps
+  working.
+
+### Documentation
+
+- USAGE ([Expiring secrets](USAGE.md#expiring-secrets-117)) with the Beacon-style reminder listener, CONFIGURATION
+  ([`expiring_secrets`](CONFIGURATION.md#expiring-secrets-117), [locked stored secrets](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117),
+  including the Firefox session restore check), UPGRADING (DDL for MySQL, MariaDB, PostgreSQL and
+  SQLite).
+
+## [1.16.1] - 2026-11-14
+
+Target 1.16.1.
+
+### Fixed
+
+- **A revealed secret no longer survives in Turbo Drive's page cache or the back / forward cache** (audit PK-L1, Low,
+  pre-existing since 1.15; no GHSA: same tab, same authorised user). On hosts using Turbo Drive, a Turbo link visit
+  fires neither `submit` nor `visibilitychange`, so Turbo's snapshot kept the `<output>` text and Back showed the value
+  again without the 60-second auto-hide. `nowo-instance-settings-reveal.js` now clears every revealed row — Reveal
+  button and eye alike, calls still in flight included — on `turbo:before-cache` and on `pagehide` (audit PK-I2). The
+  clipboard is kept, as for a hidden page (audit N1). Turbo is not a dependency: the script only listens for its
+  event.
+- **`reveal_toggle_only`: an error message no longer stays on screen** (audit PK-I7). With no Hide button, a refused
+  reveal's message now goes away on the next eye click or by itself after 10 seconds. Unchanged when the Hide button
+  is there.
+- **Holding Enter on the eye no longer fires a reveal call per key repeat** (audit PK-I8). Auto-repeated `keydown`
+  events (`event.repeat`) are ignored — still kept from PasswordToggle, so they never unmask the input — and a click
+  that would reveal while the row's previous call is still in flight is ignored, for the eye and the Reveal button.
+  A click that hides still hides at once and drops the late answer.
+
+### Documentation
+
+- CONFIGURATION ([Revealing from the password eye](CONFIGURATION.md#revealing-from-the-password-eye-116)): the
+  `aria-live` output makes a screen reader read the revealed secret aloud (audit PK-I1); the new hide triggers, the
+  `reveal_toggle_only` error timeout and the one-call-at-a-time rule.
+- `AppearanceSection::getIcon()` docblock: the override key is `web_ui.section_icons.appearance` (audit PK-I3).
+- The reveal-on-toggle Playwright spec covers late answers (eye clicked again, page hidden), `turbo:before-cache`,
+  `pagehide`, the auto-hide delays, auto-repeated Enter and clicks while a call is in flight (audit PK-I4).
+
+## [1.16.0] - 2026-11-14
+
+Target 1.16.0.
+
+### Added
+
+- **Tab icons for the bundle's sections.** `BrandSection::getIcon()` is `tabler:palette` and
+  `AppearanceSection::getIcon()` `tabler:layout-dashboard` (prefixed UiKit icon names, shown by the `tabler-icons` and
+  `ux_icon` sets).
+- **`web_ui.section_icons: {<section>: <icon>}`.** Overrides or fills the tab icon of any section, other bundles'
+  included, on the bundle page and in embeds. Icons are validated when the container is built (canonical UiKit kind
+  or `prefix:name`); names must be lower snake case, and a name that matches no registered section is ignored with a
+  debug log line (sections are only known at runtime).
+- **`web_ui.navigation_hidden: [<section>, ...]`.** Leaves sections out of the bundle page's tab bar and of the "first
+  section" redirect, which now picks the first visible section the user may open (all hidden: the first one, as
+  before). Presentation only: a hidden section stays registered, guarded by the same checks, in exports, embeddable
+  through `SettingsSectionEmbedder` (whose tabs follow the embed allowlist), and its own URL keeps working. Requested
+  by Symfony Beacon (`navigation_hidden: [brand, appearance]`).
+- **`web_ui.reveal_on_toggle`** (default `false`) and **`web_ui.reveal_toggle_only`** (default `false`). On a
+  revealable secret row, the PasswordToggle eye reveals the stored secret through the existing reveal call (same POST
+  endpoint, CSRF token, rate limiter, access checks and audit) and hides it on the second click. The value is shown
+  in the row's read-only `<output>` (no name, never form data), never in the input; it is dropped on hide, after the
+  auto-hide delay, when the page is hidden (clipboard kept, audit N1), on submit, and a late answer after a hide is
+  discarded. A refused reveal shows the Reveal button's message and the eye stays hidden; the eye carries
+  `aria-pressed` and "Reveal stored value" / "Hide stored value" (new keys `reveal.toggle_show`, `reveal.toggle_hide`).
+  `reveal_toggle_only` drops the Reveal / Copy / Hide buttons on rows that have the eye. Requested by Symfony Beacon
+  from an owner UX report.
+- `Ui\SectionNavigation` (icons, hidden sections, first visible section); `SettingsPageFactory::navigation()`.
+
+## [1.15.1] - 2026-11-14
+
+Target 1.15.1.
+
+### Security
+
+- **The reveal refusal line names the actor, can no longer be chosen by the caller and is capped per caller** (audit of
+  2026-11-13, N2 / N3; Low, no GHSA: only 1.15.0 has the reveal). Both writers of
+  `Instance settings: secret reveal refused` — the UI gate (`ui_gate`) and `SecretRevealer` (`forbidden`,
+  `not_revealable`, `rate_limited`, `not_text`) — now go through one internal `Secret\RevealRefusalLog`:
+  - `actor` is the resolved user identifier on the `ui_gate` line too, which hard-coded `null`, so the per-actor alert
+    the line exists for could not group the refusals of an account that cannot open the UI (N2). It is the value the
+    reveal line, the other refusal reasons and `SecretRevealedEvent` already carry since 1.15; `null` still means a
+    caller the host cannot name.
+  - `key` is `<section>.<field>` only when the registry declares exactly that section and field (byte for byte);
+    any other name is logged as the constant `unknown`, never echoed (N3). A declared field that is not revealable
+    keeps its name.
+  - The line is throttled per caller (user identifier, else client IP) by `security.reveal_rate_limiter`, in a bucket
+    of its own (`refusal_log`, so refusals never spend the caller's reveals): a `warning` while the caller has budget,
+    `debug` past it (N3). Without a limiter (then nothing in the bundle is revealable) a caller the host cannot name
+    gets `debug` lines and a named caller keeps `warning`. Every refusal is still refused: a failure while writing the
+    line cannot turn the UI gate's 403, or the revealer's 403 / 404 / 409 / 429, into anything else: the line is
+    written in a `try` / `finally` and never throws; a broken limiter storage or logger leaves a constant `error`
+    line "Instance settings: secret reveal refusal could not be logged" instead (audit PJ-L1).
+  - The `refusal_log` bucket key cannot collide with a reveal key whatever the identifier (an identifier containing a
+    NUL byte could reach another user's bucket); the reveal key keeps its 1.15.0 bytes (audit PJ-I1).
+  - SECURITY / CONFIGURATION: the warning cap is per caller (rotating IPs get a budget each), so pair the per-actor
+    alert with an aggregate one; each refused reveal writes a limiter entry; `actor` is personal data, logged as
+    structured context since 1.15.0 (audit PJ-L2, PJ-I3, PJ-I4).
+
+### Fixed
+
+- `InstanceSettingsAccessListener` takes the refusal log as a new optional fourth constructor argument (wired by the
+  extension). A listener built by hand with the 1.15.0 arguments still logs, as the key `unknown` and, for an unnamed
+  caller, at `debug`.
+
+### Documentation
+
+- **UPGRADING "To 1.15.0" step 3** now says that a revealable field without `reveal_rate_limiter` takes down **every**
+  consumer of the section definitions (admin pages, `InstanceSettings` reads, the commands, embeds), not just the
+  reveal (audit N6).
+
+- **Seed files under a volume-mounted store directory.** New "Containers and volumes" (filesystem store) and "Missing
+  seed files" (seed command) notes in `CONFIGURATION.md`: a Docker named volume on `files.directory` is filled from the
+  image only when it is created, so seed images committed later never reach it and `nowo:instance-settings:seed` is
+  refused (`path_not_found`, exit 1, nothing written). Options: sync before seeding, keep seed sources outside the
+  store directory, bind mount; recommended deploy order.
+
+## [1.15.0] - 2026-11-13
+
+### Added
+
+- **Reveal a stored secret (opt-in per field).** `SettingField::secret(..., revealable: true)` adds an explicit
+  **Reveal** action to that secret's row of the admin form, for a user holding `security.reveal_roles`
+  (`ROLE_DEVELOPER` by default) on top of the section's own area. Default `false`: a secret stays write-only ("leave
+  blank to keep") unless the host opts in, field by field — for an OAuth client secret, not for an encryption or
+  signing key (owner decision of 2026-11-13, from SYMFONY-BEACON Development → Settings).
+  - New endpoint `nowo_instance_settings_secret_reveal`
+    (`<web_ui.path_prefix>/sections/{section}/secrets/{field}/reveal`, POST + this section's CSRF token), part of the
+    admin UI routes. It answers the single named field as `{"key": "<section>.<field>", "value": "…"}` with
+    `Cache-Control: private, no-store`, `nosniff`, `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`; a
+    revealable field with nothing stored answers 404 `{"error": "not_stored"}`. The secret is never in a URL and never
+    rendered into a page: the page carries the button, the endpoint URL and the token only.
+  - Every check is server-side, on every call: the UI gate, the section area, `reveal_roles`, the field's `revealable`
+    flag and the rate limiter. The section and field names from the client are matched byte for byte against the
+    declared ones before any lookup (REQ-SEC-006), so a look-alike name cannot reach another field; a field without
+    the opt-in and a user without the roles are refused by the endpoint, not only hidden in the UI.
+  - Every reveal writes an audit entry naming the field, the actor and the time, never the value (REQ-OBS-001): the
+    PSR-14 `Event\SecretRevealedEvent` and an `info` log line; a refusal is a `warning` with its reason
+    (`forbidden`, `not_revealable`, `rate_limited`).
+  - New configuration `security.reveal_roles` (default `[ROLE_DEVELOPER]`; `[]` refuses every reveal, and
+    `security.area_roles._reveal` is refused so there is one place to look) and `security.reveal_rate_limiter`
+    (service id of a Symfony `RateLimiterFactory`, one token per reveal keyed by the hashed actor). A custom
+    `security.access_checker` decides the new area `InstanceSettingsAccessCheckerInterface::AREA_REVEAL`.
+  - **The rate limiter is required with any revealable field** (owner decision of 2026-11-13): a field declaring
+    `revealable: true` without `security.reveal_rate_limiter` makes the section definitions fail to load (router
+    warm-up, so `cache:warmup` fails in the build, else the first request) with a message naming the field, the option
+    and the two ways out (drop the opt-in, or switch reveals off with `security.reveal_roles: []`, which then needs no
+    limiter). `symfony/rate-limiter` stays a suggested dependency: a host with no revealable field is untouched — no
+    error, no dependency, no behaviour change. Reveal rights are per field, never per section.
+  - UI: the revealable row carries `data-nowo-instance-settings-reveal="<field>"` and the page ships
+    `nowo-instance-settings-reveal.js` (deferred, CSP nonce, no inline handler) with Reveal / Copy / Hide buttons
+    (UiKit classes, 7 locales). The value is dropped on Hide, after a minute and when the tab is hidden. Without
+    JavaScript the row stays write-only, as before.
+  - Security audit of 2026-11-13 (F1–F6, I7): the reveal answer must be excluded from every server-side response-body
+    log — our own HttpLogBundle captures JSON bodies by default and does not redact `value` — which CONFIGURATION,
+    UPGRADING and SECURITY now spell out with the configuration (F1); a stored secret that is not UTF-8 text answers a
+    clean 409 `{"error": "not_text"}` with the same headers instead of a 500, and is audited as a refusal, never as a
+    reveal (F2); a revealable row is bound to the Reveal root of its own section, so a page embedding two sections that
+    declare the same field name cannot show one section's secret under the other's label (F3); the documentation names
+    the operating system clipboard instead of claiming the value is never stored, and Hide asks for it to be emptied
+    (F4); the rate limiter key is salted with `%kernel.secret%` and a caller the host cannot name is keyed by its
+    client IP instead of sharing one bucket (F5); a reveal denied by the UI gate — before the endpoint runs — now
+    leaves the same reveal refusal line, with the reason `ui_gate`, so an alert on reveal refusals cannot miss it (F6);
+    the section, field and group name patterns carry the `D` modifier, so a trailing newline is refused by the pattern
+    itself as well as by the route (I7). SECURITY.md also states what the feature changes for a host-side XSS on the
+    admin layout (before 1.15 such a script could not obtain any stored secret), the detection that the
+    one-field-per-call shape makes possible, and that step-up re-authentication is a 1.16+ feature.
+  - The audit's probes are kept as a permanent `Probe` test suite (`tests/Probe`): the kill switch, host checkers that
+    grant only part of the three checks, an inconsistent checker, `allow_unauthenticated`, the same field name in two
+    sections, a 23-variant look-alike path battery and the non-text secret.
+  - Stateless (REQ-RUNTIME-002): nothing about a reveal — value, permission or limiter — is kept on a service between
+    requests; the limiter is built per call from its factory.
+  - Hiding the page (switching tab or window) still hides every revealed value, but no longer clears the clipboard:
+    the admin is usually switching away to paste. The clipboard is cleared by **Hide** and by the 60 s auto-hide only
+    (audit N1).
 
 ## [1.14.1] - 2026-11-13
 

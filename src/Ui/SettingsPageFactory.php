@@ -40,11 +40,21 @@ final readonly class SettingsPageFactory
     /**
      * @param UrlGeneratorInterface $urlGenerator route URLs
      * @param SettingsPages $pages layout / template overrides
+     * @param SectionNavigation $navigation `web_ui.section_icons` / `web_ui.navigation_hidden` (1.16)
      */
     public function __construct(
         private UrlGeneratorInterface $urlGenerator,
         private SettingsPages $pages = new SettingsPages(),
+        private SectionNavigation $navigation = new SectionNavigation(),
     ) {
+    }
+
+    /**
+     * Icon overrides and hidden sections of the bundle page (1.16).
+     */
+    public function navigation(): SectionNavigation
+    {
+        return $this->navigation;
     }
 
     /**
@@ -58,6 +68,10 @@ final readonly class SettingsPageFactory
     /**
      * Section page: tabs for `$sections`, the form of `$current`.
      *
+     * 1.16: a section listed in `web_ui.navigation_hidden` has no tab, except on its own page (opened by URL or by a
+     * host link), where it stays in the bar as the current tab so its form renders. Icons follow
+     * `web_ui.section_icons`, else the section's own.
+     *
      * @param array<string, SettingsSectionInterface> $sections sections the user may open (name => section)
      * @param iterable<Action> $actions extra actions of the current section
      * @param bool $portability show the "Import / export" header action
@@ -66,6 +80,9 @@ final readonly class SettingsPageFactory
     {
         $tabs = [];
         foreach ($sections as $name => $section) {
+            if ($name !== $current && $this->navigation->isHidden($name)) {
+                continue;
+            }
             $domain = $section->getTranslationDomain();
             $intro  = $section->getIntro();
             $tabs[] = new SettingsSection(
@@ -77,7 +94,7 @@ final readonly class SettingsPageFactory
                 submitLabel: SettingsPages::label('settings.save'),
                 formThemes: $name === $current ? self::formThemes($form) : [],
                 actions: $name === $current ? $actions : [],
-                icon: $section->getIcon(),
+                icon: $this->navigation->icon($name, $section),
             );
         }
 
@@ -95,6 +112,9 @@ final readonly class SettingsPageFactory
      * Section page embedded in a host route (1.6, IS-1): tabs only for `$tabs` (the allowlisted sections the user may
      * open, linked to the host routes), the form of `$current`, the host header (else the bundle title and intro,
      * without the import / export link) and the host layout (else `web_ui.layout_template`).
+     *
+     * `web_ui.navigation_hidden` does not apply here (the embed's own allowlist chooses its tabs); `web_ui.section_icons`
+     * does (1.16).
      *
      * @param array<string, array{section: SettingsSectionInterface, href: string}> $tabs section name => section and host URL
      * @param iterable<Action> $actions extra actions of the current section
@@ -114,7 +134,7 @@ final readonly class SettingsPageFactory
                 submitLabel: SettingsPages::label('settings.save'),
                 formThemes: $name === $current ? self::formThemes($form) : [],
                 actions: $name === $current ? $actions : [],
-                icon: $section->getIcon(),
+                icon: $this->navigation->icon($name, $section),
             );
         }
 

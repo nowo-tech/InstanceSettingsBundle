@@ -77,6 +77,14 @@ final class PageFixtures
         return new SettingsPageFactory(self::urlGenerator(), $pages ?? new SettingsPages());
     }
 
+    /**
+     * The test URL generator (`/<route>?<params>`).
+     */
+    public static function urlGeneratorForTests(): UrlGeneratorInterface
+    {
+        return self::urlGenerator();
+    }
+
     private static function urlGenerator(): UrlGeneratorInterface
     {
         return new class implements UrlGeneratorInterface {

@@ -155,3 +155,23 @@ group:
 tabs:
   label: Instellingsgroepen
   errors: '%count% veld(en) met fouten'
+reveal:
+  show: Weergeven
+  hide: Verbergen
+  copy: Kopiëren
+  copied: Gekopieerd
+  error: Het geheim kon niet worden weergegeven.
+  not_stored: Er is geen geheim opgeslagen voor dit veld.
+  toggle_show: Opgeslagen waarde weergeven
+  toggle_hide: Opgeslagen waarde verbergen
+  replace: "Opgeslagen waarde vervangen"
+  announce_shown: "Opgeslagen waarde in het veld getoond."
+  announce_hidden: "Opgeslagen waarde verborgen."
+  replace_required: "Vink “Opgeslagen waarde vervangen” aan om hem te wijzigen."
+secret_expiry:
+  label: "Vervaldatum"
+  help: "Optioneel. Een nieuw opgeslagen geheim wist deze datum, tenzij u tegelijk een nieuwe opgeeft."
+  warning_expiring: "Verloopt op %date% (over %days% dag(en)). Vervang het geheim en werk deze datum bij."
+  warning_expired: "Verlopen op %date% (%days% dag(en) geleden). Vervang het geheim en werk deze datum bij."
+  notice_expiring: "“%field%” verloopt op %date% (over %days% dag(en))."
+  notice_expired: "“%field%” is verlopen op %date% (%days% dag(en) geleden)."

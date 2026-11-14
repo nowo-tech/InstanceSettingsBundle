@@ -1,0 +1,8 @@
+# 1.15: brake of the secret reveal endpoint (nowo_instance_settings.security.reveal_rate_limiter). One token per
+# reveal, keyed by the hashed actor; the bundle refuses to build a revealable secret field without a limiter.
+framework:
+    rate_limiter:
+        instance_settings_reveal:
+            policy: 'fixed_window'
+            limit: 10
+            interval: '1 hour'

@@ -6,16 +6,23 @@
 - [doctrine](#doctrine)
 - [web_ui](#web_ui)
   - [Layout and CSS stack (UiKit)](#layout-and-css-stack-uikit)
+  - [Section icons and hidden sections (1.16)](#section-icons-and-hidden-sections-116)
 - [security](#security)
+  - [Revealing a stored secret (1.15)](#revealing-a-stored-secret-115)
+  - [Revealing from the password eye (1.16)](#revealing-from-the-password-eye-116)
+  - [Locked stored secrets: reveal in the input (1.17)](#locked-stored-secrets-reveal-in-the-input-117)
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
+  - [Containers and volumes](#containers-and-volumes)
   - [Crop step](#crop-step)
 - [seed](#seed)
+  - [Missing seed files](#missing-seed-files)
   - [Seed file format](#seed-file-format)
   - [Host-side importer API](#host-side-importer-api)
 - [brand](#brand)
   - [Error page illustrations (1.13)](#error-page-illustrations-113)
+- [Expiring secrets (1.17)](#expiring-secrets-117)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
 - [Profiles](#profiles)
@@ -42,9 +49,16 @@ nowo_instance_settings:
         section_layout: stacked        # 1.14: stacked | tabs (field groups of a section as UiKit subtabs, ?settings_group=<code>)
         section_group_parameter: settings_group  # 1.14: query parameter of the open subtab
         templates: {}                  # page id => template: section, portability
+        section_icons: {}              # 1.16: section name => tab icon ("config", "tabler:palette"); overrides or fills getIcon()
+        navigation_hidden: []          # 1.16: section names left out of the tab bar and the first-section redirect (presentation only)
+        reveal_on_toggle: false        # 1.16: the PasswordToggle eye of a revealable secret row reveals the stored secret
+        reveal_toggle_only: false      # 1.16: with reveal_on_toggle, no separate Reveal / Copy / Hide buttons on rows with the eye
+        reveal_in_input: false         # 1.17: with reveal_on_toggle, a stored revealable secret is locked; the eye shows it in the input
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
-        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles
+        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles ("_reveal" is refused)
+        reveal_roles: [ROLE_DEVELOPER] # 1.15: roles that may reveal a stored secret of a revealable field ([] refuses every reveal)
+        reveal_rate_limiter: null      # 1.15: service id of a RateLimiterFactory consuming one token per reveal
         access_checker: null           # service id implementing InstanceSettingsAccessCheckerInterface
         allow_unauthenticated: false   # DEV / DEMO only; refused unless kernel.debug is true
     portability:
@@ -82,9 +96,15 @@ nowo_instance_settings:
         error_illustrations:           # 1.13: UiKit error page illustrations from uploaded extra images (files.store: filesystem)
             base: null                 # extra image id used for every status without its own error_<N> upload (e.g. mascot)
             per_code: true             # use the uploaded extra images error_<N> (400 … 599) for their status
+    expiring_secrets:                  # 1.17: expiry dates of the secret fields declaring expires: true
+        enabled: false                 # opt-in: maps instance_setting_secret_expiry, the store, the read port and the command
+        thresholds: [30, 7, 1, 0]      # days before the date at which SecretExpiryThresholdReachedEvent is dispatched, once each
+        warning: true                  # warn on the section page and next to the field
+        warning_days: 30               # … from this many days before the date (and once expired)
+        timezone: null                 # zone of "today" (null = the PHP default zone)
 ```
 
-Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled` and `brand.enabled` must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
+Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled`, `brand.enabled` and `expiring_secrets.enabled` (1.17) must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
 
 ## doctrine
 
@@ -106,6 +126,11 @@ Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_
 | `section_layout` | `stacked` | 1.14: how a section page lays out its field groups (`SettingsSectionGroupsInterface::getGroups()`, else the fields' `withGroup()` groups). `stacked`: one column, markup unchanged. `tabs`: one UiKit subtab per group (UiKit's `tabs` runtime from the layout's default scripts; without JavaScript every group is a visible fieldset), the open tab in `?settings_group=<code>` (kept by the redirect after a save), the first tab with an error open after a failed save, an error badge per tab. One form: Save saves every group, write-only secrets left blank keep their value. A section with fewer than two groups renders stacked. `SectionEmbedOptions::withSectionLayout()` overrides it per embed. Run `assets:install` (`nowo-instance-settings-tabs.js`). See [USAGE](USAGE.md#field-groups-and-subtabs-114). |
 | `section_group_parameter` | `settings_group` | 1.14 (audit MP-L1): query parameter of the open subtab in the tabs layout, namespaced so a host page keeps its own `?group=`. Letters, digits and underscores (not starting with a digit). Read on GET, set by the redirect after a save (an existing one in a host route URL is replaced, never duplicated) and printed as `data-nowo-instance-settings-group-parameter` on the tabs root for `nowo-instance-settings-tabs.js`. `SectionEmbedOptions::withGroupParameter()` overrides it per embed. |
 | `templates` | `{}` | Per-page overrides: `section`, `portability`. Point at a template that extends `@!NowoInstanceSettingsBundle/settings/<page>.html.twig` and overrides one block (see [TEMPLATES](TEMPLATES.md)). |
+| `section_icons` | `{}` | 1.16: tab icon per section name, overriding the section's `getIcon()` or filling it when it has none — any section, including other bundles'. An icon is a canonical UiKit kind (`config`, `filter_off`) or a prefixed icon name (`tabler:palette`, `bi:gear`); anything else is refused when the container is built. A prefixed name only shows with an icon set that has it (`tabler:` with `tabler-icons` or `ux_icon`, `bi:` with `bootstrap-icons` or `ux_icon`); otherwise the tab shows its label only. Applies to the bundle page and to embeds. See [Section icons and hidden sections](#section-icons-and-hidden-sections-116). |
+| `navigation_hidden` | `[]` | 1.16: section names left out of the bundle page's tab bar and of the "first section" redirect. Presentation only — see [Section icons and hidden sections](#section-icons-and-hidden-sections-116). |
+| `reveal_on_toggle` | `false` | 1.16: on a revealable secret row, the PasswordToggle eye of the "new value" input reveals the stored secret (same endpoint and checks as the Reveal button) instead of unmasking what was typed. See [Revealing from the password eye](#revealing-from-the-password-eye-116). |
+| `reveal_toggle_only` | `false` | 1.16: with `reveal_on_toggle`, rows that have the eye drop the separate Reveal / Copy / Hide buttons (rows without an eye keep them). Ignored without `reveal_on_toggle`. |
+| `reveal_in_input` | `false` | 1.17: with `reveal_on_toggle`, a revealable row holding a stored secret is **locked**: read-only input, the eye shows the stored value in that input and hides it again, a new value needs "Replace the stored value", and the server ignores a value submitted for the row without it. Ignored without `reveal_on_toggle`. See [below](#locked-stored-secrets-reveal-in-the-input-117). |
 
 ### Layout and CSS stack (UiKit)
 
@@ -156,12 +181,46 @@ A one-file bridge maps a project layout whose content block has another name:
 
 Bundle pages add no CSS / JS of their own; host assets stack with `{{ parent() }}`.
 
+### Section icons and hidden sections (1.16)
+
+```yaml
+# config/packages/nowo_instance_settings.yaml — Symfony Beacon: brand and appearance live in its own pages
+nowo_instance_settings:
+    web_ui:
+        navigation_hidden: [brand, appearance]
+        section_icons:
+            mailer: 'tabler:mail'        # override or fill any section's icon, other bundles' included
+            sms_bridge: 'tabler:message'
+```
+
+- **Icons.** The bundle's own sections declare `brand` → `tabler:palette` and `appearance` →
+  `tabler:layout-dashboard`. `section_icons` wins over any section's `getIcon()`. The icon shows in the tab bar of the
+  bundle page and of embeds, styled by the host's `data-tab-style`.
+- **Hidden sections** have no tab in the bundle's settings page, and `GET <path_prefix>` redirects to the first
+  section the user may open that is **not** hidden. When every section the user may open is hidden, the redirect goes
+  to the first of them (the behaviour before 1.16); with none at all, the empty page, as before.
+- **Hiding is presentation only.** A hidden section stays registered, in exports and imports, in
+  `InstanceSettingsInterface` and in `SettingsSectionEmbedder::accessibleSections()`. Its own URL
+  (`<path_prefix>/sections/<name>`) keeps working behind exactly the same checks (the UI gate, then
+  `security.area_roles.<name>`); its page shows it as the current tab next to the visible ones, so its form renders.
+  It is not a way to restrict access: use `security.area_roles` (or an `access_checker`) for that, and do not rely on a
+  hidden tab to keep anybody out.
+- **Embeds** (`SettingsSectionEmbedder::handle()`) are not affected by `navigation_hidden`: their tabs are the
+  allowlist of the `SectionEmbedOptions`, so a host can hide `brand` from the bundle page and embed it in its own
+  route, guarded as before.
+- **Unknown names are ignored**, with a `debug` log line (`Instance settings: … names unknown sections …`) when the
+  index or a section page is built. Section names are only known at runtime — other bundles add sections, and
+  `brand.enabled: false` removes two — so a stale name never stops the container from booting. The names themselves
+  must be valid section names (lower snake case, refused otherwise).
+
 ## security
 
 | Key | Default | Description |
 | --- | --- | --- |
 | `access_roles` | `[ROLE_ADMIN]` | The user must hold **any** of these roles to open the UI. An empty list is refused at compile time (it would deny everybody) unless `access_checker` is set or `allow_unauthenticated` is true. |
 | `area_roles` | `{}` | Map `<area> => [roles]` that **replaces** `access_roles` for one area: a section name (`mailer: [ROLE_SUPER_ADMIN]`) or `_portability` (the import / export page, which can download sealed secrets). Lists must not be empty. Sections the user cannot open are not shown as tabs and are left out of (and refused in) the user's web export / import. When any section is listed, **`_portability` must be listed too** (compile error otherwise) unless `portability.web_ui: false` or a custom `access_checker` is used. |
+| `reveal_roles` | `[ROLE_DEVELOPER]` | **1.15.** Roles that may reveal a stored secret of a field declared `revealable: true`, asked **on top of** the section's own area (both are needed). They never fall back to `access_roles`, and `area_roles._reveal` is refused (compile error) so there is one place to look. An empty list refuses every reveal, which is how you turn the feature off for the whole instance. Ignored when `access_checker` is set: the custom checker decides the `_reveal` area (`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`). |
+| `reveal_rate_limiter` | `null` | **1.15. Required as soon as any field declares `revealable: true`** (owner decision of 2026-11-13: a revealable secret is never served without a brake). Service id of a Symfony `RateLimiterFactory` (`framework.rate_limiter.<name>` registers `limiter.<name>`, needs `symfony/rate-limiter`) consuming one token per reveal, keyed by the SHA-256 of the actor's user identifier. Without it a revealable field fails closed when the section definitions load (router warm-up / `cache:warmup`, else the first request) with a message naming the field and this option. A host with **no** revealable field needs nothing: no limiter, no dependency, no change. |
 | `access_checker` | `null` | Service id implementing `InstanceSettingsAccessCheckerInterface` (`canAccess(?object $user, ?string $area): bool`; `$area` null = the UI itself). Replaces the role checker. |
 | `allow_unauthenticated` | `false` | **DEV / DEMO only.** Opens the UI without login; the container refuses it unless `kernel.debug` is true. |
 
@@ -177,6 +236,227 @@ security:
     access_control:
         - { path: ^/admin/settings, roles: ROLE_ADMIN }
 ```
+
+### Revealing a stored secret (1.15)
+
+A secret field is write-only by default: the admin form never renders it back ("leave blank to keep"). A host that
+declares a field `revealable: true` adds an explicit **Reveal** action to its row, for a user holding `reveal_roles`:
+
+```php
+// A credential the admin has to read somewhere else: revealable.
+yield SettingField::secret('client_secret', 'oauth.client_secret', revealable: true);
+// A key whose plaintext nobody needs again: left write-only (the default).
+yield SettingField::secret('signing_key', 'oauth.signing_key');
+```
+
+```yaml
+nowo_instance_settings:
+    security:
+        access_roles: [ROLE_ADMIN]
+        reveal_roles: [ROLE_DEVELOPER]          # only these users may reveal; [] refuses every reveal
+        reveal_rate_limiter: limiter.instance_settings_reveal   # required with any revealable field
+
+framework:
+    rate_limiter:
+        instance_settings_reveal:
+            policy: fixed_window
+            limit: 10
+            interval: '1 hour'
+```
+
+**The limiter is not optional.** As soon as a section declares `revealable: true`, the bundle refuses to run without
+`security.reveal_rate_limiter`: the section definitions fail to load (router warm-up, so `cache:warmup` fails during
+the build / deploy, and otherwise the first request) with
+
+```
+Instance settings section "oauth" declares the revealable secret field "client_secret", but
+nowo_instance_settings.security.reveal_rate_limiter is not set: a revealable secret is never served without a rate
+limit. Declare a limiter in the host (framework: rate_limiter: instance_settings_reveal: { policy: fixed_window,
+limit: 10, interval: '1 hour' }, which needs symfony/rate-limiter) and set
+nowo_instance_settings.security.reveal_rate_limiter: limiter.instance_settings_reveal. To do without it, drop
+revealable: true from the field, or switch every reveal off with nowo_instance_settings.security.reveal_roles: [].
+```
+
+The two ways out are in the message: drop the opt-in from the field, or set `security.reveal_roles: []`, the kill
+switch — with every reveal refused, a missing limiter blocks nothing, so switching the feature off is never harder
+than switching it on. `symfony/rate-limiter` stays a **dev / suggested** dependency: a host that declares no
+revealable field never needs it. `security.allow_unauthenticated: true` and a custom `security.access_checker` both
+count as "reveals are possible" (the bundle cannot tell who the checker allows), so they need the limiter too.
+
+How it works, and what you accept by turning it on:
+
+- The control is a button, not a hidden value: the plaintext is **never** rendered into the page. Clicking Reveal
+  POSTs to `nowo_instance_settings_secret_reveal`
+  (`<web_ui.path_prefix>/sections/{section}/secrets/{field}/reveal`, POST only, with this section's CSRF token) and the
+  endpoint answers `{"key": "<section>.<field>", "value": "<secret>"}` with `Cache-Control: private, no-store`,
+  `nosniff`, `Referrer-Policy: no-referrer` and `X-Robots-Tag: noindex`. One call reveals the single named field, never
+  a payload of several secrets, and the value is never part of a URL.
+- Every check is server-side and runs again on every call: the UI gate, the section's area, `reveal_roles`, the field's
+  own `revealable: true` and the rate limiter (which is required, see below). A field without the opt-in, a plain field, a look-alike field name (the
+  names are compared byte for byte with the declared ones) and a user without the roles are all refused by the
+  endpoint, not only hidden in the UI.
+- Every reveal is audited: a `Event\SecretRevealedEvent` (PSR-14: section, field, actor, time, whether a secret was
+  stored) and a log line at `info`. A refusal is logged at `warning` with its reason. Neither ever carries the value
+  (REQ-OBS-001). Listen to the event to write the reveal into your own audit trail:
+
+  ```php
+  #[AsEventListener]
+  public function __invoke(SecretRevealedEvent $event): void
+  {
+      $this->audit->record('instance_settings.secret_revealed', $event->key(), $event->actor, $event->revealedAt);
+  }
+  ```
+
+- **Exclude the reveal answer from every response-body log (audit F1).** The answer carries the plaintext in a JSON
+  body, and `Cache-Control: no-store` is an instruction to clients: it stops nothing on the server side. Anything that
+  records response bodies — our own HttpLogBundle, a reverse proxy or WAF with body capture, an APM agent — will store
+  the secret in clear, for its own retention, readable by whoever may read those logs (a broader group than
+  `reveal_roles`) and no longer attributable to the actor who revealed it. Exclude the path **and** redact the `value`
+  key:
+
+  ```yaml
+  # config/packages/nowo_http_log.yaml — HttpLogBundle captures JSON response bodies by default
+  nowo_http_log:
+      ignore_path_prefixes: ['/admin/http-log', '/admin/settings/sections']   # the reveal lives under the admin prefix
+      redaction:
+          json_paths: ['*.password', '*._password', '*.token', '*._token', '*._csrf_token', '*.value']
+  ```
+
+  Do the same wherever else bodies are kept: drop or redact `POST <web_ui.path_prefix>/sections/*/secrets/*/reveal` in
+  the proxy, WAF and APM configuration. The audit trail this bundle writes names the field, the actor and the time and
+  never the value — a body log defeats that from outside the bundle.
+- **The trade-off.** A revealed secret is plaintext in a browser: it can be screenshotted, read over the shoulder,
+  pasted into the wrong window, or kept by a browser extension. The script drops it again on Hide, after one minute,
+  and whenever the tab is hidden, but it cannot undo any of those. That is why the opt-in is per field and defaults to
+  false: turn it on for a credential the admin genuinely has to read elsewhere (an OAuth client secret), and leave it
+  off for encryption keys, webhook signing keys and anything a person never needs to see again. With
+  `security.allow_unauthenticated: true` (dev / demo only) everybody may reveal, as everybody may already read and
+  change every setting.
+- **Copy puts it on the operating system clipboard**, which the page does not own: Windows Clipboard History and macOS
+  Universal Clipboard keep and sync it. Hide asks for the clipboard to be emptied, best effort only (audit F4).
+- **The rate limiter key.** One token per reveal, keyed by the salted SHA-256 (`%kernel.secret%`) of the actor's user
+  identifier, so the limiter storage holds neither an identifier nor a plain hash of one. A caller the host cannot name
+  — `security.allow_unauthenticated`, or a custom `access_checker` whose decision is not backed by a Symfony user — is
+  keyed by its client IP instead, so one such caller cannot spend the whole instance's budget; with neither a user nor
+  a request (a CLI caller of `SecretRevealer`) there is a single `anonymous` bucket (audit F5).
+  **The IP fallback only works if the host resolves client IPs correctly.** Behind a load balancer, a CDN or any
+  reverse proxy, `framework.trusted_proxies` (and `trusted_headers`) must be set, or every request appears to come
+  from the proxy: the fallback then keys every unnamed caller by that one address and is back to the single shared
+  bucket it exists to avoid, where one caller can spend the whole budget and deny the reveal to everybody else. It is
+  also only as trustworthy as those settings — with the forwarding headers trusted from an untrusted network, a caller
+  chooses its own key and therefore its own bucket. Both are reasons to name your users: a reveal by an identified
+  actor is keyed by that identity, audited with it, and not affected by any of this.
+- **Watch the refusals.** Because one call reveals one field, a harvest has a shape: more than N reveals for one actor
+  in a minute, or more than one distinct `key` in one session, is worth an alert; so is a burst of
+  `Instance settings: secret reveal refused` warnings. The reasons are `forbidden`, `not_revealable`, `rate_limited`,
+  `not_text` and `ui_gate` (the last one written by the UI gate, which refuses a caller who cannot open the UI at all
+  before the endpoint runs — audit F6). Every refusal line carries the actor's user identifier (`null` for a caller the
+  host cannot name) and only declared names: a section or field the bundle does not declare is `key: unknown`. The
+  lines are throttled per caller by `reveal_rate_limiter`, in a bucket of their own: `warning` up to the limiter's
+  budget per window, `debug` past it (1.15.1, audit N2 / N3). The cap is **per caller** (user identifier, else
+  client IP): a caller rotating IPs gets a fresh budget for each one, so pair the per-actor alert, with its threshold
+  below the limiter's limit, with an aggregate one such as the count of `key: unknown` refusals per minute across all
+  callers. Each refused reveal, an unauthenticated `ui_gate` request included, writes one limiter storage entry
+  (audit PJ-L2). `actor` is personal data (often an e-mail address): see [SECURITY.md](SECURITY.md#logging).
+- The endpoint belongs to the admin UI: it exists only with `web_ui.enabled: true`. Without JavaScript the row stays
+  write-only, as before 1.15.
+
+### Revealing from the password eye (1.16)
+
+With `nowo-tech/password-toggle-bundle`, the "new value" input of a secret row carries an eye that unmasks what the
+admin typed. On a **revealable** row, `web_ui.reveal_on_toggle: true` turns that eye into the reveal control:
+
+```yaml
+nowo_instance_settings:
+    web_ui:
+        reveal_on_toggle: true
+        reveal_toggle_only: false   # true: rows with the eye drop the Reveal / Copy / Hide buttons
+```
+
+- **The same reveal, nothing new.** The first click (or Enter / Space) runs the existing call: the same POST endpoint,
+  the section's CSRF token, `reveal_rate_limiter`, the UI gate, the section area, `reveal_roles`, the audit event
+  (`SecretRevealedEvent`) and log line. There is no new endpoint and no GET. The second click hides the value.
+- **The value is never form data.** It is shown in the row's read-only `<output>` element — the one the Reveal button
+  uses — which has no `name` and is not a submittable control, so it is never in the submitted payload, the browser's
+  autofill or the form history. The input itself is left alone: same type, same typed value, same name; leaving it
+  blank still keeps the stored secret. Submitting the form also drops any revealed value from the page.
+- **Hidden again** on the second click, after the 60-second auto-hide, when the page is hidden (another tab, a
+  minimised window — the clipboard is kept, audit N1), on submit and when the user hides it before the server answered
+  (a late answer is dropped). 1.16.1: also when the page is left — `pagehide`, so the back / forward cache never keeps
+  it, and `turbo:before-cache` on hosts using Turbo Drive, so Turbo's page snapshot never brings it back on Back
+  (audit PK-L1). Both apply to the Reveal button's value too; the clipboard is kept, as for a hidden page. Turbo is
+  not required: the script only listens for its event.
+- **Errors.** A refused or rate-limited reveal shows the Reveal button's message and the eye stays in its hidden
+  state. 1.16.1: with `reveal_toggle_only`, where there is no Hide button, the message goes away on the next eye click
+  or by itself after 10 seconds (audit PK-I7).
+- **One call at a time** (1.16.1, audit PK-I8). Holding Enter on the eye does not repeat the reveal (auto-repeated
+  key presses are ignored), and a click that would reveal while the row's previous call is still waiting for the
+  server is ignored (eye and Reveal button alike); a click that hides still hides at once and drops that answer.
+- **Accessibility.** The eye gets `aria-pressed` and the label "Reveal stored value" / "Hide stored value"
+  (`reveal.toggle_show` / `reveal.toggle_hide`, `NowoInstanceSettingsBundle` domain). The `<output>` is an
+  `aria-live="polite"` region, as for the Reveal button since 1.15: **a screen reader reads the revealed secret aloud**
+  as soon as it is shown (audit PK-I1). That is what a blind admin needs from an explicit reveal, but anyone in
+  earshot hears it too; with the eye the reveal is one click away from the familiar "show what I typed" control, so
+  tell screen reader users before enabling `reveal_on_toggle`.
+- **In this mode the eye does not unmask the typed text** on revealable rows: to check what you typed, clear the field
+  and type again. Rows that are not revealable, and users who may not reveal (no reveal markup at all), keep the plain
+  PasswordToggle eye.
+- Without JavaScript nothing reveals. Without PasswordToggle there is no eye: the Reveal / Copy / Hide buttons stay,
+  whatever `reveal_toggle_only` says. The page script is the existing `nowo-instance-settings-reveal.js` (no inline
+  script; strict CSP safe).
+
+### Locked stored secrets: reveal in the input (1.17)
+
+Symfony Beacon request (owner-approved design: a stored secret is **locked**). With both options on, **every secret
+row that holds a stored secret** — revealable or not (owner decision D-I3) — is locked for **every editor of the
+section** (owner decision), whether or not the editor may reveal it:
+
+```yaml
+nowo_instance_settings:
+    web_ui:
+        reveal_on_toggle: true
+        reveal_in_input: true       # ignored without reveal_on_toggle
+```
+
+- **Locked.** The input is read-only and keeps the "Saved: ••••" placeholder; nothing can be typed. For an editor who
+  may not reveal (no reveal role, or `reveal_roles: []`), and on a secret that is not revealable at all, there is no
+  reveal: the page loads the script alone when it has no Reveal control
+  (`settings/_secret_lock.html.twig`, template variable `secret_lock`) and PasswordToggle's eye is hidden while the row
+  is locked; that editor ticks Replace like everybody else. For a user who may reveal, the PasswordToggle eye switches that same input between `type=password` (empty) and `type=text` holding the stored value, fetched through
+  the existing reveal call (endpoint, CSRF token, `reveal_rate_limiter`, roles, audit, one call at a time). The row's
+  Reveal / Copy / Hide buttons stay hidden and its `<output>` is used for error messages only.
+- **Hidden again** on the second click, after the 60-second auto-hide, when the page is hidden, on `pagehide`, on
+  `turbo:before-cache` and on every submit: `type=password`, value emptied. Switching the type gives the input a new
+  editor, so Ctrl+Z cannot bring the value back (tested in Chromium and Firefox).
+- **While shown**, the input carries `autocomplete="off"`, `spellcheck="false"`, `autocapitalize="off"`,
+  `autocorrect="off"` (Chrome's enhanced spell check may send text-field contents to Google) and the password-manager
+  opt-outs `data-1p-ignore`, `data-lpignore`, `data-bwignore`; each attribute gets its previous value back on hide.
+- **Never posted.** A locked input never carries a value: the submit and `formdata` handlers empty it (also for a
+  script's `new FormData(form)`). **On the server, a value typed into a locked row without its Replace box refuses the
+  whole save** with the error "Tick “Replace the stored value” to change it." on that row (`reveal.replace_required`,
+  HTTP 422; audit L1): without JavaScript, with stale assets, with a host template lacking the lock script, or for a
+  row that became locked after the page was rendered, nothing is dropped silently under "Settings saved.". A value
+  sent together with the clear box deletes the secret, as everywhere.
+- **Replacing** needs an explicit action: tick **Replace the stored value** (`<field>:replace`, rendered under the row;
+  `reveal.replace`). The input becomes an empty, editable password input with PasswordToggle's own eye; unticking locks
+  it again and drops what was typed. A ticked box with a blank input keeps the stored secret. The "Remove the saved
+  value" box still deletes it; once nothing is stored the row is a normal input again. The clear box is not reused for
+  Replace: DoctrineEncrypt's applier deletes the secret whenever it is ticked, whatever was typed.
+- **Accessibility.** The eye keeps `aria-pressed` and the `reveal.toggle_show` / `reveal.toggle_hide` labels. A
+  polite status region announces "Stored value shown in the field." / "Stored value hidden."
+  (`reveal.announce_shown` / `reveal.announce_hidden`) and never the value; unlike the `<output>` of the 1.15 / 1.16
+  modes, a screen reader does not read the secret aloud unless the user moves into the field.
+- **Scope.** Every secret row with a stored secret (revealable or not), for every editor of the section; the server
+  rule (a value without Replace is refused) applies to everyone. Only revealable rows of users who may reveal get the
+  eye that shows the value; on the others PasswordToggle's eye is hidden while locked. Without the option, or without
+  `reveal_on_toggle`, nothing changes: typing into a row overwrites its secret exactly as in 1.16. Without PasswordToggle there is no eye: the row is still locked
+  and its Reveal button reads the value into the `<output>`, as in 1.15.
+- **Firefox session restore.** Firefox saves form field values of open tabs to disk (sessionstore, written on a timer
+  of about 15 seconds after a change). Its collector skips password inputs, inputs that were ever `type=password`
+  (`HasBeenTypePassword()`) and inputs whose autocomplete is off (`nsContentUtils::IsAutocompleteEnabled()`), all
+  three of which hold for the shown value, so the 60-second auto-hide was kept. The check was made against the Firefox
+  source (`toolkit/components/sessionstore/SessionStoreUtils.cpp`), not against a saved profile; other browsers'
+  session restore was not checked.
 
 ## portability
 
@@ -305,6 +585,59 @@ Behaviour:
   `.gitignore` as well (covers checkouts made before the first save, and directories created by 1.7.0). Variants and
   metadata are regenerated when the image is saved or seeded.
 
+### Containers and volumes
+
+The store directory is meant to be a persistent volume in production, and that has a consequence for committed seed
+files. If your seed file points at images **inside** `files.directory` (the layout of the example above:
+`instance-files/brand/logo_light.png` next to `config/instance-seed.yaml`), the images only exist in production if they
+are in the volume.
+
+- **A new image does not refresh a volume.** A Docker named volume mounted on `files.directory` is filled from the image
+  only when the volume is first created (and only while it is empty). Files added to that directory in a later commit
+  and shipped in a newer image never reach the existing volume: the mount hides the image's copy.
+- **The bundle does not sync anything.** It reads and writes the directory only; it never copies seed images into it.
+- **The seed then fails.** `nowo:instance-settings:seed` resolves every `files` path with `realpath()`; a file that is
+  not in the volume gives `path_not_found` for that field, and the **whole run is refused** (see
+  [Missing seed files](#missing-seed-files)).
+
+Options:
+
+1. **Sync before seeding.** In the deploy, copy the image's files into the volume before the seed command, without
+   overwriting what the admin uploaded since (`cp -n`, or `rsync -a --ignore-existing`):
+
+   ```bash
+   # from the new image to the volume, then seed (the volume is mounted at the same path in both)
+   docker compose run --rm app sh -c 'cp -Rn /app/config/instance-files.dist/. /app/config/instance-files/'
+   docker compose run --rm app php bin/console nowo:instance-settings:seed
+   ```
+
+   This needs the image to carry the files **outside** the mounted path (here `instance-files.dist`), because the
+   mounted directory shows the volume, not the image.
+2. **Keep the seed sources outside the store directory.** Seed paths are relative to the seed file and only have to
+   resolve inside `seed.base_dir`; they do not have to be in `files.directory`. Put the committed images in a directory
+   that is not a volume (for example `config/seed-assets/`, shipped in the image), point the seed file at them and keep
+   `files.directory` for the stored copies:
+
+   ```yaml
+   # config/instance-seed.yaml (next to config/seed-assets/)
+   files:
+       brand:
+           logo_light: seed-assets/brand/logo_light.png
+   ```
+
+   The seed copies the bytes into the store (re-encoded, or adopted when a valid file already sits at the field's
+   stable path), so the image is the source of truth for the seed and the volume only holds the result. There is no
+   separate "seed source directory" option: it is simply the seed file's own directory, confined to `seed.base_dir`.
+   The default `seed.base_dir` is `%kernel.project_dir%`, which already covers both directories.
+3. **Bind-mount** the host directory (for example `./config/instance-files:/app/config/instance-files`) instead of
+   using a named volume. The files are then whatever is on the host at deploy time, so update the host checkout before
+   the seed. Mind the file ownership and the umask, as for any shared directory.
+
+Deploy order (with a persistent store directory): update the image or checkout, sync seed files into the volume
+(option 1, if you use it), run the database migrations, run `nowo:instance-settings:seed --dry-run` (exit code 1 on any
+missing or invalid file, nothing written), then `nowo:instance-settings:seed`, then start or restart the application.
+Run the dry run in the same container and with the same mounts as the real run, so it sees the same files.
+
 ### Crop step
 
 1.8 (owner decision D-20261109-09). `files.crop` puts UiKit's image crop step (UiKit 2.43) on the file input of every
@@ -391,6 +724,19 @@ Rules:
   like a save: one `Instance settings saved.` log line and one `SettingsChangedEvent` per section with origin `seed`
   and `fileChanges` (`old: null`, `new: <sha256>`), dispatched after the commit, then one summary line. Output, report
   and logs carry names and reason codes only.
+
+### Missing seed files
+
+Every path of the `files` tree is resolved (relative to the seed file's directory, `realpath()`, inside `base_dir`)
+**before anything is written**, and the check happens even for a field that already holds an image (the path is
+resolved first, then the field is found to be stored and skipped). A path that does not exist gives, for that field,
+`<section>.<field>: path_not_found (The file does not exist.)`. All entries are still checked, so the output lists
+every missing file at once, but then the command prints `Seed refused; nothing was written.` and exits **1**: one
+missing image aborts the whole seed, including the plain `settings` values of the file, because validation is
+all-or-nothing. A missing seed file given as the argument or `seed.file` is refused the same way (key `file`). There is
+no option to skip or only warn about missing files. A deploy that runs the seed as a step therefore fails; see
+[Containers and volumes](#containers-and-volumes) for the usual cause when the store directory is a volume, and use
+`--section=` only to exclude whole sections, not to ignore a missing file inside one you seed.
 
 ### Seed file format
 
@@ -521,6 +867,23 @@ registered (the images live in the database, and an error page must not need it)
 The brand images are always public (served anonymously by the file route): keep the `PUBLIC_ACCESS` line of
 [files](#files). Access to the two sections follows `security.area_roles.brand` / `.appearance` (default: the UI roles).
 
+## Expiring secrets (1.17)
+
+Opt-in expiry dates for the secret fields that declare `SettingField::secret(..., expires: true)` (Beacon request,
+owner decision D-20261114-09). With the default `enabled: false` nothing is mapped or registered and a section
+declaring `expires: true` fails closed when the definitions load. See [USAGE](USAGE.md#expiring-secrets-117).
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Maps the `instance_setting_secret_expiry` table (mapping `NowoInstanceSettingsExpiry`, on `doctrine.entity_manager` when set) and registers `Expiry\SecretExpiryStoreInterface` (`DoctrineSecretExpiryStore`), `Expiry\ExpiringSecretSourceInterface` (`ExpiringSecrets`), `Expiry\SecretExpiryChecker` and `nowo:instance-settings:check-expiring-secrets`. Literal boolean only, read in the bundle's prepend step like `files.enabled`: a value prepended later fails the build. Add the migration ([UPGRADING](UPGRADING.md#to-1170)). |
+| `thresholds` | `[30, 7, 1, 0]` | Days before the date (0 … 3650, distinct, at least one). The command dispatches `Event\SecretExpiryThresholdReachedEvent` once per threshold per date; `0` = the day itself and every day after (expired). When several are crossed at once (first run, a job that did not run) one event is dispatched, for the smallest. |
+| `warning` | `true` | The section page warns (a `flash_warning` notice above the form and the help text of the date row) while a date is within `warning_days` or passed. `false`: no warning; dates and events are unchanged. |
+| `warning_days` | `30` | 0 … 3650. `0`: only on the day and once expired. |
+| `timezone` | `null` | Zone of "today" for the thresholds and the warning (any PHP identifier, e.g. `Europe/Madrid`). Null: the PHP default zone. "Today" is read from the `clock` service (`Psr\Clock\ClockInterface`) on every call. |
+
+Schedule the command daily (cron or Symfony Scheduler), e.g. `0 8 * * * php bin/console nowo:instance-settings:check-expiring-secrets`.
+Running it more often is harmless: an announced threshold is stored next to the date. `--dry-run` lists what is due.
+
 ## FormKit profile
 
 The forms are FormKit types bound to the profile **`nowo_form_kit.profiles.instance_settings`** (REQ-TWIG-005 rule 11), prepended by the bundle with: translation domain `NowoInstanceSettingsBundle`, `auto_help: false`, `auto_placeholder: false`, no framework classes (the UiKit settings scaffold theme paints the fields). Define the profile yourself to change it; the bundle then prepends nothing:
@@ -562,7 +925,8 @@ REQ-CFG-001 does not apply: the bundle has one configuration tree. Variants are 
 
 ## Container parameters
 
-`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`, `.files.enabled` (effective: true with `brand.enabled` too), `.files.path_prefix`, `.files.orphan_retention`, `.files.mapped` (set by prepend: whether the file entity was mapped), `.brand.enabled` (1.5).
+`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`, `.files.enabled` (effective: true with `brand.enabled` too), `.files.path_prefix`, `.files.orphan_retention`, `.files.mapped` (set by prepend: whether the file entity was mapped), `.brand.enabled` (1.5), `.expiring_secrets.enabled`
+and `.expiring_secrets.mapped` (1.17).
 
 ## Seeding from fallbacks
 
@@ -591,6 +955,8 @@ The container refuses to compile when:
 - `files.path_prefix` overlaps `web_ui.path_prefix`;
 - `files.enabled` is true and `ext-gd` lacks PNG, JPEG or WebP support;
 - `files.enabled` or `brand.enabled` was prepended after this bundle, so the file entity is not mapped (1.5, audit IO-I10);
+- `expiring_secrets.enabled` was prepended after this bundle, so the expiry entity is not mapped (1.17);
+- `expiring_secrets.thresholds` is empty or repeats a value, or `expiring_secrets.timezone` is not a zone (1.17);
 - `brand.enabled` is true and the host defines its own `BrandProviderInterface` service or alias (two brands, 1.5,
   audit IU-I2);
 - `brand.enabled` is true without `nowo-tech/brand-contracts`, without `brand.defaults.name`, or with a default asset
@@ -601,4 +967,5 @@ The container refuses to compile when:
 When the section definitions load (router warm-up, first request), a section declaring an image field throws a
 `LogicException` without `files.enabled: true` (the file table is not mapped) or without `ext-gd` with PNG, JPEG and
 WebP support (checked again for a container compiled on another machine): images are never stored without the
-re-encode step.
+re-encode step. Since 1.17, a section declaring `expires: true` throws a `LogicException` without
+`expiring_secrets.enabled: true` (the expiry table is not mapped).

@@ -143,6 +143,8 @@ final class InstanceSettingsTestKernel extends Kernel
                     'admin'  => ['password' => 'admin', 'roles' => ['ROLE_ADMIN']],
                     'super'  => ['password' => 'super', 'roles' => ['ROLE_ADMIN', 'ROLE_SUPER_ADMIN']],
                     'viewer' => ['password' => 'viewer', 'roles' => ['ROLE_USER']],
+                    // 1.15: may open the UI and reveal a revealable secret (security.reveal_roles default).
+                    'developer' => ['password' => 'developer', 'roles' => ['ROLE_ADMIN', 'ROLE_DEVELOPER']],
                 ]]]],
                 'firewalls' => in_array('security_off', $this->without, true)
                     ? ['main' => ['security' => false]]

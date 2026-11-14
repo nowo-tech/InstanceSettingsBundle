@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\DependencyInjection;
 
 use Closure;
+use DateTimeZone;
 use Nowo\InstanceSettingsBundle\Brand\BrandSection;
 use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityEnvelope;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
+use Nowo\InstanceSettingsBundle\Ui\SectionNavigation;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
@@ -18,9 +22,14 @@ use Symfony\Component\Config\Definition\ConfigurationInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 
 use function array_diff;
+use function array_key_exists;
 use function array_keys;
+use function array_unique;
 use function array_values;
+use function count;
+use function get_debug_type;
 use function implode;
+use function in_array;
 use function is_array;
 use function is_string;
 use function mb_strlen;
@@ -145,6 +154,45 @@ final class Configuration implements ConfigurationInterface
                                 })
                             ->end()
                         ->end()
+                        ->arrayNode('section_icons')
+                            ->info('1.16: tab icon per section name, overriding or filling the section\'s getIcon(), including sections of other bundles. An icon is a canonical UiKit kind ("config") or a prefixed icon name ("tabler:palette"). A name that matches no registered section is ignored (debug log line).')
+                            ->useAttributeAsKey('section')
+                            ->normalizeKeys(false)
+                            ->scalarPrototype()
+                                ->validate()
+                                    ->ifTrue(static fn (mixed $v): bool => !is_string($v) || preg_match(SectionNavigation::ICON_PATTERN, $v) !== 1)
+                                    ->thenInvalid('nowo_instance_settings.web_ui.section_icons values must be a canonical UiKit icon kind such as "config" or a prefixed icon name such as "tabler:palette", got %s.')
+                                ->end()
+                            ->end()
+                            ->validate()
+                                ->ifTrue(static fn (array $v): bool => self::invalidSectionNames(array_keys($v)) !== [])
+                                ->then(static function (array $v): never {
+                                    throw new InvalidConfigurationException(sprintf('Invalid nowo_instance_settings.web_ui.section_icons section name(s) "%s": expected lower snake case section names.', implode('", "', self::invalidSectionNames(array_keys($v)))));
+                                })
+                            ->end()
+                        ->end()
+                        ->arrayNode('navigation_hidden')
+                            ->info('1.16: section names left out of the settings page tab bar and of the "first section" redirect. Presentation only: a hidden section stays registered, guarded by its area and embeddable (SettingsSectionEmbedder), and its own URL keeps working. A name that matches no registered section is ignored (debug log line).')
+                            ->scalarPrototype()->end()
+                            ->validate()
+                                ->ifTrue(static fn (array $v): bool => self::invalidSectionNames($v) !== [])
+                                ->then(static function (array $v): never {
+                                    throw new InvalidConfigurationException(sprintf('Invalid nowo_instance_settings.web_ui.navigation_hidden section name(s) "%s": expected lower snake case section names.', implode('", "', self::invalidSectionNames($v))));
+                                })
+                            ->end()
+                        ->end()
+                        ->booleanNode('reveal_on_toggle')
+                            ->info('1.16: on a revealable secret row, the PasswordToggle eye of the "new value" input reveals the STORED secret (the same POST endpoint, CSRF token, rate limiter, access checks and audit as the Reveal button) in a read-only element of the row, never in the input; a second click hides it. Default false: the eye only unmasks what was typed.')
+                            ->defaultFalse()
+                        ->end()
+                        ->booleanNode('reveal_toggle_only')
+                            ->info('1.16: with reveal_on_toggle, hide the separate Reveal / Copy / Hide buttons on rows that have the eye (rows without it keep them). Default false.')
+                            ->defaultFalse()
+                        ->end()
+                        ->booleanNode('reveal_in_input')
+                            ->info('1.17: with reveal_on_toggle, a revealable secret row holding a stored secret is LOCKED: its input is read-only, the eye shows the stored value in that same input (type=text, autofill / spellcheck off) and hides it again, and a new value can only be typed after ticking "Replace the stored value". The server then ignores a value submitted for that row without the Replace box. Ignored without reveal_on_toggle. Default false: the rows behave as in 1.16.')
+                            ->defaultFalse()
+                        ->end()
                     ->end()
                 ->end()
                 ->arrayNode('security')
@@ -165,6 +213,15 @@ final class Configuration implements ConfigurationInterface
                                 ->requiresAtLeastOneElement()
                             ->end()
                         ->end()
+                        ->arrayNode('reveal_roles')
+                            ->info('1.15: roles that may reveal a stored secret of a field declared revealable (any of them), asked on top of the section\'s own area. Default ROLE_DEVELOPER; an empty list refuses every reveal. Ignored when access_checker is set (the custom checker decides the "_reveal" area).')
+                            ->scalarPrototype()->end()
+                            ->defaultValue(['ROLE_DEVELOPER'])
+                        ->end()
+                        ->scalarNode('reveal_rate_limiter')
+                            ->info('1.15: service id of a Symfony RateLimiterFactory (framework.rate_limiter.<name> gives limiter.<name>) consuming one token per reveal, keyed by the hashed actor; null = no limit.')
+                            ->defaultNull()
+                        ->end()
                         ->scalarNode('access_checker')
                             ->info('Service id implementing InstanceSettingsAccessCheckerInterface; null = role-based default.')
                             ->defaultNull()
@@ -183,6 +240,10 @@ final class Configuration implements ConfigurationInterface
                             return self::roles($v['access_roles'] ?? []) === [];
                         })
                         ->thenInvalid('nowo_instance_settings.security.access_roles must contain at least one non-empty role when no access_checker is set and allow_unauthenticated is false (an empty list would deny everybody).')
+                    ->end()
+                    ->validate()
+                        ->ifTrue(static fn (array $v): bool => array_key_exists(InstanceSettingsAccessCheckerInterface::AREA_REVEAL, $v['area_roles'] ?? []))
+                        ->thenInvalid('nowo_instance_settings.security.area_roles must not define "_reveal": the roles of the secret reveal are security.reveal_roles (got %s).')
                     ->end()
                 ->end()
                 ->arrayNode('portability')
@@ -297,9 +358,57 @@ final class Configuration implements ConfigurationInterface
                     ->end()
                 ->end()
                 ->append($this->brandNode())
+                ->append($this->expiringSecretsNode())
             ->end();
 
         return $treeBuilder;
+    }
+
+    /**
+     * `expiring_secrets` (1.17, Beacon D-20261114-09): the opt-in expiry dates of the secret fields declaring
+     * `expires: true`, their thresholds and the page warning.
+     */
+    private function expiringSecretsNode(): ArrayNodeDefinition
+    {
+        $node = (new TreeBuilder('expiring_secrets'))->getRootNode();
+        $node
+            ->info('Expiring secrets (1.17): an expiry date next to the secret fields declaring expires: true, threshold events and a page warning.')
+            ->addDefaultsIfNotSet()
+            ->children()
+                ->booleanNode('enabled')
+                    ->info('Maps the expiry table (instance_setting_secret_expiry) and registers the store, the read port and nowo:instance-settings:check-expiring-secrets. Off by default: no schema change. A section declaring expires: true without it fails at boot. Literal boolean only.')
+                    ->defaultFalse()
+                ->end()
+                ->arrayNode('thresholds')
+                    ->info('Days before the expiry date at which nowo:instance-settings:check-expiring-secrets dispatches SecretExpiryThresholdReachedEvent, once per threshold and date (0 = the day itself and after).')
+                    ->integerPrototype()->min(0)->max(3650)->end()
+                    ->defaultValue([30, 7, 1, 0])
+                    ->validate()
+                        ->ifTrue(static fn (array $v): bool => $v === [] || count($v) !== count(array_unique($v)))
+                        ->thenInvalid('nowo_instance_settings.expiring_secrets.thresholds must be a non-empty list of distinct day counts, got %s.')
+                    ->end()
+                ->end()
+                ->booleanNode('warning')
+                    ->info('The settings page warns on the section and next to an expiring secret within warning_days of its date, or expired.')
+                    ->defaultTrue()
+                ->end()
+                ->integerNode('warning_days')
+                    ->info('Days before the date from which the page warns (0 = only on the day and once expired).')
+                    ->defaultValue(30)
+                    ->min(0)
+                    ->max(3650)
+                ->end()
+                ->scalarNode('timezone')
+                    ->info('Zone of "today" for the thresholds and the warning (e.g. "Europe/Madrid"). Null: the PHP default zone.')
+                    ->defaultNull()
+                    ->validate()
+                        ->ifTrue(static fn (mixed $v): bool => $v !== null && (!is_string($v) || !in_array($v, DateTimeZone::listIdentifiers(DateTimeZone::ALL_WITH_BC), true)))
+                        ->thenInvalid('nowo_instance_settings.expiring_secrets.timezone must be a timezone identifier such as "Europe/Madrid", got %s.')
+                    ->end()
+                ->end()
+            ->end();
+
+        return $node;
     }
 
     /**
@@ -435,6 +544,25 @@ final class Configuration implements ConfigurationInterface
             ->end();
 
         return $node;
+    }
+
+    /**
+     * Entries of `$names` that are not valid section names ({@see SettingsSectionRegistry::NAME_PATTERN}).
+     *
+     * @param array<mixed> $names
+     *
+     * @return list<string>
+     */
+    public static function invalidSectionNames(array $names): array
+    {
+        $invalid = [];
+        foreach ($names as $name) {
+            if (!is_string($name) || preg_match(SettingsSectionRegistry::NAME_PATTERN, $name) !== 1) {
+                $invalid[] = is_string($name) ? $name : get_debug_type($name);
+            }
+        }
+
+        return $invalid;
     }
 
     /**

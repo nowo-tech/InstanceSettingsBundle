@@ -56,6 +56,26 @@ final class SettingsControllerTest extends TestCase
         }
     }
 
+    public function testAHandBuiltControllerWithoutTheRevealerRefusesToReveal(): void
+    {
+        // 1.15: the reveal needs the SecretRevealer service; a controller built with an older signature never reveals.
+        $registry   = PageFixtures::registry();
+        $repository = new InMemorySettingValueRepository();
+        $settings   = new InstanceSettings($repository, $registry);
+        $controller = new SettingsController(
+            $registry,
+            $settings,
+            new AccessGuard(new AllowAllInstanceSettingsAccessChecker()),
+            PageFixtures::factory(),
+            new ConfigPortability($registry, $settings, $repository),
+            new JsonUploadReader(),
+        );
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('needs the SecretRevealer service');
+        $controller->revealSecret(new Request(), 'mailer', 'dsn');
+    }
+
     public function testAHandBuiltControllerStillServesTheSectionPage(): void
     {
         // 1.5 constructor signature (no embedder): section() builds the same embedder from its service locator.

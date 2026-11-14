@@ -7,6 +7,10 @@
     <testsuite name="Integration">
       <directory>tests/Integration</directory>
     </testsuite>
+    <!-- 1.15: the probes of the security audit, kept permanently (they try to get a stored secret out without the roles). -->
+    <testsuite name="Probe">
+      <directory>tests/Probe</directory>
+    </testsuite>
   </testsuites>
   <source restrictNotices="true" restrictWarnings="true" ignoreIndirectDeprecations="true">
     <include>

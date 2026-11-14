@@ -28,7 +28,7 @@ use function sprintf;
 final readonly class SectionEmbedOptions
 {
     /** Section names accepted in the allowlist (same as the bundle route requirement). */
-    public const SECTION_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/';
+    public const SECTION_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
 
     /** Route names accepted for the host routes (no slash, no scheme: a route name, never a path or a URL). */
     public const ROUTE_PATTERN = '/^[A-Za-z_][A-Za-z0-9_.\-]{0,199}$/';

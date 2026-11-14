@@ -6,13 +6,27 @@ nowo_instance_settings:
         table_prefix: 'demo_'
     web_ui:
         path_prefix: /admin/settings
+        # 1.16 / 1.17: the eye of a revealable row reveals the stored value, and a stored revealable secret is locked
+        # (read-only; "Replace the stored value" to type a new one). The demo has no PasswordToggle eye, so the row keeps
+        # its Reveal button; the lock and the server rule apply all the same.
+        reveal_on_toggle: true
+        reveal_in_input: true
     security:
         access_roles: [ROLE_ADMIN]
         allow_unauthenticated: true
+        # 1.15: the SMS provider token is declared revealable, so a reveal rate limiter is required (the container
+        # refuses to build a revealable secret without one). In a real host, reveal_roles keeps the action for
+        # ROLE_DEVELOPER; here allow_unauthenticated already opens the whole UI (dev / demo only).
+        reveal_roles: [ROLE_DEVELOPER]
+        reveal_rate_limiter: limiter.instance_settings_reveal
     portability:
         sealed_secrets: true
         max_upload_bytes: 1048576
     # Image fields (1.4) and their crop step (1.8): the site logo is cropped in the browser (UiKit image crop) before
     # it is uploaded; the server still checks and re-encodes it.
     files:
+        enabled: true
+    # 1.17: expiry dates of the secret fields declaring expires: true (the SMS auth token). Maps the
+    # demo_instance_setting_secret_expiry table (the entrypoint runs doctrine:schema:update).
+    expiring_secrets:
         enabled: true

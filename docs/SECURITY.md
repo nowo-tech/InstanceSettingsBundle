@@ -40,6 +40,7 @@ own cryptography and key storage, or what consumers do with a setting value.
 | Image upload (multipart) | section form under `web_ui.path_prefix` | 1.4. Section area role + CSRF; content sniffed, limited and re-encoded with GD. See [Image fields threat model](#image-fields-threat-model-14). |
 | Anonymous HTTP `GET` / `HEAD` | `files.path_prefix` (default `/_settings-file`), only when a section declares an image field | 1.4. Public image fields served to anyone; private ones need the section area; same 404 for every miss. |
 | Imported image files (base64) | envelope v2 `files` (admin import, CLI) | 1.4. Strict decode, caps, hash check, whole upload pipeline, all-or-nothing. |
+| Admin HTTP `POST` reveal of one secret | `<web_ui.path_prefix>/sections/{section}/secrets/{field}/reveal`, only with `web_ui.enabled` | 1.15. Opt-in per field (`revealable: true`), `security.reveal_roles` **and** the section area, this section's CSRF token, byte-exact field name, optional rate limiter, audited; answer `private, no-store`. |
 | Section definitions / providers | host and bundles (services) | Trusted code; definitions validated at first use. |
 | Configuration | `nowo_instance_settings.*` | Validated at compile time; security switches must be literal booleans. |
 | Stored values | database | Plain values are JSON; secrets are encrypted at rest. |
@@ -51,6 +52,7 @@ own cryptography and key storage, or what consumers do with a setting value.
 | **Unauthorized access to settings / secrets** | UI private by default (`ROLE_ADMIN`); empty role lists are refused at compile time and deny at runtime (pattern P1); per-area roles (`security.area_roles`) for sensitive sections and for import / export — when sections are restricted, `_portability` must be set explicitly (compile error otherwise), and the web export / import only covers the sections the user may open (an import touching another section is refused as a whole, from its raw keys, before any value is validated or unsealed; the CLI keeps full operator access); a listener guards every request under the prefix **and** every bundle controller wherever it is mounted (other prefix, sub-request); every action re-checks its area. The token is trusted only when a firewall matched the main request (no stale worker token). Anonymous users inside a firewall get the entry point (401 / login). |
 | **CSRF** on saves, export, import | Every mutation is a Symfony Form with CSRF (`nowo_instance_settings_section_<name>`, `…_export`, `…_import`); the container refuses to compile the UI without form CSRF or a token manager (pattern P2). Export is a POST (it can contain sealed secrets). |
 | **Secret disclosure in HTML** | The section form never receives a stored secret (only "stored: yes / no"); the secret input is a password field rendered empty; secrets are refused by `get()`, `getSection()` and the Twig function. Contract and functional tests assert a stored secret never appears in the page. |
+| **Secret disclosure through the reveal endpoint** (1.15) | Off unless a host declares a field `revealable: true` (default false) **and** the user holds `security.reveal_roles` (`ROLE_DEVELOPER` by default, never a fallback to `access_roles`; `area_roles._reveal` is refused so there is one place to look; `[]` refuses every reveal) **and** the section's own area. The roles are checked on the endpoint, on every call, before the CSRF token and before anything is read: a hidden-until-clicked value is never rendered into the page, so the plaintext is not in the page source whatever the role check. One call answers the single named field; the section and field names from the client are matched byte for byte against the declared names before any lookup (REQ-SEC-006), so a look-alike name cannot reach another field, and a field without the opt-in is refused even when asked for directly. The answer is `private, no-store`, `nosniff`, `no-referrer`, `noindex`, and the value is never in a URL. `security.reveal_rate_limiter` consumes one token per reveal (keyed by the salted hash of the actor, or by the client IP for a caller the host cannot name — which needs `framework.trusted_proxies` behind a proxy, else every unnamed caller shares the proxy's bucket) against bulk harvesting, and it is **required**: a field declaring `revealable: true` without a configured limiter makes the section definitions fail to load (router warm-up / `cache:warmup`, else the first request), so the feature cannot be deployed without a brake (owner decision of 2026-11-13); `security.reveal_roles: []` switches every reveal off and then needs no limiter. Granularity is **per field only**: a user holding the reveal roles may reveal every `revealable: true` field of every section they can open — there is no per-section reveal role (owner decision of 2026-11-13: the per-field opt-in is finer and covers the real case), so keep the opt-in off for anything that must stay unreadable. Every reveal and every refusal is audited by name (`SecretRevealedEvent`, log line), never by value. Residual risk: a revealed secret is plaintext in a browser (screenshots, shoulder surfing, extensions); the script drops it on Hide, after a minute and when the tab is hidden, which mitigates but does not remove it — hence the per-field opt-in. | `SecretRevealTest`, `SecretRevealerTest` |
 | **Secret disclosure at rest** | `#[Encrypted]` column through DoctrineEncryptBundle (default profile); the container refuses to compile without DoctrineEncrypt (secrets would be stored in clear). Every stored secret carries a terminator, so its plaintext never ends with DoctrineEncrypt's `<ENC>` marker (which would skip encryption) and is never `''` / `'0'`; a loaded value without the terminator (not decrypted: wrong or lost key) counts as no secret instead of handing ciphertext to consumers. |
 | **Secret disclosure in exports** | Secrets are exported only on request (`include_secrets` / `--include-secrets`, gated by `portability.sealed_secrets` and the `_portability` area) and only **sealed** with the instance key (`enc:v2:`), each value bound to its schema and `<section>.<field>` (a sealed value moved to another field or application is refused: `secret_context_mismatch`); an import from another instance fails closed (`failed_unseal_secret`). Plain fields cannot carry secrets: secret fields are refused under `settings`, and credential-shaped keys are refused in provider data on import **and** export (keys normalised — camelCase, `-`, `.` — and matched on words such as password, passwd, passphrase, secret, token, bearer, credential, apikey, privatekey, signature, or parts such as pwd, pass, key, dsn, auth). CLI export files are written in a private 0700 directory, set to `0600` and renamed into place (no world-readable window, symbolic links refused, existing files only with `--force`); export responses are `private, no-store`. |
 | **Malicious import** (type confusion, mass assignment, weakening flags) | Strict envelope (known top-level keys, schema, version), known sections / fields only, sections the user may not open refused, `notPortable()` fields refused, every value normalized and validated with the field type and constraints (non-finite floats such as `1e999` refused), provider `validate()` before anything is written, single transaction; a refused file changes nothing and the error names the key, never the value. Hosts mark security-sensitive toggles `notPortable()`. |
@@ -60,7 +62,12 @@ own cryptography and key storage, or what consumers do with a setting value.
 | **Demo configuration in production** | `security.allow_unauthenticated: true` is refused unless `kernel.debug` is true. The demo publishes its port on `127.0.0.1` only. |
 | **`security: false` firewall on the prefix** | No token is trusted; the bundle answers a plain 403 (a Security exception is used only inside an enabled firewall, where it becomes the entry point). |
 | **Cross-request state leaks (FrankenPHP worker)** | The settings memo is bound to the main request (`WeakReference`) and cleared by `kernel.reset` and after saves; other services are stateless. See [FRANKENPHP-WORKER-AUDIT.md](FRANKENPHP-WORKER-AUDIT.md). |
-| **XSS** | Twig auto-escaping; labels come from translation catalogues; no `|raw`. |
+| **XSS** | Twig auto-escaping; labels come from translation catalogues; no `|raw`. The bundle's own scripts are served files loaded with the request `csp_nonce`, with no inline handler and no `innerHTML`. |
+| **A host-side XSS on the admin layout, with the reveal enabled (1.15)** | **This is an escalation, and it is not mitigated here.** Before 1.15 a script running on an admin page could tamper with settings but could **not** obtain any stored secret — the form never carried one. With `revealable: true` fields, a same-origin script can refetch every section page the victim may open, read each page's reveal URLs and CSRF token, and harvest **every revealable field of every reachable section** under the victim's roles. Token placement, shorter-lived tokens and `Origin` checks are therefore not mitigations: the script is the page. What exists is **detection**, which the one-field-per-call shape makes possible: alert on more than N reveals for one actor in a minute, or more than one distinct `key` per session, and on bursts of reveal refusals; and keep `security.reveal_rate_limiter` tight, which turns a silent harvest into `rate_limited` warnings and caps what one session can take. The structural fix is step-up re-authentication before each reveal (planned for 1.16+, not in 1.15). The real control today is the per-field opt-in: a field that is not revealable cannot be harvested this way. | `SecretRevealTest`, `RevealProbeTest` |
+| **Server-side logging of the reveal answer** (our own HttpLogBundle, a reverse proxy or WAF with body capture, an APM agent) | The answer carries the plaintext in a JSON body; `no-store` instructs clients and stops nothing server-side. Such a log stores the secret in clear, for its own retention, readable by a broader group than `reveal_roles` and no longer attributable to the actor. The bundle cannot prevent it: hosts must exclude the reveal path and redact the `value` key — HttpLogBundle captures JSON response bodies by default and its default redaction paths do not cover `value` (audit F1). Documented with the configuration in [CONFIGURATION.md](CONFIGURATION.md#revealing-a-stored-secret-115) and as a required step in [UPGRADING.md](UPGRADING.md). | docs; HttpLogBundle's own defaults are being changed separately |
+| **A stored secret that is not UTF-8 text** | Refused with a clean 409 `{"error": "not_text"}` carrying the same `no-store` / `nosniff` / `no-referrer` headers, never a mangled or substituted value, and the audit trail records the refusal instead of a reveal the caller never received (audit F2). | `RevealProbeTest::testANonTextSecretIsRefusedCleanlyAndAuditedAsRefused`, `SecretRevealerTest` |
+| **The wrong section's secret under a row's label** (a host page embedding two sections that declare the same field name) | Each revealable row carries its section name and is bound to the Reveal root of that section (its enclosing root, else the root whose `data-section` matches), so a row never uses another section's URL map or token (audit F3). | `RevealProbeTest::testSameFieldNameRevealableInOneSectionOnly` |
+| **The clipboard after Copy** | The operating system clipboard is a store the page does not own: Windows Clipboard History and macOS Universal Clipboard keep and sync it. Hide asks for it to be emptied (best effort; the browser may refuse and nothing reaches what the system already synced), and the documentation says so instead of claiming the value is never stored (audit F4). | docs; `nowo-instance-settings-reveal.js` |
 
 ## Image fields threat model (1.4)
 
@@ -172,6 +179,25 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
   (`unsupported_encryptor`): use Halite or Defuse.
 - Fixtures and the demo use obvious placeholders (`REDACTED-TEST`, `REDACTED-DEMO`).
 
+- **Expiring secrets (1.17).** The expiry date is not a secret: it is stored in clear in
+  `instance_setting_secret_expiry`, shown in the admin form, exported in clear (`secret_expiry`) and logged. The secret
+  value never reaches the date store, the read port (`ExpiringSecret`), the threshold event, the command output, the
+  warnings or the logs (a failing reminder listener is logged by exception class only, never its message). The date
+  row is a plain date input; the reveal endpoint, `reveal_on_toggle` and the Turbo / `pagehide` clearing of revealed
+  values are unchanged. Field labels in the warnings are translated and escaped by Twig.
+
+- **Locked stored secrets (1.17, `web_ui.reveal_in_input`).** The stored value is shown in the input itself, so it
+  is a form control while shown: the script hides it on every exit path (second click, 60 s, hidden page, `pagehide`,
+  `turbo:before-cache`, submit), blanks it in every form data set (`formdata` event, so also `new FormData(form)`),
+  and turns off autofill, password-manager capture, spell check (Chrome's enhanced spell check may send field contents
+  to Google), autocapitalize and autocorrect while it is shown. The server is the last line: a value posted for a
+  locked row without its Replace box refuses the save, for every editor (with or without the reveal role) and every
+  stored secret (revealable or not). Residual (audit I3): Chrome's password manager snapshots a form before the
+  `submit` event, so a submit while the value is shown may expose the text field to its save heuristics (not testable
+  headless); the `data-*ignore` opt-outs cover 1Password, LastPass and Bitwarden only. Firefox session restore skips the field (password-typed input,
+  autocomplete off). Residual: browser extensions with page access can read the input while it is shown, as they can
+  read the 1.15 `<output>`.
+
 ## Logging
 
 - `info` "Instance settings saved." with section, changed **field names** and origin; for image fields also `files`
@@ -179,6 +205,24 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
 - `info` "Instance settings files purged." with the counts of marked and deleted images.
 - `info` "Instance configuration exported." / "… imported." with section names / changed keys and whether secrets
   were included.
+- `info` "Instance settings: secret revealed" with `<section>.<field>`, the actor's user identifier, the time and
+  whether a secret was stored; `warning` "Instance settings: secret reveal refused" with the same fields and the reason
+  (`forbidden`, `not_revealable`, `rate_limited`, `not_text`, `ui_gate`). The PSR-14 `SecretRevealedEvent` carries
+  the same names (1.15). Since 1.15.1 (audit N2 / N3) the refusal line names the resolved actor on every reason
+  (`ui_gate` included), logs only declared names (anything else is `key: unknown`), and is throttled per caller by
+  `security.reveal_rate_limiter` in a bucket of its own: `warning` while the caller has budget, `debug` past it. An
+  unauthenticated caller can no longer choose what the line says, and its warnings are capped **per caller**: the
+  budget belongs to a user identifier, else a client IP, so a caller rotating IPs gets a fresh budget for each one.
+  Pair the per-actor alert with an aggregate one, for example the count of `key: unknown` refusals per minute across
+  all callers. Each refused reveal (an unauthenticated `ui_gate` request included) also writes one entry to the
+  limiter's storage. Writing the line never decides anything and never throws: if the limiter storage or the logger
+  fails, the refusal keeps its 403 / 404 / 409 / 429 and a constant `error` line "Instance settings: secret reveal
+  refusal could not be logged" (with the reason only) is written when the logger still works (audit PJ-L1, PJ-L2).
+- **The actor is personal data.** `actor` is the raw user identifier the host's user provider returns — often an
+  e-mail address. It has been on the reveal line and in `SecretRevealedEvent` since 1.15.0 and, since 1.15.1, is on
+  every refusal line too. Cover these lines with your log retention and access rules. The identifier is passed as
+  structured context (the `actor` key), never interpolated into the message, so a processor can hash or drop it
+  (audit PJ-I3 / PJ-I4).
 - Never logged: values, secrets, uploaded file content. Exceptions carry reason codes and keys only.
 - `SettingsChangedEvent` carries field names only (plus old / new image hashes in `fileChanges`); hosts that write an
   audit trail record names and hashes, not values.
@@ -196,7 +240,8 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
 
 ## CSRF
 
-Applies (session-authenticated admin mutations): Symfony Forms with CSRF on every POST (section save, export, import),
+Applies (session-authenticated admin mutations): Symfony Forms with CSRF on every POST (section save, export, import,
+and since 1.15 the secret reveal, whose token id is `nowo_instance_settings_secret_reveal_<section>`),
 fail-closed container check, no `csrf_protection: false` on bundle forms. The CLI has no session and no CSRF.
 
 ## Dependencies and updates
