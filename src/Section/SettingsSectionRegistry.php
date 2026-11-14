@@ -42,12 +42,15 @@ final class SettingsSectionRegistry
      *                                     off) but `security.reveal_rate_limiter` is not set, so a field declaring
      *                                     `revealable: true` fails closed ({@see self::assertRevealIsRateLimited()}).
      *                                     False when the registry is built by hand, outside the container
+     * @param bool $expiryEnabled 1.17 `expiring_secrets.enabled`: without it the expiry table is not mapped and a field
+     *                            declaring `expires: true` fails closed (true when the registry is built by hand)
      */
     public function __construct(
         private readonly iterable $sections = [],
         private readonly ?array $gdInfo = null,
         private readonly bool $filesEnabled = true,
         private readonly bool $revealNeedsRateLimiter = false,
+        private readonly bool $expiryEnabled = true,
     ) {
     }
 
@@ -266,6 +269,9 @@ final class SettingsSectionRegistry
                 if ($field->secret && $field->revealable) {
                     // 1.15 (owner decision of 2026-11-13): a revealable secret is never served without a brake.
                     $this->assertRevealIsRateLimited($name, $field);
+                }
+                if ($field->expires && !$this->expiryEnabled) {
+                    throw new LogicException(sprintf('Instance settings section "%s" declares the expiring secret field "%s": set nowo_instance_settings.expiring_secrets.enabled: true (it maps the instance_setting_secret_expiry table; add the migration).', $name, $field->name));
                 }
                 if ($field->type === SettingType::Image) {
                     if (!$this->filesEnabled) {

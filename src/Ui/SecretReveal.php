@@ -33,12 +33,15 @@ final readonly class SecretReveal
      *                       stored secret through the same endpoint (shown in the row's read-only output, never in the input)
      * @param bool $toggleOnly `web_ui.reveal_toggle_only` (1.16): with `$onToggle`, rows that have the eye drop the
      *                         separate Reveal / Copy / Hide buttons
+     * @param bool $inInput `web_ui.reveal_in_input` (1.17): a row holding a stored secret is locked (read-only input,
+     *                      "Replace the stored value" to type a new one) and the eye shows the stored value in that input
      */
     public function __construct(
         public string $section,
         public array $urls,
         public bool $onToggle = false,
         public bool $toggleOnly = false,
+        public bool $inInput = false,
     ) {
     }
 
