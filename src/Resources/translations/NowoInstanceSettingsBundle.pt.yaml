@@ -164,3 +164,23 @@ reveal:
   not_stored: Não existe nenhum segredo guardado neste campo.
   toggle_show: Mostrar o valor guardado
   toggle_hide: Ocultar o valor guardado
+test:
+  button: 'Testar'
+  button_group: 'Testar %group%'
+  running: 'A testar os valores guardados…'
+  error: 'Não foi possível executar o teste.'
+  rate_limited: 'Demasiados testes. Tente novamente dentro de alguns minutos.'
+  busy: 'Já está a decorrer um teste desta secção.'
+  dirty: 'O teste usa os valores guardados: guarde primeiro para testar as suas alterações.'
+  summary: 'Último teste: %status% (%time%, %actor%)'
+  summary_anonymous: 'Último teste: %status% (%time%)'
+  status:
+    ok: 'Aprovado'
+    fail: 'Falhou'
+    skipped: 'Ignorado'
+  check:
+    tester: 'Teste'
+    redacted: 'Verificação'
+  hint:
+    exception: 'Não foi possível concluir o teste. Os detalhes estão no registo do servidor.'
+    redacted: 'Os detalhes foram ocultados porque correspondiam a um segredo guardado.'

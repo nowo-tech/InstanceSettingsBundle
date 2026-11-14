@@ -164,3 +164,23 @@ reveal:
   not_stored: No secret is stored for this field.
   toggle_show: Reveal stored value
   toggle_hide: Hide stored value
+test:
+  button: 'Test'
+  button_group: 'Test %group%'
+  running: 'Testing the stored values…'
+  error: 'The test could not be run.'
+  rate_limited: 'Too many tests. Try again in a few minutes.'
+  busy: 'A test of this section is already running.'
+  dirty: 'Test uses the stored values: save first to test your changes.'
+  summary: 'Last test: %status% (%time%, %actor%)'
+  summary_anonymous: 'Last test: %status% (%time%)'
+  status:
+    ok: 'Passed'
+    fail: 'Failed'
+    skipped: 'Skipped'
+  check:
+    tester: 'Test'
+    redacted: 'Check'
+  hint:
+    exception: 'The test could not complete. The details are in the server log.'
+    redacted: 'Details were hidden because they matched a stored secret.'

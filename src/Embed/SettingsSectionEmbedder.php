@@ -27,6 +27,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionNoticesInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
@@ -34,6 +35,9 @@ use Nowo\InstanceSettingsBundle\Ui\ImagePreview;
 use Nowo\InstanceSettingsBundle\Ui\SecretReveal;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
 use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
+use Nowo\InstanceSettingsBundle\Ui\SectionTestButton;
+use Nowo\InstanceSettingsBundle\Ui\SectionTestControls;
+use Nowo\InstanceSettingsBundle\Ui\SectionTestView;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Nowo\UiKitBundle\View\Label;
@@ -54,6 +58,7 @@ use Twig\Environment;
 
 use function array_keys;
 use function array_push;
+use function array_unshift;
 use function explode;
 use function http_build_query;
 use function implode;
@@ -101,6 +106,8 @@ final readonly class SettingsSectionEmbedder
      * @param bool $revealOnToggle `web_ui.reveal_on_toggle` (1.16): the PasswordToggle eye of a revealable row reveals
      *                             the stored secret (same endpoint and checks as the Reveal button)
      * @param bool $revealToggleOnly `web_ui.reveal_toggle_only` (1.16): with the eye, no separate Reveal / Copy / Hide buttons
+     * @param SectionTestRunner|null $tester section tests (1.18): the Test buttons of a section with a tester, for a user
+     *                                       who may test it; null = no Test button at all
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -121,6 +128,7 @@ final readonly class SettingsSectionEmbedder
         private ?SecretRevealer $revealer = null,
         private bool $revealOnToggle = false,
         private bool $revealToggleOnly = false,
+        private ?SectionTestRunner $tester = null,
     ) {
     }
 
@@ -320,6 +328,8 @@ final readonly class SettingsSectionEmbedder
             // 1.15: the Reveal control of the revealable secret rows (null = none, or the user may not reveal).
             'secret_reveal'  => $reveal,
             'section_groups' => $groups === [] ? null : SectionGroupTabs::build($section, $groups, $definition->getTranslationDomain(), $formView, $requestedGroup, $groupParameter),
+            // 1.18: the Test buttons (null = no tester, or the user may not test: the page is unchanged).
+            'section_test' => $this->sectionTest($section, $definition->getTranslationDomain()),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
         return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);
@@ -342,6 +352,37 @@ final readonly class SettingsSectionEmbedder
         }
 
         return new SecretReveal($section, $urls, $this->revealOnToggle, $this->revealOnToggle && $this->revealToggleOnly);
+    }
+
+    /**
+     * The Test buttons of `$section` (1.18): one per registered tester the current user may run, each with its last
+     * stored report, or null when the section has none (the page then carries no test markup at all). The permission is
+     * checked here only to decide whether the buttons are rendered; the endpoint checks it again.
+     */
+    private function sectionTest(string $section, string $domain): ?SectionTestControls
+    {
+        $groups = $this->tester?->testableGroups($section) ?? [];
+        if ($groups === [] || !$this->tester instanceof SectionTestRunner) {
+            return null;
+        }
+        $last    = $this->tester->lastReports($section);
+        $buttons = [];
+        foreach ($groups as $group) {
+            $resolved = $this->tester->group($section, $group);
+            $report   = $last[$group ?? ''] ?? null;
+            $button   = new SectionTestButton(
+                $group,
+                $resolved instanceof SettingsGroup ? new Label($resolved->labelKey($section), $resolved->translationDomain ?? $domain) : null,
+                $report === null ? null : SectionTestView::json($report, $domain, $this->translator),
+            );
+            if ($group === null) {
+                array_unshift($buttons, $button);
+            } else {
+                $buttons[] = $button;
+            }
+        }
+
+        return new SectionTestControls($section, $this->urlGenerator->generate(InstanceSettingsRoutes::TEST, ['section' => $section]), $domain, $buttons);
     }
 
     /**

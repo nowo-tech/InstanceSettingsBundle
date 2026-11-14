@@ -1,0 +1,44 @@
+{#
+  Test buttons of a section (1.18): one per registered tester the user may run (the whole section and / or one field
+  group), the result region of each and the hint shown while the form has unsaved changes.
+  Variable: section_test (Ui\SectionTestControls), set by the section page only when the section has a tester and the
+  user may test it (SectionTestRunner::canTest()). Host section templates include it the same way:
+  {{ include('@NowoInstanceSettingsBundle/settings/_section_test.html.twig') }}.
+  Optional: nonce (default the request attribute csp_nonce), bundle (UiKit class bundle of the page).
+
+  Test checks the STORED values (what Save wrote), never what is typed: Save is never blocked and never waits for a test.
+  Without JavaScript nothing is shown (the root stays hidden). The script (nowo-instance-settings-test.js) moves the
+  buttons beside the form's Save button and the root under its row, shows only the buttons of the open subtab (a group
+  tester) next to the section's own, POSTs to data-url with the section's CSRF token, and writes the answer into the
+  button's result region with textContent. Each result region is a polite live region (role="status").
+  Every text is a translation (keys and redacted parameters, never a value) and is escaped by Twig here and by
+  textContent in the script. turbo:before-cache and pagehide clear the results, the hint and any call in flight.
+  No inline handler and no style attribute (strict CSP safe).
+#}
+{%- set _b = bundle|default(null) -%}
+{%- set _request = app is defined and app ? app.request : null -%}
+{%- set _nonce = nonce|default(_request ? _request.attributes.get('csp_nonce') : null) -%}
+{%- set _id = 'nowo-instance-settings-test-' ~ section_test.section -%}
+<div id="{{ _id }}" class="nowo-instance-settings-test" data-nowo-instance-settings-test-root data-section="{{ section_test.section }}" data-url="{{ section_test.url }}" data-token="{{ csrf_token(section_test.tokenId) }}" data-running-label="{{ 'test.running'|trans({}, 'NowoInstanceSettingsBundle') }}" data-error-label="{{ 'test.error'|trans({}, 'NowoInstanceSettingsBundle') }}" data-testid="instance-settings-test" hidden>
+    <span class="nowo-instance-settings-test__buttons" data-nowo-instance-settings-test-buttons data-root="{{ _id }}">
+        {%- for button in section_test.buttons %}
+        <button type="button" class="{{ nowo_ui_class('btn_secondary', _b) }}" id="{{ _id }}-button-{{ button.idSuffix }}" data-nowo-instance-settings-test-button data-root="{{ _id }}" data-group="{{ button.group ?? '' }}" aria-controls="{{ _id }}-result-{{ button.idSuffix }}" data-testid="instance-settings-test-button">
+            {{- button.groupLabel is null ? 'test.button'|trans({}, 'NowoInstanceSettingsBundle') : 'test.button_group'|trans({'%group%': button.groupLabel|nowo_ui_trans}, 'NowoInstanceSettingsBundle') -}}
+        </button>
+        {%- endfor %}
+    </span>
+    <p class="nowo-instance-settings-test__dirty" data-nowo-instance-settings-test-dirty data-testid="instance-settings-test-dirty" hidden>{{ 'test.dirty'|trans({}, 'NowoInstanceSettingsBundle') }}</p>
+    {%- for button in section_test.buttons %}
+    <div class="nowo-instance-settings-test__result" id="{{ _id }}-result-{{ button.idSuffix }}" role="status" aria-live="polite" data-nowo-instance-settings-test-result data-group="{{ button.group ?? '' }}" data-testid="instance-settings-test-result">
+        {%- if button.last %}
+        <p class="nowo-instance-settings-test__summary" data-status="{{ button.last.status }}">{{ button.last.summary }}</p>
+        <ul class="nowo-instance-settings-test__checks">
+            {%- for check in button.last.checks %}
+            <li class="nowo-instance-settings-test__check" data-status="{{ check.status }}"><span class="nowo-instance-settings-test__badge">{{ check.statusLabel }}</span> <span class="nowo-instance-settings-test__label">{{ check.label }}</span>{% if check.hint is not null %} <span class="nowo-instance-settings-test__hint">{{ check.hint }}</span>{% endif %}</li>
+            {%- endfor %}
+        </ul>
+        {%- endif %}
+    </div>
+    {%- endfor %}
+</div>
+<script src="{{ asset('bundles/nowoinstancesettings/js/nowo-instance-settings-test.js') }}" defer{% if _nonce %} nonce="{{ _nonce }}"{% endif %} data-nowo-instance-settings-test-script></script>

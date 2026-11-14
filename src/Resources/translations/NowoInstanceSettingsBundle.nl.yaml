@@ -164,3 +164,23 @@ reveal:
   not_stored: Er is geen geheim opgeslagen voor dit veld.
   toggle_show: Opgeslagen waarde weergeven
   toggle_hide: Opgeslagen waarde verbergen
+test:
+  button: 'Testen'
+  button_group: '%group% testen'
+  running: 'Opgeslagen waarden worden getest…'
+  error: 'De test kon niet worden uitgevoerd.'
+  rate_limited: 'Te veel tests. Probeer het over een paar minuten opnieuw.'
+  busy: 'Er loopt al een test van deze sectie.'
+  dirty: 'De test gebruikt de opgeslagen waarden: sla eerst op om je wijzigingen te testen.'
+  summary: 'Laatste test: %status% (%time%, %actor%)'
+  summary_anonymous: 'Laatste test: %status% (%time%)'
+  status:
+    ok: 'Geslaagd'
+    fail: 'Mislukt'
+    skipped: 'Overgeslagen'
+  check:
+    tester: 'Test'
+    redacted: 'Controle'
+  hint:
+    exception: 'De test kon niet worden voltooid. De details staan in het serverlogboek.'
+    redacted: 'Details zijn verborgen omdat ze overeenkwamen met een opgeslagen geheim.'

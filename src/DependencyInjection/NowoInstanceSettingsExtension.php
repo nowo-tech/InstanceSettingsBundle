@@ -12,6 +12,7 @@ use Nowo\Brand\Contract\BrandProviderInterface;
 use Nowo\DoctrineEncryptBundle\Encryptors\EncryptorRegistry;
 use Nowo\DoctrineEncryptBundle\Util\EncryptUtil;
 use Nowo\InstanceSettingsBundle\Attribute\AsSettingsSection;
+use Nowo\InstanceSettingsBundle\Attribute\AsSettingsTester;
 use Nowo\InstanceSettingsBundle\Brand\AppearanceSection;
 use Nowo\InstanceSettingsBundle\Brand\BrandDefaults;
 use Nowo\InstanceSettingsBundle\Brand\BrandErrorIllustrationProvider;
@@ -69,6 +70,9 @@ use Nowo\InstanceSettingsBundle\Secret\SecretSealerInterface;
 use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTesterRegistry;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
@@ -207,7 +211,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -234,6 +238,10 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->registerForAutoconfiguration(PortabilityProviderInterface::class)->addTag(NowoInstanceSettingsBundle::PORTABILITY_PROVIDER_TAG);
         $container->registerAttributeForAutoconfiguration(AsSettingsSection::class, static function (ChildDefinition $definition, AsSettingsSection $attribute): void {
             $definition->addTag(NowoInstanceSettingsBundle::SECTION_TAG, ['priority' => $attribute->priority]);
+        });
+        // 1.18: #[AsSettingsTester(section:, group:)] registers a section tester (SettingsTesterPass collects them).
+        $container->registerAttributeForAutoconfiguration(AsSettingsTester::class, static function (ChildDefinition $definition, AsSettingsTester $attribute): void {
+            $definition->addTag(NowoInstanceSettingsBundle::TESTER_TAG, ['section' => $attribute->section, 'group' => $attribute->group]);
         });
 
         // brand.enabled (1.5) implies the files (its image fields need the file table).
@@ -714,7 +722,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * @param array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool} $security
+     * @param array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool} $security
      */
     private function registerAccess(ContainerBuilder $container, array $security): void
     {
@@ -733,6 +741,11 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // entry), so a secret is revealable only by the roles the host named for it (ROLE_DEVELOPER by default;
             // an empty list refuses every reveal).
             $areaRoles[InstanceSettingsAccessCheckerInterface::AREA_REVEAL] = Configuration::roles($security['reveal_roles']);
+            // 1.18: the test area exists only when the host set security.test_roles (else the section's own area decides).
+            $testRoles = $security['test_roles'] ?? null;
+            if ($testRoles !== null) {
+                $areaRoles[InstanceSettingsAccessCheckerInterface::AREA_TEST] = Configuration::roles($testRoles);
+            }
             $container->setDefinition(ConfigurableInstanceSettingsAccessChecker::class, new Definition(ConfigurableInstanceSettingsAccessChecker::class, [
                 new Reference('security.authorization_checker', ContainerInterface::NULL_ON_INVALID_REFERENCE),
                 Configuration::roles($security['access_roles']),
@@ -772,7 +785,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}} $config
+     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}} $config
      */
     private function registerWebUi(ContainerBuilder $container, array $config): void
     {
@@ -786,6 +799,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             null,
             new Reference(SettingsSectionRegistry::class),
             $config['files']['path_prefix'],
+            // 1.18: set by SettingsTesterPass (true once a section tester is registered).
+            '%' . InstanceSettingsRouteLoader::SECTION_TESTS_PARAMETER . '%',
         ]))->addTag('routing.loader'));
 
         if (!$webUi['enabled']) {
@@ -853,6 +868,32 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(RevealRefusalLog::class),
         ]))->setPublic(true));
 
+        // 1.18: the section Test button — the testers (filled by SettingsTesterPass), the reports / markers / rate
+        // windows in the settings store, and the runner (public: a host action can run a test with the same checks).
+        $container->setDefinition(SectionTesterRegistry::class, new Definition(SectionTesterRegistry::class, [
+            [],
+            null,
+            new Reference(SettingsSectionRegistry::class),
+        ]));
+        $container->setDefinition(SectionTestStore::class, new Definition(SectionTestStore::class, [
+            new Reference(SettingValueRepositoryInterface::class),
+        ]));
+        $testRateLimiter = $config['security']['test_rate_limiter'] ?? null;
+        $container->setDefinition(SectionTestRunner::class, (new Definition(SectionTestRunner::class, [
+            new Reference(SectionTesterRegistry::class),
+            new Reference(SettingsSectionRegistry::class),
+            new Reference(InstanceSettingsInterface::class),
+            new Reference(AccessGuard::class),
+            new Reference(SectionTestStore::class),
+            ($config['security']['test_roles'] ?? null) !== null,
+            $testRateLimiter === null || $testRateLimiter === '' ? null : new Reference($testRateLimiter),
+            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            '%kernel.secret%',
+            new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->setPublic(true));
+
         // 1.6 (IS-1): the section page, shared by the bundle route and host embeds (public: hosts fetch it in their
         // own controllers by autowiring).
         $container->setDefinition(SettingsSectionEmbedder::class, (new Definition(SettingsSectionEmbedder::class, [
@@ -880,6 +921,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // 1.16: the PasswordToggle eye of a revealable row reveals the stored secret (opt-in).
             $webUi['reveal_on_toggle'] ?? false,
             $webUi['reveal_toggle_only'] ?? false,
+            // 1.18: the Test buttons of a section with a tester (rendered only for a user who may test).
+            new Reference(SectionTestRunner::class),
         ]))->setPublic(true));
 
         // REQ-SF-004 rule 7: not autoconfigured (no `routing.controller` tag from #[Route]); the routes come only from
@@ -895,6 +938,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference(SettingsSectionEmbedder::class),
             new Reference(SecretRevealer::class),
+            new Reference(SectionTestRunner::class),
         ]))
             ->setAutowired(true)
             ->setAutoconfigured(false)
@@ -912,7 +956,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      * (dev / demo) or a custom `access_checker` always count as possible, because then the bundle cannot tell. A host
      * with no revealable field never reaches the check, so nothing changes for it: no error, no dependency.
      *
-     * @param array{web_ui: array{enabled: bool}, security: array{reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}} $config
+     * @param array{web_ui: array{enabled: bool}, security: array{reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}} $config
      */
     public static function revealNeedsRateLimiter(array $config): bool
     {

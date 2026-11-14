@@ -76,6 +76,14 @@ final class SettingsControllerTest extends TestCase
         $controller->revealSecret(new Request(), 'mailer', 'dsn');
     }
 
+    public function testAHandBuiltControllerNeverRunsASectionTest(): void
+    {
+        // 1.18: the test needs the SectionTestRunner service; a controller built with an older signature never tests.
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('needs the SectionTestRunner service');
+        $this->handBuilt()->testSection(new Request(), 'mailer');
+    }
+
     public function testAHandBuiltControllerStillServesTheSectionPage(): void
     {
         // 1.5 constructor signature (no embedder): section() builds the same embedder from its service locator.

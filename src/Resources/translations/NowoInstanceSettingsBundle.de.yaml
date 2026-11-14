@@ -164,3 +164,23 @@ reveal:
   not_stored: Für dieses Feld ist kein Geheimnis gespeichert.
   toggle_show: Gespeicherten Wert anzeigen
   toggle_hide: Gespeicherten Wert verbergen
+test:
+  button: 'Testen'
+  button_group: '%group% testen'
+  running: 'Gespeicherte Werte werden getestet…'
+  error: 'Der Test konnte nicht ausgeführt werden.'
+  rate_limited: 'Zu viele Tests. Versuchen Sie es in einigen Minuten erneut.'
+  busy: 'Für diesen Bereich läuft bereits ein Test.'
+  dirty: 'Der Test verwendet die gespeicherten Werte: Speichern Sie zuerst, um Ihre Änderungen zu testen.'
+  summary: 'Letzter Test: %status% (%time%, %actor%)'
+  summary_anonymous: 'Letzter Test: %status% (%time%)'
+  status:
+    ok: 'Bestanden'
+    fail: 'Fehlgeschlagen'
+    skipped: 'Übersprungen'
+  check:
+    tester: 'Test'
+    redacted: 'Prüfung'
+  hint:
+    exception: 'Der Test konnte nicht abgeschlossen werden. Details stehen im Serverprotokoll.'
+    redacted: 'Details wurden ausgeblendet, weil sie einem gespeicherten Geheimnis entsprachen.'

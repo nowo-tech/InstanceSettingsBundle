@@ -16,9 +16,11 @@ use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
+use Nowo\InstanceSettingsBundle\Ui\SectionTestView;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -33,6 +35,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -41,6 +44,7 @@ use Twig\Environment;
 use function array_keys;
 use function count;
 use function date;
+use function is_string;
 use function json_encode;
 
 use const JSON_PRETTY_PRINT;
@@ -64,6 +68,9 @@ final class SettingsController extends AbstractController
     /** Request body parameter carrying the CSRF token of a reveal call (1.15). */
     public const REVEAL_TOKEN_FIELD = '_token';
 
+    /** Request body parameter naming the field group of a section test (1.18; absent or empty = the whole section). */
+    public const TEST_GROUP_FIELD = 'group';
+
     /**
      * @param InstanceSettingsInterface $settings used only to build the section page when no embedder is given
      * @param bool $portabilityEnabled `portability.web_ui` (import / export page)
@@ -72,6 +79,8 @@ final class SettingsController extends AbstractController
      *                                               one from this controller's arguments and its service locator
      * @param SecretRevealer|null $revealer secret reveal (1.15; wired by the extension). Null (a controller built by
      *                                      hand with an older signature): {@see self::revealSecret()} refuses to run
+     * @param SectionTestRunner|null $tester section tests (1.18; wired by the extension). Null (a controller built by
+     *                                       hand with an older signature): {@see self::testSection()} refuses to run
      */
     public function __construct(
         private readonly SettingsSectionRegistry $registry,
@@ -84,6 +93,7 @@ final class SettingsController extends AbstractController
         private readonly ?TranslatorInterface $translator = null,
         private readonly ?SettingsSectionEmbedder $embedder = null,
         private readonly ?SecretRevealer $revealer = null,
+        private readonly ?SectionTestRunner $tester = null,
     ) {
     }
 
@@ -155,6 +165,43 @@ final class SettingsController extends AbstractController
         return $this->noStore($value === null
             ? new JsonResponse(['key' => $key, 'error' => 'not_stored'], Response::HTTP_NOT_FOUND)
             : new JsonResponse(['key' => $key, 'value' => $value]));
+    }
+
+    /**
+     * Tests the STORED values of a section, or of one of its field groups (1.18, POST + the section's CSRF token): the
+     * Test button beside Save. Save never waits for it and never depends on it.
+     *
+     * The checks are {@see SectionTestRunner}'s (UI gate, section area, `security.test_roles` when set, a registered
+     * tester for exactly that section and group, the rate limit, one test at a time per section and actor) plus the
+     * section form's own CSRF token, all on the server. The body carries `_token` and, for a group tester, `group`.
+     * The answer is the stored report, translated: `{"section", "group", "status", "statusLabel", "testedAt",
+     * "summary", "checks": [{"status", "statusLabel", "label", "hint"}]}` — translation keys and redacted parameters
+     * only, never a setting value, never cacheable. A refused rate limit answers 429 and a test already running 409,
+     * both `{"error": "rate_limited"|"busy", "message"}`.
+     */
+    #[Route(path: '/sections/{section}/test', name: InstanceSettingsRoutes::TEST, requirements: ['section' => '[a-z][a-z0-9_]{0,63}'], methods: ['POST'])]
+    public function testSection(Request $request, string $section): JsonResponse
+    {
+        if (!$this->tester instanceof SectionTestRunner) {
+            throw new LogicException('SettingsController::testSection() needs the SectionTestRunner service (pass it to the constructor).');
+        }
+        $group = $request->request->get(self::TEST_GROUP_FIELD);
+        $group = is_string($group) && $group !== '' ? $group : null;
+        // The roles and a registered tester first, then the section's CSRF token, so a forged request never runs a test.
+        $this->tester->assertTestable($section, $group);
+        if (!$this->isCsrfTokenValid(SettingsSectionEmbedder::CSRF_TOKEN_PREFIX . $section, (string) $request->request->get(self::REVEAL_TOKEN_FIELD))) {
+            throw new AccessDeniedHttpException('Invalid CSRF token.');
+        }
+
+        try {
+            $report = $this->tester->run($section, $group);
+        } catch (TooManyRequestsHttpException $e) {
+            return $this->noStore(new JsonResponse(['error' => SectionTestRunner::REASON_RATE_LIMITED, 'message' => $this->trans('test.rate_limited')], Response::HTTP_TOO_MANY_REQUESTS, $e->getHeaders()));
+        } catch (ConflictHttpException) {
+            return $this->noStore(new JsonResponse(['error' => SectionTestRunner::REASON_BUSY, 'message' => $this->trans('test.busy')], Response::HTTP_CONFLICT));
+        }
+
+        return $this->noStore(new JsonResponse(SectionTestView::json($report, $this->registry->get($section)->getTranslationDomain(), $this->translator)));
     }
 
     /**
@@ -324,7 +371,7 @@ final class SettingsController extends AbstractController
     }
 
     /**
-     * Marks a response as never cacheable and never indexed: a revealed secret must not be stored anywhere
+     * Marks a response as never cacheable and never indexed: a revealed secret (or a test report) must not be stored anywhere
      * (`no-store`, private, `nosniff`, no referrer).
      */
     private function noStore(JsonResponse $response): JsonResponse

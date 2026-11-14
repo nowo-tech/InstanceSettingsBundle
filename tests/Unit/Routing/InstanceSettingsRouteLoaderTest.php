@@ -13,6 +13,7 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\GeneralFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ImageFixtureSection;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use Symfony\Component\DependencyInjection\Config\ContainerParametersResource;
 
 final class InstanceSettingsRouteLoaderTest extends TestCase
 {
@@ -37,9 +38,23 @@ final class InstanceSettingsRouteLoaderTest extends TestCase
         self::assertSame(['POST'], $reveal->getMethods());
         self::assertSame('[a-z][a-z0-9_]{0,63}', $reveal->getRequirement('field'));
         self::assertCount(6, $routes);
+        // 1.18: without a section tester the test route is not mounted; the flag is a cache resource of the routes.
+        self::assertNull($routes->get(InstanceSettingsRoutes::TEST));
+        self::assertContainsEquals(new ContainerParametersResource([InstanceSettingsRouteLoader::SECTION_TESTS_PARAMETER => false]), $routes->getResources());
 
         $this->expectException(RuntimeException::class);
         $loader->load('.', 'nowo_instance_settings');
+    }
+
+    public function testTheSectionTestRouteOnlyWithATester(): void
+    {
+        $routes = (new InstanceSettingsRouteLoader(true, '/admin/settings', sectionTests: true))->load('.', 'nowo_instance_settings');
+        $test   = $routes->get(InstanceSettingsRoutes::TEST);
+        self::assertNotNull($test);
+        self::assertSame('/admin/settings/sections/{section}/test', $test->getPath());
+        self::assertSame(['POST'], $test->getMethods());
+        self::assertSame(SettingsController::class . '::testSection', $test->getDefault('_controller'));
+        self::assertCount(7, $routes);
     }
 
     public function testFileRouteOnlyWithImageFields(): void

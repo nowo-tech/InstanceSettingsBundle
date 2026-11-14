@@ -32,6 +32,7 @@ use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
 use Nowo\InstanceSettingsBundle\Security\ConfigurableInstanceSettingsAccessChecker;
@@ -164,6 +165,15 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertSame(['mailer' => ['ROLE_SUPER_ADMIN'], '_portability' => ['ROLE_ADMIN'], '_reveal' => ['ROLE_DEVELOPER']], $areas->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
         $revealRoles = $this->load(['security' => ['reveal_roles' => [' ROLE_OPS ', '']]], withSecurity: true);
         self::assertSame(['_reveal' => ['ROLE_OPS']], $revealRoles->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
+
+        // 1.18: the test area exists only when security.test_roles is set.
+        $testRoles = $this->load(['security' => ['test_roles' => [' ROLE_OPS ']]], withSecurity: true);
+        self::assertSame(['_reveal' => ['ROLE_DEVELOPER'], '_test' => ['ROLE_OPS']], $testRoles->getDefinition(ConfigurableInstanceSettingsAccessChecker::class)->getArgument(2));
+        self::assertTrue($testRoles->getDefinition(SectionTestRunner::class)->getArgument(5));
+        self::assertFalse($revealRoles->getDefinition(SectionTestRunner::class)->getArgument(5));
+        self::assertNull($revealRoles->getDefinition(SectionTestRunner::class)->getArgument(6), 'the built-in rate limit');
+        $limited = $this->load(['security' => ['test_rate_limiter' => 'limiter.tests']], withSecurity: true);
+        self::assertSame('limiter.tests', (string) $limited->getDefinition(SectionTestRunner::class)->getArgument(6));
 
         // Without an explicit _portability area: fine with a custom checker or without the import / export page.
         $this->load(['security' => ['area_roles' => ['mailer' => ['ROLE_X']], 'access_checker' => 'app.checker']], withSecurity: true);

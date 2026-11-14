@@ -12,6 +12,7 @@ use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddleware
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsSectionPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsTesterPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\TwigPathsPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\UnauthenticatedAccessPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
@@ -38,6 +39,9 @@ final class NowoInstanceSettingsBundle extends Bundle
     /** Service tag of the settings sections ({@see Section\SettingsSectionInterface}). */
     public const SECTION_TAG = 'nowo_instance_settings.section';
 
+    /** Service tag of the section testers (1.18, {@see SectionTest\SettingsSectionTesterInterface}, set by {@see Attribute\AsSettingsTester}). */
+    public const TESTER_TAG = 'nowo_instance_settings.tester';
+
     /** Service tag of the portability providers ({@see Portability\PortabilityProviderInterface}). */
     public const PORTABILITY_PROVIDER_TAG = 'nowo_instance_settings.portability_provider';
 
@@ -56,6 +60,8 @@ final class NowoInstanceSettingsBundle extends Bundle
         $container->addCompilerPass(new BrandBridgePass());
         // Before the tagged iterators are resolved (PassConfig::TYPE_BEFORE_OPTIMIZATION, priority 10).
         $container->addCompilerPass(new SettingsSectionPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
+        // 1.18: the section testers (service locator + the test route), before the service locators are resolved.
+        $container->addCompilerPass(new SettingsTesterPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
         // Before DoctrineBundle's MiddlewaresPass (priority 0): the middleware follows the bundle's connection only.
         $container->addCompilerPass(new FileStoreMiddlewarePass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, 10);
         // 1.11 (rule 6): with doctrine.entity_manager, the entities are mapped on that manager (not prepended to the
