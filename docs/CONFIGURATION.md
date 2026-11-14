@@ -11,8 +11,10 @@
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
+  - [Containers and volumes](#containers-and-volumes)
   - [Crop step](#crop-step)
 - [seed](#seed)
+  - [Missing seed files](#missing-seed-files)
   - [Seed file format](#seed-file-format)
   - [Host-side importer API](#host-side-importer-api)
 - [brand](#brand)
@@ -427,6 +429,59 @@ Behaviour:
   `.gitignore` as well (covers checkouts made before the first save, and directories created by 1.7.0). Variants and
   metadata are regenerated when the image is saved or seeded.
 
+### Containers and volumes
+
+The store directory is meant to be a persistent volume in production, and that has a consequence for committed seed
+files. If your seed file points at images **inside** `files.directory` (the layout of the example above:
+`instance-files/brand/logo_light.png` next to `config/instance-seed.yaml`), the images only exist in production if they
+are in the volume.
+
+- **A new image does not refresh a volume.** A Docker named volume mounted on `files.directory` is filled from the image
+  only when the volume is first created (and only while it is empty). Files added to that directory in a later commit
+  and shipped in a newer image never reach the existing volume: the mount hides the image's copy.
+- **The bundle does not sync anything.** It reads and writes the directory only; it never copies seed images into it.
+- **The seed then fails.** `nowo:instance-settings:seed` resolves every `files` path with `realpath()`; a file that is
+  not in the volume gives `path_not_found` for that field, and the **whole run is refused** (see
+  [Missing seed files](#missing-seed-files)).
+
+Options:
+
+1. **Sync before seeding.** In the deploy, copy the image's files into the volume before the seed command, without
+   overwriting what the admin uploaded since (`cp -n`, or `rsync -a --ignore-existing`):
+
+   ```bash
+   # from the new image to the volume, then seed (the volume is mounted at the same path in both)
+   docker compose run --rm app sh -c 'cp -Rn /app/config/instance-files.dist/. /app/config/instance-files/'
+   docker compose run --rm app php bin/console nowo:instance-settings:seed
+   ```
+
+   This needs the image to carry the files **outside** the mounted path (here `instance-files.dist`), because the
+   mounted directory shows the volume, not the image.
+2. **Keep the seed sources outside the store directory.** Seed paths are relative to the seed file and only have to
+   resolve inside `seed.base_dir`; they do not have to be in `files.directory`. Put the committed images in a directory
+   that is not a volume (for example `config/seed-assets/`, shipped in the image), point the seed file at them and keep
+   `files.directory` for the stored copies:
+
+   ```yaml
+   # config/instance-seed.yaml (next to config/seed-assets/)
+   files:
+       brand:
+           logo_light: seed-assets/brand/logo_light.png
+   ```
+
+   The seed copies the bytes into the store (re-encoded, or adopted when a valid file already sits at the field's
+   stable path), so the image is the source of truth for the seed and the volume only holds the result. There is no
+   separate "seed source directory" option: it is simply the seed file's own directory, confined to `seed.base_dir`.
+   The default `seed.base_dir` is `%kernel.project_dir%`, which already covers both directories.
+3. **Bind-mount** the host directory (for example `./config/instance-files:/app/config/instance-files`) instead of
+   using a named volume. The files are then whatever is on the host at deploy time, so update the host checkout before
+   the seed. Mind the file ownership and the umask, as for any shared directory.
+
+Deploy order (with a persistent store directory): update the image or checkout, sync seed files into the volume
+(option 1, if you use it), run the database migrations, run `nowo:instance-settings:seed --dry-run` (exit code 1 on any
+missing or invalid file, nothing written), then `nowo:instance-settings:seed`, then start or restart the application.
+Run the dry run in the same container and with the same mounts as the real run, so it sees the same files.
+
 ### Crop step
 
 1.8 (owner decision D-20261109-09). `files.crop` puts UiKit's image crop step (UiKit 2.43) on the file input of every
@@ -513,6 +568,19 @@ Rules:
   like a save: one `Instance settings saved.` log line and one `SettingsChangedEvent` per section with origin `seed`
   and `fileChanges` (`old: null`, `new: <sha256>`), dispatched after the commit, then one summary line. Output, report
   and logs carry names and reason codes only.
+
+### Missing seed files
+
+Every path of the `files` tree is resolved (relative to the seed file's directory, `realpath()`, inside `base_dir`)
+**before anything is written**, and the check happens even for a field that already holds an image (the path is
+resolved first, then the field is found to be stored and skipped). A path that does not exist gives, for that field,
+`<section>.<field>: path_not_found (The file does not exist.)`. All entries are still checked, so the output lists
+every missing file at once, but then the command prints `Seed refused; nothing was written.` and exits **1**: one
+missing image aborts the whole seed, including the plain `settings` values of the file, because validation is
+all-or-nothing. A missing seed file given as the argument or `seed.file` is refused the same way (key `file`). There is
+no option to skip or only warn about missing files. A deploy that runs the seed as a step therefore fails; see
+[Containers and volumes](#containers-and-volumes) for the usual cause when the store directory is a volume, and use
+`--section=` only to exclude whole sections, not to ignore a missing file inside one you seed.
 
 ### Seed file format
 

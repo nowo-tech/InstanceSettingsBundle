@@ -31,6 +31,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Documentation
+
+- **Seed files under a volume-mounted store directory.** New "Containers and volumes" (filesystem store) and "Missing
+  seed files" (seed command) notes in `CONFIGURATION.md`: a Docker named volume on `files.directory` is filled from the
+  image only when it is created, so seed images committed later never reach it and `nowo:instance-settings:seed` is
+  refused (`path_not_found`, exit 1, nothing written). Options: sync before seeding, keep seed sources outside the
+  store directory, bind mount; recommended deploy order.
+
 ## [1.15.0] - 2026-11-13
 
 ### Added
