@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.16.0](#to-1160)
 - [To 1.15.1](#to-1151)
 - [To 1.15.0](#to-1150)
 - [To 1.14.1](#to-1141)
@@ -36,6 +37,31 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.16.0
+
+Nothing to do: every new option defaults to the behaviour of 1.15.
+
+- **Tab icons of the bundle's sections.** `brand` now declares `tabler:palette` and `appearance`
+  `tabler:layout-dashboard`. With the `tabler-icons` or `ux_icon` icon set (and a `data-tab-style` that shows icons)
+  their tabs gain an icon; with `bootstrap-icons` or `none` they render as before. To change or drop the look, set
+  `web_ui.section_icons.brand` / `.appearance` (an icon string; the tab cannot be set back to "no icon" from config).
+- **`web_ui.section_icons`** (new, default `{}`): section name => icon, overriding or filling any section's
+  `getIcon()`. Values must be a canonical UiKit kind or a `prefix:name` icon; names must be lower snake case.
+- **`web_ui.navigation_hidden`** (new, default `[]`): sections left out of the bundle page's tab bar and of the
+  "first section" redirect. Presentation only — access, exports, embeds and the section's own URL are unchanged. A
+  host that hid a section by denying its area to everybody (`area_roles`) only to keep it out of the tab bar can
+  now use this instead; one that denies it for real must keep `area_roles`. Example (Symfony Beacon):
+  `navigation_hidden: [brand, appearance]`.
+- Unknown section names in both options are ignored with a `debug` log line, never an error.
+- **`web_ui.reveal_on_toggle`** (new, default `false`) and **`web_ui.reveal_toggle_only`** (default `false`): the
+  PasswordToggle eye of a revealable secret row reveals the stored secret through the existing reveal endpoint; see
+  [CONFIGURATION](CONFIGURATION.md#revealing-from-the-password-eye-116). Run `assets:install` so the updated
+  `nowo-instance-settings-reveal.js` is served. Two new translation keys (`reveal.toggle_show`, `reveal.toggle_hide`)
+  exist in the seven bundled locales; override them in your translations if needed.
+- **PHP API.** `SettingsPageFactory` takes an optional third argument `SectionNavigation` and has `navigation()`;
+  `SecretReveal` takes optional `onToggle` / `toggleOnly`; `SettingsSectionEmbedder` takes two optional trailing
+  booleans. Code constructing them by hand keeps working.
 
 ## To 1.15.1
 

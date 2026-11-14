@@ -51,6 +51,9 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
     /** Section name. */
     public const NAME = 'appearance';
 
+    /** Tab icon (1.16; a UiKit prefixed icon name, rendered by the tabler-icons and ux_icon sets). */
+    public const ICON = 'tabler:layout-dashboard';
+
     /** Accepted stored colour. */
     public const COLOR_PATTERN = '/^#[0-9a-fA-F]{6}$/D';
 
@@ -114,6 +117,14 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
     public function getIntro(): string
     {
         return 'appearance.section.intro';
+    }
+
+    /**
+     * `tabler:layout-dashboard` (1.16): the tab icon; `web_ui.section_icons.brand` overrides it.
+     */
+    public function getIcon(): string
+    {
+        return self::ICON;
     }
 
     /**

@@ -162,3 +162,5 @@ reveal:
   copied: Gekopieerd
   error: Het geheim kon niet worden weergegeven.
   not_stored: Er is geen geheim opgeslagen voor dit veld.
+  toggle_show: Opgeslagen waarde weergeven
+  toggle_hide: Opgeslagen waarde verbergen

@@ -19,11 +19,54 @@ final class ConfigurationTest extends TestCase
         $config = $this->process([]);
 
         self::assertSame(['table_prefix' => '', 'entity_manager' => null], $config['doctrine']);
-        self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'hidden_secrets' => 'drop', 'hidden_secrets_notice' => false, 'unlayered_styles' => false, 'section_layout' => 'stacked', 'section_group_parameter' => 'settings_group', 'templates' => []], $config['web_ui']);
+        self::assertSame(['enabled' => true, 'path_prefix' => '/admin/settings', 'layout_template' => null, 'hidden_secrets' => 'drop', 'hidden_secrets_notice' => false, 'unlayered_styles' => false, 'section_layout' => 'stacked', 'section_group_parameter' => 'settings_group', 'templates' => [], 'section_icons' => [], 'navigation_hidden' => [], 'reveal_on_toggle' => false, 'reveal_toggle_only' => false], $config['web_ui']);
         self::assertSame(['access_roles' => ['ROLE_ADMIN'], 'area_roles' => [], 'reveal_roles' => ['ROLE_DEVELOPER'], 'reveal_rate_limiter' => null, 'access_checker' => null, 'allow_unauthenticated' => false], $config['security']);
         self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true, 'max_file_bytes' => 8_388_608], $config['portability']);
         self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files', 'crop' => ['enabled' => false, 'shape' => null, 'quality' => null, 'labels' => []]], $config['files']);
         self::assertSame(['file' => null, 'base_dir' => '%kernel.project_dir%'], $config['seed']);
+    }
+
+    public function testSectionIconsAndHiddenNavigation(): void
+    {
+        // 1.16: Beacon's use: brand and appearance embedded elsewhere, hidden from the bundle tab bar.
+        $config = $this->process(['web_ui' => [
+            'section_icons'     => ['brand' => 'tabler:palette', 'mailer' => 'config', 'sms_bridge' => 'bi:chat-dots', 'other' => 'filter_off'],
+            'navigation_hidden' => ['brand', 'appearance'],
+        ]])['web_ui'];
+        self::assertSame(['brand' => 'tabler:palette', 'mailer' => 'config', 'sms_bridge' => 'bi:chat-dots', 'other' => 'filter_off'], $config['section_icons']);
+        self::assertSame(['brand', 'appearance'], $config['navigation_hidden']);
+
+        $invalid = [
+            ['section_icons' => ['brand' => '']],
+            ['section_icons' => ['brand' => 'Tabler:Palette']],
+            ['section_icons' => ['brand' => 'ti ti-palette']],
+            ['section_icons' => ['brand' => 'a:b:c']],
+            ['section_icons' => ['brand' => '<svg>']],
+            ['section_icons' => ['brand' => 3]],
+            ['section_icons' => ['Brand' => 'config']],
+            ['section_icons' => ['brand-x' => 'config']],
+            ['navigation_hidden' => ['Brand']],
+            ['navigation_hidden' => ['']],
+            ['navigation_hidden' => ['../x']],
+        ];
+        foreach ($invalid as $webUi) {
+            try {
+                $this->process(['web_ui' => $webUi]);
+                self::fail('Expected an invalid web_ui configuration: ' . json_encode($webUi));
+            } catch (InvalidConfigurationException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function testRevealOnToggle(): void
+    {
+        $config = $this->process(['web_ui' => ['reveal_on_toggle' => true, 'reveal_toggle_only' => true]])['web_ui'];
+        self::assertTrue($config['reveal_on_toggle']);
+        self::assertTrue($config['reveal_toggle_only']);
+
+        $this->expectException(InvalidConfigurationException::class);
+        $this->process(['web_ui' => ['reveal_on_toggle' => 'yes']]);
     }
 
     public function testCropConfiguration(): void

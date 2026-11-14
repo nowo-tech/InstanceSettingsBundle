@@ -6,8 +6,10 @@
 - [doctrine](#doctrine)
 - [web_ui](#web_ui)
   - [Layout and CSS stack (UiKit)](#layout-and-css-stack-uikit)
+  - [Section icons and hidden sections (1.16)](#section-icons-and-hidden-sections-116)
 - [security](#security)
   - [Revealing a stored secret (1.15)](#revealing-a-stored-secret-115)
+  - [Revealing from the password eye (1.16)](#revealing-from-the-password-eye-116)
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
@@ -45,6 +47,10 @@ nowo_instance_settings:
         section_layout: stacked        # 1.14: stacked | tabs (field groups of a section as UiKit subtabs, ?settings_group=<code>)
         section_group_parameter: settings_group  # 1.14: query parameter of the open subtab
         templates: {}                  # page id => template: section, portability
+        section_icons: {}              # 1.16: section name => tab icon ("config", "tabler:palette"); overrides or fills getIcon()
+        navigation_hidden: []          # 1.16: section names left out of the tab bar and the first-section redirect (presentation only)
+        reveal_on_toggle: false        # 1.16: the PasswordToggle eye of a revealable secret row reveals the stored secret
+        reveal_toggle_only: false      # 1.16: with reveal_on_toggle, no separate Reveal / Copy / Hide buttons on rows with the eye
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
         area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles ("_reveal" is refused)
@@ -111,6 +117,10 @@ Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_
 | `section_layout` | `stacked` | 1.14: how a section page lays out its field groups (`SettingsSectionGroupsInterface::getGroups()`, else the fields' `withGroup()` groups). `stacked`: one column, markup unchanged. `tabs`: one UiKit subtab per group (UiKit's `tabs` runtime from the layout's default scripts; without JavaScript every group is a visible fieldset), the open tab in `?settings_group=<code>` (kept by the redirect after a save), the first tab with an error open after a failed save, an error badge per tab. One form: Save saves every group, write-only secrets left blank keep their value. A section with fewer than two groups renders stacked. `SectionEmbedOptions::withSectionLayout()` overrides it per embed. Run `assets:install` (`nowo-instance-settings-tabs.js`). See [USAGE](USAGE.md#field-groups-and-subtabs-114). |
 | `section_group_parameter` | `settings_group` | 1.14 (audit MP-L1): query parameter of the open subtab in the tabs layout, namespaced so a host page keeps its own `?group=`. Letters, digits and underscores (not starting with a digit). Read on GET, set by the redirect after a save (an existing one in a host route URL is replaced, never duplicated) and printed as `data-nowo-instance-settings-group-parameter` on the tabs root for `nowo-instance-settings-tabs.js`. `SectionEmbedOptions::withGroupParameter()` overrides it per embed. |
 | `templates` | `{}` | Per-page overrides: `section`, `portability`. Point at a template that extends `@!NowoInstanceSettingsBundle/settings/<page>.html.twig` and overrides one block (see [TEMPLATES](TEMPLATES.md)). |
+| `section_icons` | `{}` | 1.16: tab icon per section name, overriding the section's `getIcon()` or filling it when it has none — any section, including other bundles'. An icon is a canonical UiKit kind (`config`, `filter_off`) or a prefixed icon name (`tabler:palette`, `bi:gear`); anything else is refused when the container is built. A prefixed name only shows with an icon set that has it (`tabler:` with `tabler-icons` or `ux_icon`, `bi:` with `bootstrap-icons` or `ux_icon`); otherwise the tab shows its label only. Applies to the bundle page and to embeds. See [Section icons and hidden sections](#section-icons-and-hidden-sections-116). |
+| `navigation_hidden` | `[]` | 1.16: section names left out of the bundle page's tab bar and of the "first section" redirect. Presentation only — see [Section icons and hidden sections](#section-icons-and-hidden-sections-116). |
+| `reveal_on_toggle` | `false` | 1.16: on a revealable secret row, the PasswordToggle eye of the "new value" input reveals the stored secret (same endpoint and checks as the Reveal button) instead of unmasking what was typed. See [Revealing from the password eye](#revealing-from-the-password-eye-116). |
+| `reveal_toggle_only` | `false` | 1.16: with `reveal_on_toggle`, rows that have the eye drop the separate Reveal / Copy / Hide buttons (rows without an eye keep them). Ignored without `reveal_on_toggle`. |
 
 ### Layout and CSS stack (UiKit)
 
@@ -160,6 +170,38 @@ A one-file bridge maps a project layout whose content block has another name:
 ```
 
 Bundle pages add no CSS / JS of their own; host assets stack with `{{ parent() }}`.
+
+### Section icons and hidden sections (1.16)
+
+```yaml
+# config/packages/nowo_instance_settings.yaml — Symfony Beacon: brand and appearance live in its own pages
+nowo_instance_settings:
+    web_ui:
+        navigation_hidden: [brand, appearance]
+        section_icons:
+            mailer: 'tabler:mail'        # override or fill any section's icon, other bundles' included
+            sms_bridge: 'tabler:message'
+```
+
+- **Icons.** The bundle's own sections declare `brand` → `tabler:palette` and `appearance` →
+  `tabler:layout-dashboard`. `section_icons` wins over any section's `getIcon()`. The icon shows in the tab bar of the
+  bundle page and of embeds, styled by the host's `data-tab-style`.
+- **Hidden sections** have no tab in the bundle's settings page, and `GET <path_prefix>` redirects to the first
+  section the user may open that is **not** hidden. When every section the user may open is hidden, the redirect goes
+  to the first of them (the behaviour before 1.16); with none at all, the empty page, as before.
+- **Hiding is presentation only.** A hidden section stays registered, in exports and imports, in
+  `InstanceSettingsInterface` and in `SettingsSectionEmbedder::accessibleSections()`. Its own URL
+  (`<path_prefix>/sections/<name>`) keeps working behind exactly the same checks (the UI gate, then
+  `security.area_roles.<name>`); its page shows it as the current tab next to the visible ones, so its form renders.
+  It is not a way to restrict access: use `security.area_roles` (or an `access_checker`) for that, and do not rely on a
+  hidden tab to keep anybody out.
+- **Embeds** (`SettingsSectionEmbedder::handle()`) are not affected by `navigation_hidden`: their tabs are the
+  allowlist of the `SectionEmbedOptions`, so a host can hide `brand` from the bundle page and embed it in its own
+  route, guarded as before.
+- **Unknown names are ignored**, with a `debug` log line (`Instance settings: … names unknown sections …`) when the
+  index or a section page is built. Section names are only known at runtime — other bundles add sections, and
+  `brand.enabled: false` removes two — so a stale name never stops the container from booting. The names themselves
+  must be valid section names (lower snake case, refused otherwise).
 
 ## security
 
@@ -308,6 +350,39 @@ How it works, and what you accept by turning it on:
   (audit PJ-L2). `actor` is personal data (often an e-mail address): see [SECURITY.md](SECURITY.md#logging).
 - The endpoint belongs to the admin UI: it exists only with `web_ui.enabled: true`. Without JavaScript the row stays
   write-only, as before 1.15.
+
+### Revealing from the password eye (1.16)
+
+With `nowo-tech/password-toggle-bundle`, the "new value" input of a secret row carries an eye that unmasks what the
+admin typed. On a **revealable** row, `web_ui.reveal_on_toggle: true` turns that eye into the reveal control:
+
+```yaml
+nowo_instance_settings:
+    web_ui:
+        reveal_on_toggle: true
+        reveal_toggle_only: false   # true: rows with the eye drop the Reveal / Copy / Hide buttons
+```
+
+- **The same reveal, nothing new.** The first click (or Enter / Space) runs the existing call: the same POST endpoint,
+  the section's CSRF token, `reveal_rate_limiter`, the UI gate, the section area, `reveal_roles`, the audit event
+  (`SecretRevealedEvent`) and log line. There is no new endpoint and no GET. The second click hides the value.
+- **The value is never form data.** It is shown in the row's read-only `<output>` element — the one the Reveal button
+  uses — which has no `name` and is not a submittable control, so it is never in the submitted payload, the browser's
+  autofill or the form history. The input itself is left alone: same type, same typed value, same name; leaving it
+  blank still keeps the stored secret. Submitting the form also drops any revealed value from the page.
+- **Hidden again** on the second click, after the 60-second auto-hide, when the page is hidden (another tab, a
+  minimised window — the clipboard is kept, audit N1), on submit and when the user hides it before the server answered
+  (a late answer is dropped).
+- **Errors.** A refused or rate-limited reveal shows the Reveal button's message and the eye stays in its hidden
+  state.
+- **Accessibility.** The eye gets `aria-pressed` and the label "Reveal stored value" / "Hide stored value"
+  (`reveal.toggle_show` / `reveal.toggle_hide`, `NowoInstanceSettingsBundle` domain).
+- **In this mode the eye does not unmask the typed text** on revealable rows: to check what you typed, clear the field
+  and type again. Rows that are not revealable, and users who may not reveal (no reveal markup at all), keep the plain
+  PasswordToggle eye.
+- Without JavaScript nothing reveals. Without PasswordToggle there is no eye: the Reveal / Copy / Hide buttons stay,
+  whatever `reveal_toggle_only` says. The page script is the existing `nowo-instance-settings-reveal.js` (no inline
+  script; strict CSP safe).
 
 ## portability
 

@@ -32,6 +32,33 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.16.0.
+
+### Added
+
+- **Tab icons for the bundle's sections.** `BrandSection::getIcon()` is `tabler:palette` and
+  `AppearanceSection::getIcon()` `tabler:layout-dashboard` (prefixed UiKit icon names, shown by the `tabler-icons` and
+  `ux_icon` sets).
+- **`web_ui.section_icons: {<section>: <icon>}`.** Overrides or fills the tab icon of any section, other bundles'
+  included, on the bundle page and in embeds. Icons are validated when the container is built (canonical UiKit kind
+  or `prefix:name`); names must be lower snake case, and a name that matches no registered section is ignored with a
+  debug log line (sections are only known at runtime).
+- **`web_ui.navigation_hidden: [<section>, ...]`.** Leaves sections out of the bundle page's tab bar and of the "first
+  section" redirect, which now picks the first visible section the user may open (all hidden: the first one, as
+  before). Presentation only: a hidden section stays registered, guarded by the same checks, in exports, embeddable
+  through `SettingsSectionEmbedder` (whose tabs follow the embed allowlist), and its own URL keeps working. Requested
+  by Symfony Beacon (`navigation_hidden: [brand, appearance]`).
+- **`web_ui.reveal_on_toggle`** (default `false`) and **`web_ui.reveal_toggle_only`** (default `false`). On a
+  revealable secret row, the PasswordToggle eye reveals the stored secret through the existing reveal call (same POST
+  endpoint, CSRF token, rate limiter, access checks and audit) and hides it on the second click. The value is shown
+  in the row's read-only `<output>` (no name, never form data), never in the input; it is dropped on hide, after the
+  auto-hide delay, when the page is hidden (clipboard kept, audit N1), on submit, and a late answer after a hide is
+  discarded. A refused reveal shows the Reveal button's message and the eye stays hidden; the eye carries
+  `aria-pressed` and "Reveal stored value" / "Hide stored value" (new keys `reveal.toggle_show`, `reveal.toggle_hide`).
+  `reveal_toggle_only` drops the Reveal / Copy / Hide buttons on rows that have the eye. Requested by Symfony Beacon
+  from an owner UX report.
+- `Ui\SectionNavigation` (icons, hidden sections, first visible section); `SettingsPageFactory::navigation()`.
+
 ## [1.15.1] - 2026-11-14
 
 Target 1.15.1.
