@@ -1180,7 +1180,7 @@ automatically; with `doctrine.entity_manager` set they are mapped on that manage
 
 - `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`).
 - `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#to-160) for the DDL.
-- `Nowo\InstanceSettingsBundle\ExpiryEntity\SecretExpiry` (1.17, only with `expiring_secrets.enabled: true`; mapping `NowoInstanceSettingsExpiry`) → table `<prefix>instance_setting_secret_expiry` (`id`, `section`, `name`, `expires_on` DATE, `notified_threshold`, `notified_at`, `updated_at`, unique `(section, name)`). See [UPGRADING](UPGRADING.md#unreleased) for the DDL.
+- `Nowo\InstanceSettingsBundle\ExpiryEntity\SecretExpiry` (1.17, only with `expiring_secrets.enabled: true`; mapping `NowoInstanceSettingsExpiry`) → table `<prefix>instance_setting_secret_expiry` (`id`, `section`, `name`, `expires_on` DATE, `notified_threshold`, `notified_at`, `updated_at`, unique `(section, name)`). See [UPGRADING](UPGRADING.md#to-1170) for the DDL.
 
 Create and apply the schema with Doctrine Migrations in the application:
 
