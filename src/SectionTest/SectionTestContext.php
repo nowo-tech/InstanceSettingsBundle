@@ -124,6 +124,17 @@ final class SectionTestContext
     }
 
     /**
+     * Options for a Symfony HttpClient request within the budget (audit PU-L4): `timeout` and `max_duration` set to the
+     * budget and no redirects. Merge them into every request: `$http->request('POST', $url, $context->httpOptions() + [...])`.
+     *
+     * @return array{timeout: int, max_duration: int, max_redirects: int}
+     */
+    public function httpOptions(): array
+    {
+        return ['timeout' => $this->timeBudgetSeconds, 'max_duration' => $this->timeBudgetSeconds, 'max_redirects' => 0];
+    }
+
+    /**
      * Whether the context still answers (false once the test call has returned).
      */
     public function isOpen(): bool

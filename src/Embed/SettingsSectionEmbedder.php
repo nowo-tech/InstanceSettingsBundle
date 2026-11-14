@@ -41,7 +41,6 @@ use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
 use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
 use Nowo\InstanceSettingsBundle\Ui\SectionTestButton;
 use Nowo\InstanceSettingsBundle\Ui\SectionTestControls;
-use Nowo\InstanceSettingsBundle\Ui\SectionTestView;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Nowo\UiKitBundle\View\Label;
@@ -437,7 +436,7 @@ final readonly class SettingsSectionEmbedder
             $button   = new SectionTestButton(
                 $group,
                 $resolved instanceof SettingsGroup ? new Label($resolved->labelKey($section), $resolved->translationDomain ?? $domain) : null,
-                $report === null ? null : SectionTestView::json($report, $domain, $this->translator),
+                $report === null ? null : $this->tester->view($report, $domain),
             );
             if ($group === null) {
                 array_unshift($buttons, $button);

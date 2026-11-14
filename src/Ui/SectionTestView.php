@@ -57,11 +57,13 @@ final class SectionTestView
     }
 
     /**
+     * Hint parameters as the translator takes them (booleans as `1` / `0`).
+     *
      * @param array<string, bool|float|int|string> $params
      *
      * @return array<string, float|int|string>
      */
-    private static function params(array $params): array
+    public static function params(array $params): array
     {
         $out = [];
         foreach ($params as $name => $value) {

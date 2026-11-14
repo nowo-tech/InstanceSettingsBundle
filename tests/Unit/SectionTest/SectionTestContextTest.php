@@ -37,6 +37,8 @@ final class SectionTestContextTest extends TestCase
         self::assertFalse($context->hasSecret('empty'));
         self::assertSame(SettingsSectionTesterInterface::TIME_BUDGET_SECONDS, $context->timeBudgetSeconds());
         self::assertTrue($context->isOpen());
+        // Audit PU-L4: ready-made HTTP client options within the budget, no redirects.
+        self::assertSame(['timeout' => SettingsSectionTesterInterface::TIME_BUDGET_SECONDS, 'max_duration' => SettingsSectionTesterInterface::TIME_BUDGET_SECONDS, 'max_redirects' => 0], $context->httpOptions());
     }
 
     public function testAClosedContextNoLongerAnswers(): void

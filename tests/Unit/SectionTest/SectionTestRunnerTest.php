@@ -5,16 +5,18 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\SectionTest;
 
 use Closure;
+use DateTimeImmutable;
 use LogicException;
-use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsTestedEvent;
-use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\SectionTest\LeakGuard;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestContext;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTesterRegistry;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStateRow;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
+use Nowo\InstanceSettingsBundle\SectionTest\StoredTestReport;
 use Nowo\InstanceSettingsBundle\SectionTest\TestCheck;
 use Nowo\InstanceSettingsBundle\SectionTest\TestReport;
 use Nowo\InstanceSettingsBundle\SectionTest\TestStatus;
@@ -26,10 +28,10 @@ use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\CalendarOAuthFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Support\ClosureTester;
+use Nowo\InstanceSettingsBundle\Tests\Support\InMemorySectionTestStateStorage;
 use Nowo\InstanceSettingsBundle\Tests\Support\InMemorySettingValueRepository;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingDispatcher;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
-use Nowo\InstanceSettingsBundle\Tests\Support\UniqueViolationRepository;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Symfony\Component\Clock\MockClock;
@@ -47,10 +49,17 @@ use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\Authorization\AccessDecision;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Symfony\Component\Security\Core\User\InMemoryUser;
+use Symfony\Component\Translation\Loader\ArrayLoader;
+use Symfony\Component\Translation\Translator;
 use Symfony\Component\Validator\Validation;
+use Symfony\Contracts\Translation\TranslatorInterface;
 use Throwable;
 
+use function base64_encode;
 use function in_array;
+use function json_encode;
+use function str_split;
+use function strrev;
 
 /**
  * 1.18: the server side of the Test button — permissions, a registered tester, rate limit, one test at a time, a closed
@@ -69,12 +78,15 @@ final class SectionTestRunnerTest extends TestCase
 
     private MockClock $clock;
 
+    private InMemorySectionTestStateStorage $storage;
+
     protected function setUp(): void
     {
         $this->repository = new InMemorySettingValueRepository();
         $this->dispatcher = new RecordingDispatcher();
         $this->logger     = new RecordingLogger();
         $this->clock      = new MockClock('2026-11-14 10:00:00');
+        $this->storage    = new InMemorySectionTestStateStorage();
     }
 
     public function testARunOnTheStoredValuesWithAContextClosedAfterwards(): void
@@ -114,6 +126,48 @@ final class SectionTestRunnerTest extends TestCase
         self::assertInstanceOf(SettingsGroup::class, $runner->group('calendar_oauth', 'google'));
         self::assertNull($runner->group('calendar_oauth', null));
         self::assertSame([], $this->rows(SectionTestStore::LOCKS), 'the running marker is gone');
+    }
+
+    public function testTheRenderedTextsAreGuardedToo(): void
+    {
+        // Audit PU-L1: a secret split into five-character params is whole once the hint is translated.
+        $settings = $this->settings();
+        $settings->save('calendar_oauth', ['google_client_secret' => self::SECRET]);
+        $translator = new Translator('en');
+        $translator->addLoader('array', new ArrayLoader());
+        $translator->addResource('array', ['a.split' => 'Code %p0%%p1%%p2%', 'a.label' => 'Label', 'test.check.redacted' => 'Check', 'test.hint.redacted' => 'Hidden'], 'en', 'app');
+        $translator->addResource('array', ['test.check.redacted' => 'Check', 'test.hint.redacted' => 'Hidden', 'test.status.fail' => 'Failed', 'test.summary' => '%status% %actor%'], 'en', 'NowoInstanceSettingsBundle');
+        $parts  = str_split(self::SECRET, 5);
+        $runner = $this->runner($settings, ['' => static fn (): TestReport => TestReport::of(
+            TestCheck::fail('a.label', 'a.split', ['%p0%' => $parts[0], '%p1%' => $parts[1], '%p2%' => $parts[2]], 'app'),
+            TestCheck::ok('a.label', null, [], 'app'),
+        )], translator: $translator);
+
+        $report = $runner->run('calendar_oauth', null);
+
+        self::assertSame('test.check.redacted', $report->checks[0]->labelKey, 'stored redacted');
+        self::assertSame('a.label', $report->checks[1]->labelKey);
+        self::assertStringContainsString(SectionTestRunner::LOG_REDACTED, $this->logger->dump());
+
+        // Shown with a secret stored after the report: the view guards the final strings again.
+        $old  = StoredTestReport::of('calendar_oauth', null, TestReport::of(TestCheck::fail('a.label', 'a.split', ['%p0%' => $parts[0], '%p1%' => $parts[1], '%p2%' => $parts[2]], 'app')), new DateTimeImmutable(), 'u-' . strrev(self::SECRET));
+        $view = $runner->view($old, 'app');
+        self::assertSame('Check', $view['checks'][0]['label']);
+        self::assertSame('Hidden', $view['checks'][0]['hint']);
+        self::assertSame(LeakGuard::REDACTED, $view['summary'], 'the actor line holds the reversed secret');
+        self::assertStringNotContainsString(self::SECRET, (string) json_encode($view));
+    }
+
+    public function testAThrowingTestersMessageIsGuardedWithItsEncodings(): void
+    {
+        $settings = $this->settings();
+        $settings->save('calendar_oauth', ['google_client_secret' => self::SECRET]);
+        $runner = $this->runner($settings, ['' => static fn (): TestReport => throw new RuntimeException('401 for Basic ' . base64_encode('client:' . self::SECRET))]);
+
+        $runner->run('calendar_oauth', null);
+
+        self::assertStringNotContainsString(base64_encode('client:' . self::SECRET), $this->logger->dump());
+        self::assertStringContainsString(LeakGuard::REDACTED, $this->logger->dump());
     }
 
     public function testOneTestAtATimePerSectionAndActor(): void
@@ -222,7 +276,7 @@ final class SectionTestRunnerTest extends TestCase
             $registry,
             $settings,
             new AccessGuard(new AllowAllInstanceSettingsAccessChecker(), true),
-            new SectionTestStore($this->repository),
+            new SectionTestStore($this->storage),
         );
 
         $this->expectException(NotFoundHttpException::class);
@@ -233,38 +287,8 @@ final class SectionTestRunnerTest extends TestCase
     {
         $registry = new SettingsSectionRegistry([new CalendarOAuthFixtureSection()]);
         $settings = new InstanceSettings($this->repository, $registry, new ValueNormalizer(Validation::createValidator()));
-        $inner    = $this->repository;
         // A store whose report insert loses the race against a concurrent request (the markers still work).
-        $racing = new class($inner) implements SettingValueRepositoryInterface {
-            public function __construct(private readonly InMemorySettingValueRepository $inner)
-            {
-            }
-
-            public function findAll(): array
-            {
-                return $this->inner->findAll();
-            }
-
-            public function findBySection(string $section): array
-            {
-                return $this->inner->findBySection($section);
-            }
-
-            public function apply(array $save, array $remove): void
-            {
-                foreach ($save as $row) {
-                    if ($row instanceof SettingValue && $row->getSection() === SectionTestStore::REPORTS) {
-                        (new UniqueViolationRepository())->apply($save, $remove);
-                    }
-                }
-                $this->inner->apply($save, $remove);
-            }
-
-            public function transactional(callable $callback): mixed
-            {
-                return $this->inner->transactional($callback);
-            }
-        };
+        $racing = new InMemorySectionTestStateStorage([SectionTestStore::REPORTS]);
         $runner = new SectionTestRunner(
             new SectionTesterRegistry([['section' => 'calendar_oauth', 'group' => null, 'id' => 't']], new ServiceLocator(['t' => static fn (): ClosureTester => new ClosureTester(static fn (): TestReport => TestReport::of(TestCheck::ok('a.b')))]), $registry),
             $registry,
@@ -280,7 +304,7 @@ final class SectionTestRunnerTest extends TestCase
     /**
      * @param array<string, Closure(SectionTestContext): TestReport> $tests group code ('' = the section) => test
      */
-    private function runner(InstanceSettings $settings, array $tests, ?AccessGuard $guard = null, ?RequestStack $stack = null, ?RateLimiterFactory $rateLimiter = null, bool $testArea = false): SectionTestRunner
+    private function runner(InstanceSettings $settings, array $tests, ?AccessGuard $guard = null, ?RequestStack $stack = null, ?RateLimiterFactory $rateLimiter = null, bool $testArea = false, ?TranslatorInterface $translator = null): SectionTestRunner
     {
         $registry  = new SettingsSectionRegistry([new CalendarOAuthFixtureSection()]);
         $declared  = [];
@@ -296,7 +320,7 @@ final class SectionTestRunnerTest extends TestCase
             $registry,
             $settings,
             $guard ?? $this->userGuard(['ROLE_ADMIN']),
-            new SectionTestStore($this->repository),
+            new SectionTestStore($this->storage),
             $testArea,
             $rateLimiter,
             $this->dispatcher,
@@ -304,6 +328,7 @@ final class SectionTestRunnerTest extends TestCase
             $this->clock,
             'test-salt',
             $stack,
+            $translator,
         );
     }
 
@@ -345,10 +370,10 @@ final class SectionTestRunnerTest extends TestCase
     }
 
     /**
-     * @return list<SettingValue>
+     * @return list<SectionTestStateRow>
      */
     private function rows(string $section): array
     {
-        return $this->repository->findBySection($section);
+        return $this->storage->rows($section);
     }
 }

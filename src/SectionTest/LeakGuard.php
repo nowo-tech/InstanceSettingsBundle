@@ -7,15 +7,29 @@ namespace Nowo\InstanceSettingsBundle\SectionTest;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use SensitiveParameter;
 
+use function base64_encode;
+use function bin2hex;
 use function is_bool;
 use function is_string;
+use function json_encode;
+use function rawurlencode;
 use function str_contains;
+use function str_repeat;
 use function strlen;
+use function strrev;
+use function strtolower;
+use function strtr;
 use function substr;
+use function urlencode;
+
+use const JSON_INVALID_UTF8_SUBSTITUTE;
+use const JSON_THROW_ON_ERROR;
+use const JSON_UNESCAPED_UNICODE;
 
 /**
- * Keeps the stored secrets of a section out of a section test report (1.18): every key and every parameter of every
- * check is compared with each stored secret of the section before the report is rendered, stored or logged.
+ * Keeps the stored secrets of a section out of a section test report (1.18), best effort: every key and every parameter
+ * of every check, the translated texts and the debug line of a throwing tester are compared with each stored secret of
+ * the section (raw, common encodings, any case) before they are rendered, stored or logged.
  *
  * A text is a hit when it is the secret itself, or when it contains any part of the secret of
  * {@see self::MIN_SUBSTRING} characters or more (so a prefix, a suffix or a slice of a token is caught as well as the
@@ -41,7 +55,12 @@ final class LeakGuard
     public const REDACTED_HINT = 'test.hint.redacted';
 
     /**
-     * Whether `$text` holds a secret, or a part of one of at least {@see self::MIN_SUBSTRING} characters.
+     * Whether `$text` holds a secret, or a part of one of at least {@see self::MIN_SUBSTRING} characters, in its raw
+     * form or in a common encoding (audit PU-L1): reversed, URL (`rawurlencode` / `urlencode`), JSON-escaped, hex and
+     * base64 / base64url at any alignment (so `base64("client:" . $secret)`, a Basic header, is caught). Matching ignores
+     * case. A secret shorter than {@see self::MIN_SUBSTRING} characters is matched as the whole text only.
+     *
+     * Best effort: it catches accidental echoes, not a tester that transforms a secret on purpose.
      *
      * @param list<string> $secrets stored secrets of the section (decrypted, never logged)
      */
@@ -50,22 +69,58 @@ final class LeakGuard
         if ($text === '') {
             return false;
         }
+        $haystack = strtolower($text);
         foreach ($secrets as $secret) {
             if ($secret === '') {
                 continue;
             }
-            if ($text === $secret) {
+            if ($haystack === strtolower($secret)) {
                 return true;
             }
-            $length = strlen($secret);
-            for ($offset = 0; $offset + self::MIN_SUBSTRING <= $length; ++$offset) {
-                if (str_contains($text, substr($secret, $offset, self::MIN_SUBSTRING))) {
-                    return true;
+            if (strlen($secret) < self::MIN_SUBSTRING) {
+                continue;
+            }
+            foreach (self::variants($secret) as [$variant, $window]) {
+                $variant = strtolower($variant);
+                $length  = strlen($variant);
+                for ($offset = 0; $offset + $window <= $length; ++$offset) {
+                    if (str_contains($haystack, substr($variant, $offset, $window))) {
+                        return true;
+                    }
                 }
             }
         }
 
         return false;
+    }
+
+    /**
+     * The forms of a secret looked for, each with the length of the parts searched for (the encoded length of
+     * {@see self::MIN_SUBSTRING} bytes).
+     *
+     * @return list<array{0: string, 1: int}>
+     */
+    private static function variants(#[SensitiveParameter] string $secret): array
+    {
+        $json     = json_encode($secret, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        $variants = [
+            [$secret, self::MIN_SUBSTRING],
+            [strrev($secret), self::MIN_SUBSTRING],
+            [rawurlencode($secret), self::MIN_SUBSTRING],
+            [urlencode($secret), self::MIN_SUBSTRING],
+            [substr($json, 1, -1), self::MIN_SUBSTRING],
+            [bin2hex($secret), 2 * self::MIN_SUBSTRING],
+        ];
+        // Base64 of the secret after 0, 1 or 2 other bytes: the groups holding foreign bytes (first and last four
+        // characters) are dropped, what is left encodes the secret alone.
+        for ($shift = 0; $shift < 3; ++$shift) {
+            $encoded    = base64_encode(str_repeat("\0", $shift) . $secret);
+            $core       = substr($encoded, $shift === 0 ? 0 : 4, -4);
+            $variants[] = [$core, 8];
+            $variants[] = [strtr($core, '+/', '-_'), 8];
+        }
+
+        return $variants;
     }
 
     /**

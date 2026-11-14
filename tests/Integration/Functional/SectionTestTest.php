@@ -7,9 +7,13 @@ namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 use DateTimeImmutable;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
+use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
+use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\SectionTest\LeakGuard;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStateRow;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStateStorageInterface;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
 use Nowo\InstanceSettingsBundle\SectionTest\TestStatus;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
@@ -262,7 +266,8 @@ final class SectionTestTest extends KernelTestCase
 
     public function testTheBuiltInRateLimitRefusesTheEleventhTestOfAnActor(): void
     {
-        $kernel = $this->boot();
+        // A frozen clock: the fixed window never ends in the middle of the test.
+        $kernel = $this->boot(services: ['clock' => MockClock::class]);
         $client = $this->client($kernel);
         $token  = $this->token($client->request('GET', self::PAGE));
         for ($i = 0; $i < SectionTestRunner::DEFAULT_LIMIT; ++$i) {
@@ -306,7 +311,8 @@ final class SectionTestTest extends KernelTestCase
         $token  = $this->token($client->request('GET', self::PAGE));
         // What a concurrent request of the same actor leaves while its tester runs.
         $actorKey = hash('sha256', 'test-secret' . "\2" . 'section_test' . "\0" . 'admin');
-        self::assertTrue($this->store($kernel)->acquire($actorKey, 'calendar_oauth', new DateTimeImmutable(), SectionTestRunner::STALE_AFTER));
+        $marker   = $this->store($kernel)->acquire($actorKey, 'calendar_oauth', new DateTimeImmutable(), SectionTestRunner::STALE_AFTER);
+        self::assertInstanceOf(SectionTestStateRow::class, $marker);
 
         $client->request('POST', self::URL, ['_token' => $token, 'group' => 'google']);
         self::assertSame(409, $client->getResponse()->getStatusCode());
@@ -316,7 +322,7 @@ final class SectionTestTest extends KernelTestCase
         $super = $this->client($kernel, 'super');
         $super->request('POST', self::URL, ['_token' => $this->token($super->request('GET', self::PAGE))]);
         self::assertSame(200, $super->getResponse()->getStatusCode());
-        $this->store($kernel)->release($actorKey, 'calendar_oauth');
+        $this->store($kernel)->release($marker);
         $client->request('POST', self::URL, ['_token' => $token]);
         self::assertSame(200, $client->getResponse()->getStatusCode());
         self::assertSame([], $this->rows($kernel, SectionTestStore::LOCKS), 'the marker is removed after every test');
@@ -408,6 +414,43 @@ final class SectionTestTest extends KernelTestCase
         self::assertInstanceOf(ConfigPortability::class, $portability);
         $export = (string) json_encode($portability->export());
         self::assertStringNotContainsString('_section_test', $export);
+    }
+
+    public function testTheTestRowsStayOutOfTheSettingsReadsAndTheStorageIsConditional(): void
+    {
+        // Audit PU-L6: the reserved rows are never loaded with the settings, nor listed by the raw row reader.
+        $kernel = $this->boot();
+        $client = $this->client($kernel);
+        $client->request('POST', self::URL, ['_token' => $this->token($client->request('GET', self::PAGE))]);
+        self::assertNotSame([], $this->rows($kernel, SectionTestStore::REPORTS));
+        self::assertNotSame([], $this->rows($kernel, SectionTestStore::RATES));
+
+        $reader = $this->container($kernel)->get(SettingRowReaderInterface::class);
+        self::assertInstanceOf(SettingRowReaderInterface::class, $reader);
+        foreach ($reader->findAllRows() as $row) {
+            self::assertStringStartsNotWith('_section_test', $row->section);
+        }
+        $repository = $this->container($kernel)->get(SettingValueRepositoryInterface::class);
+        self::assertInstanceOf(SettingValueRepositoryInterface::class, $repository);
+        foreach ($repository->findAll() as $row) {
+            self::assertStringStartsNotWith('_section_test', $row->getSection());
+        }
+
+        // Audit PU-L2 / L3: a row changed or removed since it was read is never updated nor deleted.
+        $storage = $this->container($kernel)->get(SectionTestStateStorageInterface::class);
+        self::assertInstanceOf(SectionTestStateStorageInterface::class, $storage);
+        $at  = new DateTimeImmutable('2026-11-14 10:00:00');
+        $row = $storage->insert(SectionTestStore::LOCKS, 'probe', 'token-a', $at);
+        self::assertInstanceOf(SectionTestStateRow::class, $row);
+        self::assertNull($storage->insert(SectionTestStore::LOCKS, 'probe', 'token-b', $at), 'unique (section, name)');
+        self::assertTrue($storage->update($row, 'token-c', $at->modify('+1 second')));
+        self::assertFalse($storage->update($row, 'token-d', $at->modify('+2 seconds')), 'the row changed since it was read');
+        self::assertFalse($storage->delete($row));
+        $current = $storage->rows(SectionTestStore::LOCKS)[0];
+        self::assertSame('token-c', $current->value);
+        self::assertTrue($storage->delete($current));
+        self::assertFalse($storage->delete($current), 'already gone');
+        self::assertSame([], $storage->rows(SectionTestStore::LOCKS));
     }
 
     public function testSavingNeverWaitsForOrDependsOnATest(): void

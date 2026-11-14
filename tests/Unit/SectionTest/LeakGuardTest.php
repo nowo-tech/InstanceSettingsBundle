@@ -11,6 +11,18 @@ use Nowo\InstanceSettingsBundle\SectionTest\TestReport;
 use Nowo\InstanceSettingsBundle\SectionTest\TestStatus;
 use PHPUnit\Framework\TestCase;
 
+use function base64_encode;
+use function bin2hex;
+use function hash;
+use function json_encode;
+use function rawurlencode;
+use function rtrim;
+use function strrev;
+use function strtolower;
+use function strtoupper;
+use function strtr;
+use function urlencode;
+
 /**
  * 1.18: the stored secrets of a section never reach a test report — whole, sliced, as a key or as a parameter.
  */
@@ -35,6 +47,36 @@ final class LeakGuardTest extends TestCase
         self::assertTrue(LeakGuard::hits('second', ['none12', 'second']), 'every secret is checked');
         self::assertSame(LeakGuard::REDACTED, LeakGuard::text('error: ' . self::SECRET, [self::SECRET]));
         self::assertSame('error: 401', LeakGuard::text('error: 401', [self::SECRET]));
+    }
+
+    public function testEncodingsAndCaseOfASecretAreHits(): void
+    {
+        // Audit PU-L1: the common encodings a tester may echo by accident.
+        $secret = 'Zq8Rw3Ty6Up1Ab9C';
+        foreach ([
+            'base64'     => base64_encode($secret),
+            'base64 url' => rtrim(strtr(base64_encode('?' . $secret), '+/', '-_'), '='),
+            'basic auth' => 'Basic ' . base64_encode('client:' . $secret),
+            'basic odd'  => base64_encode('ab:' . $secret),
+            'hex'        => bin2hex($secret),
+            'hex upper'  => strtoupper(bin2hex($secret)),
+            'lower'      => strtolower($secret),
+            'upper'      => strtoupper($secret),
+            'reversed'   => strrev($secret),
+            'json'       => (string) json_encode(['k' => 'a/b"' . $secret]),
+        ] as $what => $encoded) {
+            self::assertTrue(LeakGuard::hits('value: ' . $encoded . ' end', [$secret]), $what);
+        }
+        $special = 'a+b/c=d+e/f=g+h';
+        self::assertTrue(LeakGuard::hits('?q=' . rawurlencode($special), [$special]), 'URL encoded');
+        self::assertTrue(LeakGuard::hits('?q=' . urlencode($special), [$special]), 'form encoded');
+        self::assertTrue(LeakGuard::hits((string) json_encode($special), [$special]), 'JSON escaped');
+        self::assertSame(LeakGuard::REDACTED, LeakGuard::text('auth ' . base64_encode($secret), [$secret]));
+        // Unrelated hex / base64 strings stay.
+        self::assertFalse(LeakGuard::hits(hash('sha256', 'other') . ' ' . base64_encode('unrelated value'), [$secret]));
+        // Secrets shorter than six characters: exact match only (case-insensitive).
+        self::assertTrue(LeakGuard::hits('PIN', ['pin']));
+        self::assertFalse(LeakGuard::hits('pin=48213', ['48213']));
     }
 
     public function testAReportWithoutHitsIsReturnedAsIs(): void

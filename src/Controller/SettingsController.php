@@ -20,7 +20,6 @@ use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
-use Nowo\InstanceSettingsBundle\Ui\SectionTestView;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -201,7 +200,7 @@ final class SettingsController extends AbstractController
             return $this->noStore(new JsonResponse(['error' => SectionTestRunner::REASON_BUSY, 'message' => $this->trans('test.busy')], Response::HTTP_CONFLICT));
         }
 
-        return $this->noStore(new JsonResponse(SectionTestView::json($report, $this->registry->get($section)->getTranslationDomain(), $this->translator)));
+        return $this->noStore(new JsonResponse($this->tester->view($report, $this->registry->get($section)->getTranslationDomain())));
     }
 
     /**

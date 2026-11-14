@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\SectionTest;
 
 use DateTimeImmutable;
-use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Nowo\InstanceSettingsBundle\Event\SettingsTestedEvent;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
@@ -13,9 +12,11 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
+use Nowo\InstanceSettingsBundle\Ui\SectionTestView;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
+use SensitiveParameter;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -23,6 +24,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 use Throwable;
 
 use function array_keys;
@@ -104,6 +106,7 @@ final readonly class SectionTestRunner
      * @param ClockInterface|null $clock time of the test (null = the system clock)
      * @param string $keySalt `%kernel.secret%`: salts the actor key of the limiter and the running marker
      * @param RequestStack|null $requestStack client IP of a caller the host cannot name (its actor key)
+     * @param TranslatorInterface|null $translator renders the checks, so the leak guard also sees the final texts
      */
     public function __construct(
         private SectionTesterRegistry $testers,
@@ -118,6 +121,7 @@ final readonly class SectionTestRunner
         private ?ClockInterface $clock = null,
         private string $keySalt = '',
         private ?RequestStack $requestStack = null,
+        private ?TranslatorInterface $translator = null,
     ) {
     }
 
@@ -197,7 +201,8 @@ final readonly class SectionTestRunner
         }
         $key = $this->actorKey();
         $this->consumeRateLimit($key, $section, $group);
-        if (!$this->store->acquire($key, $section, $this->now(), self::STALE_AFTER)) {
+        $marker = $this->store->acquire($key, $section, $this->now(), self::STALE_AFTER);
+        if (!$marker instanceof SectionTestStateRow) {
             $this->refused($section, $group, self::REASON_BUSY);
 
             throw new ConflictHttpException('A test of this settings section is already running.');
@@ -205,16 +210,16 @@ final readonly class SectionTestRunner
 
         try {
             $report          = $this->execute($tester, $section, $group);
-            [$report, $hits] = LeakGuard::report($report, $this->secrets($section));
+            $secrets         = $this->secrets($section);
+            [$report, $hits] = LeakGuard::report($report, $secrets);
+            // Audit PU-L1: the translated texts too (a secret split over parameters is whole once rendered).
+            [$report, $rendered] = $this->guardRendered($report, $this->registry->get($section)->getTranslationDomain(), $secrets);
+            $hits += $rendered;
             if ($hits > 0) {
                 $this->logger?->warning(self::LOG_REDACTED, ['section' => $section, 'group' => $group, 'hits' => $hits]);
             }
             $stored = StoredTestReport::of($section, $group, $report, $this->now(), $this->actor());
-            try {
-                $this->store->saveReport($stored);
-            } catch (UniqueConstraintViolationException) {
-                // Another actor stored the first report of this group at the same moment: theirs stays the last one.
-            }
+            $this->store->saveReport($stored);
             $this->logger?->info(self::LOG_TESTED, [
                 'section' => $section,
                 'group'   => $group,
@@ -226,8 +231,67 @@ final readonly class SectionTestRunner
 
             return $stored;
         } finally {
-            $this->store->release($key, $section);
+            $this->store->release($marker);
         }
+    }
+
+    /**
+     * The translated view of a stored report ({@see SectionTestView::json()}) with every final text checked against the
+     * section's secrets as stored now (audit PU-L1): a check whose label or hint is a hit shows the generic redacted
+     * texts, a summary that is a hit shows {@see LeakGuard::REDACTED}.
+     *
+     * @param string $domain translation domain of the section
+     *
+     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, summary: string, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
+     */
+    public function view(StoredTestReport $report, string $domain): array
+    {
+        $secrets = $this->secrets($report->section);
+        $view    = SectionTestView::json($report, $domain, $this->translator);
+        foreach ($view['checks'] as $index => $check) {
+            if (LeakGuard::hits($check['label'], $secrets) || ($check['hint'] !== null && LeakGuard::hits($check['hint'], $secrets))) {
+                $view['checks'][$index]['label'] = $this->trans(LeakGuard::REDACTED_LABEL, [], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
+                $view['checks'][$index]['hint']  = $this->trans(LeakGuard::REDACTED_HINT, [], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
+            }
+        }
+        if (LeakGuard::hits($view['summary'], $secrets)) {
+            $view['summary'] = LeakGuard::REDACTED;
+        }
+
+        return $view;
+    }
+
+    /**
+     * Replaces every check whose translated label or hint holds a secret by the generic redacted check.
+     *
+     * @param list<string> $secrets
+     *
+     * @return array{0: TestReport, 1: int}
+     */
+    private function guardRendered(TestReport $report, string $domain, #[SensitiveParameter] array $secrets): array
+    {
+        $hits   = 0;
+        $checks = [];
+        foreach ($report->checks as $check) {
+            $checkDomain = $check->domain ?? $domain;
+            $label       = $this->trans($check->labelKey, [], $checkDomain);
+            $hint        = $check->hintKey === null ? '' : $this->trans($check->hintKey, SectionTestView::params($check->hintParams), $checkDomain);
+            if (LeakGuard::hits($label, $secrets) || LeakGuard::hits($hint, $secrets)) {
+                ++$hits;
+                $check = new TestCheck(LeakGuard::REDACTED_LABEL, $check->status, LeakGuard::REDACTED_HINT, [], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
+            }
+            $checks[] = $check;
+        }
+
+        return [$hits === 0 ? $report : new TestReport($checks), $hits];
+    }
+
+    /**
+     * @param array<string, float|int|string> $params
+     */
+    private function trans(string $key, array $params, string $domain): string
+    {
+        return $this->translator instanceof TranslatorInterface ? $this->translator->trans($key, $params, $domain) : $key;
     }
 
     /**

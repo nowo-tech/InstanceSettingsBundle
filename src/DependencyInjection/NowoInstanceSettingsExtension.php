@@ -76,8 +76,10 @@ use Nowo\InstanceSettingsBundle\Secret\SecretSealerInterface;
 use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\SectionTest\DoctrineSectionTestStateStorage;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTesterRegistry;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStateStorageInterface;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\AllowAllInstanceSettingsAccessChecker;
@@ -971,8 +973,13 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             null,
             new Reference(SettingsSectionRegistry::class),
         ]));
+        // Audit PU-L2 / L3: atomic rows (unique insert, conditional update / delete) on the bundle's private manager.
+        $container->setDefinition(DoctrineSectionTestStateStorage::class, new Definition(DoctrineSectionTestStateStorage::class, [
+            new Reference(SettingsEntityManager::class),
+        ]));
+        $container->setAlias(SectionTestStateStorageInterface::class, DoctrineSectionTestStateStorage::class)->setPublic(true);
         $container->setDefinition(SectionTestStore::class, new Definition(SectionTestStore::class, [
-            new Reference(SettingValueRepositoryInterface::class),
+            new Reference(SectionTestStateStorageInterface::class),
         ]));
         $testRateLimiter = $config['security']['test_rate_limiter'] ?? null;
         $container->setDefinition(SectionTestRunner::class, (new Definition(SectionTestRunner::class, [
@@ -988,6 +995,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             '%kernel.secret%',
             new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            // Audit PU-L1: the leak guard also checks the translated texts.
+            new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->setPublic(true));
 
         // 1.6 (IS-1): the section page, shared by the bundle route and host embeds (public: hosts fetch it in their
