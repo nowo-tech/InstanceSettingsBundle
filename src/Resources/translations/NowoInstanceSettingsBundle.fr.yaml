@@ -175,3 +175,23 @@ secret_expiry:
   warning_expired: "A expiré le %date% (il y a %days% jour(s)). Remplacez le secret et mettez cette date à jour."
   notice_expiring: "« %field% » expire le %date% (dans %days% jour(s))."
   notice_expired: "« %field% » a expiré le %date% (il y a %days% jour(s))."
+test:
+  button: 'Tester'
+  button_group: 'Tester %group%'
+  running: 'Test des valeurs enregistrées…'
+  error: 'Le test n''a pas pu être lancé.'
+  rate_limited: 'Trop de tests. Réessayez dans quelques minutes.'
+  busy: 'Un test de cette section est déjà en cours.'
+  dirty: 'Le test utilise les valeurs enregistrées : enregistrez d''abord pour tester vos modifications.'
+  summary: 'Dernier test : %status% (%time%, %actor%)'
+  summary_anonymous: 'Dernier test : %status% (%time%)'
+  status:
+    ok: 'Réussi'
+    fail: 'Échoué'
+    skipped: 'Ignoré'
+  check:
+    tester: 'Test'
+    redacted: 'Vérification'
+  hint:
+    exception: 'Le test n''a pas pu aboutir. Les détails sont dans le journal du serveur.'
+    redacted: 'Les détails ont été masqués car ils correspondaient à un secret enregistré.'

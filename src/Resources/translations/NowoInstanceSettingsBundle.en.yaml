@@ -175,3 +175,23 @@ secret_expiry:
   warning_expired: "Expired on %date% (%days% day(s) ago). Replace the secret and update this date."
   notice_expiring: "“%field%” expires on %date% (in %days% day(s))."
   notice_expired: "“%field%” expired on %date% (%days% day(s) ago)."
+test:
+  button: 'Test'
+  button_group: 'Test %group%'
+  running: 'Testing the stored values…'
+  error: 'The test could not be run.'
+  rate_limited: 'Too many tests. Try again in a few minutes.'
+  busy: 'A test of this section is already running.'
+  dirty: 'Test uses the stored values: save first to test your changes.'
+  summary: 'Last test: %status% (%time%, %actor%)'
+  summary_anonymous: 'Last test: %status% (%time%)'
+  status:
+    ok: 'Passed'
+    fail: 'Failed'
+    skipped: 'Skipped'
+  check:
+    tester: 'Test'
+    redacted: 'Check'
+  hint:
+    exception: 'The test could not complete. The details are in the server log.'
+    redacted: 'Details were hidden because they matched a stored secret.'

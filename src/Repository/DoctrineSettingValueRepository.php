@@ -9,6 +9,7 @@ use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
 
 use function sprintf;
 
@@ -48,12 +49,15 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
     }
 
     /**
-     * Every stored row, ordered by section and name.
+     * Every stored setting row, ordered by section and name (the reserved section test rows left out, 1.18).
      */
     public function findAll(): array
     {
+        // 1.18 (audit PU-L6): the section test state (reserved `_section_test_*` sections) is not a setting.
         /** @var list<SettingValue> $rows */
-        $rows = $this->query('SELECT s FROM %s s ORDER BY s.section ASC, s.name ASC')->getResult();
+        $rows = $this->query('SELECT s FROM %s s WHERE s.section NOT IN (:reserved) ORDER BY s.section ASC, s.name ASC')
+            ->setParameter('reserved', [SectionTestStore::REPORTS, SectionTestStore::LOCKS, SectionTestStore::RATES])
+            ->getResult();
 
         return $rows;
     }

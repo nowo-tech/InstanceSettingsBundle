@@ -175,3 +175,23 @@ secret_expiry:
   warning_expired: "Scaduto il %date% (%days% giorno/i fa). Sostituisci il segreto e aggiorna questa data."
   notice_expiring: "«%field%» scade il %date% (tra %days% giorno/i)."
   notice_expired: "«%field%» è scaduto il %date% (%days% giorno/i fa)."
+test:
+  button: 'Prova'
+  button_group: 'Prova %group%'
+  running: 'Verifica dei valori salvati…'
+  error: 'Non è stato possibile eseguire la prova.'
+  rate_limited: 'Troppe prove. Riprova tra qualche minuto.'
+  busy: 'È già in corso una prova di questa sezione.'
+  dirty: 'La prova usa i valori salvati: salva prima di provare le modifiche.'
+  summary: 'Ultima prova: %status% (%time%, %actor%)'
+  summary_anonymous: 'Ultima prova: %status% (%time%)'
+  status:
+    ok: 'Superata'
+    fail: 'Non superata'
+    skipped: 'Saltata'
+  check:
+    tester: 'Prova'
+    redacted: 'Controllo'
+  hint:
+    exception: 'La prova non è stata completata. I dettagli sono nel log del server.'
+    redacted: 'I dettagli sono stati nascosti perché corrispondevano a un segreto salvato.'

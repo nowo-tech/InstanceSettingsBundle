@@ -35,6 +35,52 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.18.0.
+
+### Added
+
+- **Test button for settings sections and field groups** (Beacon spec 238, owner decision D-20261114-11). A section,
+  or one field group of it (e.g. the Google and Microsoft subtabs of a calendar OAuth section), can have a **Test**
+  button beside **Save** that checks that the **stored** values really connect. Save stays fully independent: never
+  blocked, never waiting; while the form has unsaved changes a hint says Test uses the stored values.
+  - Port `SectionTest\SettingsSectionTesterInterface::test(SectionTestContext): TestReport`, registered with
+    `#[AsSettingsTester(section: …, group: …)]` (tag `nowo_instance_settings.tester`; at most one per section and
+    group, validated at build time and against the sections on first use).
+  - Framework-free VOs: `SectionTestContext` (section, group, fields, stored plain values, secrets decrypted on demand
+    while the call runs, time budget; closed when the tester returns), `TestReport` (up to 20 checks, overall status)
+    and `TestCheck` (`labelKey`, `status` ok | fail | skipped, `hintKey`, scalar `hintParams`; keys only, no free
+    text), `TestStatus`.
+  - Endpoint `POST <path_prefix>/sections/<section>/test` (route `InstanceSettingsRoutes::TEST`, mounted only once a
+    tester exists) with the section's CSRF token: the section's area (or `security.test_roles`), a tester for exactly
+    that section / group, `security.test_rate_limiter` (default: 10 tests per actor per 10 minutes, kept in the
+    store), one test at a time per section and actor (409). Time budget `TIME_BUDGET_SECONDS` = 10, documented for
+    testers; a tester that runs over is logged.
+  - Leak guard: every key and parameter is compared with the section's stored secrets (exact, and any slice of 6+
+    characters) before the report is shown, stored or logged; hits are redacted. A tester that throws gives a failed
+    check with a generic hint; the exception is logged at `debug`, redacted, never shown.
+  - Last report (status, time, actor, redacted checks) stored per section / group in the settings table under a
+    reserved section name — no new table, no migration — and shown under the button.
+  - `Event\SettingsTestedEvent` (section, group, status, actor, time; never values) and log lines with names only.
+  - UI: `settings/_section_test.html.twig` + `nowo-instance-settings-test.js`: buttons beside Save (a group button only
+    on its open subtab), a polite `aria-live` result region per button styled with UiKit tokens, escaped text only
+    (`textContent`), works with Turbo Drive (results, hint and calls in flight cleared on `turbo:before-cache` and
+    `pagehide`).
+  - Config `security.test_roles` (null = the section's area; `[]` = nobody) and `security.test_rate_limiter`;
+    `InstanceSettingsAccessCheckerInterface::AREA_TEST` (`_test`, refused in `area_roles`); 16 new translation keys
+    (`test.*`) in the 7 locales.
+- Hosts without a tester see no change: no button, no script, no route, byte-identical pages.
+- Pre-tag audit PU (Lows fixed before 1.18.0):
+  - PU-L1: the leak guard also checks the translated label, hint and summary and the debug line of a throwing tester,
+    ignores case and looks for base64 / base64url (any alignment, Basic headers included), hex, URL / form encoding,
+    JSON escaping and the reversed value. Documented as best effort, for the section's own secrets only.
+  - PU-L2: the built-in rate window is one row per accepted test under a unique key: concurrent requests can no longer
+    exceed the limit, and a lost insert is never counted as accepted. Rows of ended windows are pruned.
+  - PU-L3: the running marker holds a per-request token; a stale marker is taken over by one request only, and a
+    request never removes another request's marker.
+  - PU-L4 / L5: `SectionTestContext::httpOptions()` (timeout and max duration = the budget, no redirects); USAGE says
+    testers call fixed provider hosts only and that only the section's own secrets are guarded.
+  - PU-L6: the `_section_test_*` rows are left out of the settings reads and `findAllRows()`.
+
 ### Changed
 
 - docs: demo screenshots regenerated on the UiKit base style

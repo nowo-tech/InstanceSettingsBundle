@@ -12,6 +12,7 @@ use ReflectionMethod;
 use RuntimeException;
 use Symfony\Component\Config\Loader\Loader;
 use Symfony\Component\Config\Resource\ReflectionClassResource;
+use Symfony\Component\DependencyInjection\Config\ContainerParametersResource;
 use Symfony\Component\Routing\Attribute\Route as RouteAttribute;
 use Symfony\Component\Routing\Route;
 use Symfony\Component\Routing\RouteCollection;
@@ -26,7 +27,7 @@ use function str_starts_with;
  * The routes are declared with #[Route] on {@see SettingsController} (path relative to the prefix, name, methods,
  * requirements); this loader reads those attributes and prepends `web_ui.path_prefix`, so the prefix stays configurable
  * while the definitions live on the controller (REQ-SF-004). Import / export routes are skipped when
- * `portability.web_ui` is false.
+ * `portability.web_ui` is false, and the section test route (1.18) when no section tester is registered.
  *
  * The image file route ({@see InstanceSettingsRoutes::FILE}, 1.4) is added under `files.path_prefix` only when a section
  * declares an image field, whether the admin UI is enabled or not; hosts without image fields get exactly the routes
@@ -37,6 +38,9 @@ final class InstanceSettingsRouteLoader extends Loader
     /** Routing resource type. */
     public const TYPE = 'nowo_instance_settings';
 
+    /** Container parameter: whether a section tester is registered (1.18, set by the tester compiler pass). */
+    public const SECTION_TESTS_PARAMETER = 'nowo_instance_settings.section_tests';
+
     private bool $loaded = false;
 
     /**
@@ -45,6 +49,8 @@ final class InstanceSettingsRouteLoader extends Loader
      * @param bool $portabilityEnabled `portability.web_ui`
      * @param SettingsSectionRegistry|null $registry sections (image fields decide the file route)
      * @param string $filePathPrefix `files.path_prefix`
+     * @param bool $sectionTests 1.18: a section tester is registered, so the test route ({@see InstanceSettingsRoutes::TEST})
+     *                           is mounted; without one the routes are those of 1.17
      */
     public function __construct(
         private readonly bool $webUiEnabled,
@@ -53,6 +59,7 @@ final class InstanceSettingsRouteLoader extends Loader
         ?string $env = null,
         private readonly ?SettingsSectionRegistry $registry = null,
         private readonly string $filePathPrefix = '/_settings-file',
+        private readonly bool $sectionTests = false,
     ) {
         parent::__construct($env);
     }
@@ -69,6 +76,8 @@ final class InstanceSettingsRouteLoader extends Loader
         $this->loaded = true;
 
         $collection = new RouteCollection();
+        // 1.18: the first tester (or the last one removed) changes this parameter, so the cached routes are rebuilt.
+        $collection->addResource(new ContainerParametersResource([self::SECTION_TESTS_PARAMETER => $this->sectionTests]));
         $this->addFileRoute($collection);
         if (!$this->webUiEnabled) {
             return $collection;
@@ -80,6 +89,9 @@ final class InstanceSettingsRouteLoader extends Loader
                 $declared = $attribute->newInstance();
                 $path     = is_string($declared->path) ? $declared->path : '';
                 if (!$this->portabilityEnabled && str_starts_with($path, '/portability')) {
+                    continue;
+                }
+                if (!$this->sectionTests && $declared->name === InstanceSettingsRoutes::TEST) {
                     continue;
                 }
                 $collection->add((string) $declared->name, new Route(

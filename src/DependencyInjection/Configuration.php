@@ -22,6 +22,7 @@ use Symfony\Component\Config\Definition\ConfigurationInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 
 use function array_diff;
+use function array_is_list;
 use function array_key_exists;
 use function array_keys;
 use function array_unique;
@@ -222,6 +223,18 @@ final class Configuration implements ConfigurationInterface
                             ->info('1.15: service id of a Symfony RateLimiterFactory (framework.rate_limiter.<name> gives limiter.<name>) consuming one token per reveal, keyed by the hashed actor; null = no limit.')
                             ->defaultNull()
                         ->end()
+                        ->variableNode('test_roles')
+                            ->info('1.18: roles that may run the Test button of a section (any of them), asked on top of the section\'s own area. Null (default) = whoever may open the section may test it; an empty list refuses every test. With access_checker set, the custom checker decides the "_test" area (asked only when this is not null).')
+                            ->defaultNull()
+                            ->validate()
+                                ->ifTrue(static fn (mixed $v): bool => $v !== null && !self::isRoleList($v))
+                                ->thenInvalid('nowo_instance_settings.security.test_roles must be null or a list of non-empty role names, got %s.')
+                            ->end()
+                        ->end()
+                        ->scalarNode('test_rate_limiter')
+                            ->info('1.18: service id of a Symfony RateLimiterFactory consuming one token per section test, keyed by the hashed actor; null = the built-in limit (10 tests per actor per 10 minutes, kept in the settings store).')
+                            ->defaultNull()
+                        ->end()
                         ->scalarNode('access_checker')
                             ->info('Service id implementing InstanceSettingsAccessCheckerInterface; null = role-based default.')
                             ->defaultNull()
@@ -244,6 +257,10 @@ final class Configuration implements ConfigurationInterface
                     ->validate()
                         ->ifTrue(static fn (array $v): bool => array_key_exists(InstanceSettingsAccessCheckerInterface::AREA_REVEAL, $v['area_roles'] ?? []))
                         ->thenInvalid('nowo_instance_settings.security.area_roles must not define "_reveal": the roles of the secret reveal are security.reveal_roles (got %s).')
+                    ->end()
+                    ->validate()
+                        ->ifTrue(static fn (array $v): bool => array_key_exists(InstanceSettingsAccessCheckerInterface::AREA_TEST, $v['area_roles'] ?? []))
+                        ->thenInvalid('nowo_instance_settings.security.area_roles must not define "_test": the roles of the section Test button are security.test_roles (got %s).')
                     ->end()
                 ->end()
                 ->arrayNode('portability')
@@ -574,6 +591,23 @@ final class Configuration implements ConfigurationInterface
     public static function isPathLike(mixed $value): bool
     {
         return is_string($value) && ($value === '' || PathGuard::isLocalPath($value));
+    }
+
+    /**
+     * Whether `$value` is a list of non-empty role names (`security.test_roles`, 1.18).
+     */
+    private static function isRoleList(mixed $value): bool
+    {
+        if (!is_array($value) || !array_is_list($value)) {
+            return false;
+        }
+        foreach ($value as $role) {
+            if (!is_string($role) || trim($role) === '') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

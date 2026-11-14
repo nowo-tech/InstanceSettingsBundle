@@ -175,3 +175,23 @@ secret_expiry:
   warning_expired: "Caducó el %date% (hace %days% día(s)). Sustituye el secreto y actualiza esta fecha."
   notice_expiring: "“%field%” caduca el %date% (dentro de %days% día(s))."
   notice_expired: "“%field%” caducó el %date% (hace %days% día(s))."
+test:
+  button: 'Probar'
+  button_group: 'Probar %group%'
+  running: 'Probando los valores guardados…'
+  error: 'No se ha podido ejecutar la prueba.'
+  rate_limited: 'Demasiadas pruebas. Vuelve a intentarlo en unos minutos.'
+  busy: 'Ya hay una prueba de esta sección en curso.'
+  dirty: 'La prueba usa los valores guardados: guarda primero para probar tus cambios.'
+  summary: 'Última prueba: %status% (%time%, %actor%)'
+  summary_anonymous: 'Última prueba: %status% (%time%)'
+  status:
+    ok: 'Correcta'
+    fail: 'Fallida'
+    skipped: 'Omitida'
+  check:
+    tester: 'Prueba'
+    redacted: 'Comprobación'
+  hint:
+    exception: 'La prueba no ha podido completarse. Los detalles están en el registro del servidor.'
+    redacted: 'Los detalles se han ocultado porque coincidían con un secreto guardado.'

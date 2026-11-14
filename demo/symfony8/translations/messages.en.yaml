@@ -25,6 +25,14 @@ mailer:
   dsn_help: For example smtp://user:pass@host:25. Stored encrypted.
   test_recipient: Test recipient
   preview: See the values on the home page
+  test:
+    transport: Transport DSN
+    sender: Sender address
+    hint:
+      no_dsn: No DSN is stored yet.
+      transport: 'Stored DSN uses the %scheme% transport.'
+      bad_dsn: The stored DSN is not a supported transport.
+      bad_sender: The stored sender is not an e-mail address.
 sms:
   label: SMS
   intro: SMS provider and its encrypted credentials.

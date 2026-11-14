@@ -21,8 +21,15 @@ interface InstanceSettingsAccessCheckerInterface
     public const AREA_REVEAL = '_reveal';
 
     /**
+     * Area id of the section Test button (1.18): asked on top of the section's own area, and only when
+     * `security.test_roles` is set (its roles with the role-based default checker). Without it, whoever may open a
+     * section may test it.
+     */
+    public const AREA_TEST = '_test';
+
+    /**
      * Whether the user may open the admin UI at all (`$area` null) or one area: a settings section name,
-     * {@see self::AREA_PORTABILITY} or {@see self::AREA_REVEAL}.
+     * {@see self::AREA_PORTABILITY}, {@see self::AREA_REVEAL} or {@see self::AREA_TEST}.
      *
      * @param object|null $user authenticated user of the main request firewall (null = anonymous)
      */

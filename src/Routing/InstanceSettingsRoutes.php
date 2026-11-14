@@ -33,6 +33,13 @@ final class InstanceSettingsRoutes
      */
     public const REVEAL = 'nowo_instance_settings_secret_reveal';
 
+    /**
+     * Test of the stored values of a section or of one of its field groups (1.18, POST + the section's CSRF token);
+     * parameter `section`, body `group` (optional). Mounted with the admin UI routes only when a section tester is
+     * registered.
+     */
+    public const TEST = 'nowo_instance_settings_section_test';
+
     /** Image file of an image setting field (1.4, outside the admin prefix); parameters `section`, `field`, `file`, `ext`. */
     public const FILE = 'nowo_instance_settings_file';
 }

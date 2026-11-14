@@ -48,3 +48,21 @@ providers:
   api_key: '<img src=x onerror=alert(1)> API key'
   webhook_token: Webhook token
   backup_key: Backup key
+calendar_oauth:
+  label: Calendar OAuth
+  mode: Test mode
+  google_client_id: Google client ID
+  google_client_secret: Google client secret
+  microsoft_tenant: Microsoft tenant
+  microsoft_client_secret: Microsoft client secret
+  group:
+    google: Google
+    microsoft: Microsoft
+  test:
+    token: Token endpoint
+    refresh: Refresh token
+    scope: Calendar scope
+    hint:
+      status: 'HTTP status %status%'
+      fields: 'Fields %fields% of %group%'
+      leak: 'exact=%exact% part=%part% safe=%safe% code=%code%'

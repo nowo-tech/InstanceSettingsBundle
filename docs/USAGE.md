@@ -10,6 +10,7 @@
   - [Provider-dependent fields (visible_when)](#provider-dependent-fields-visible_when)
   - [Colour fields (1.12)](#colour-fields-112)
   - [Field groups and subtabs (1.14)](#field-groups-and-subtabs-114)
+  - [Testing the stored values (1.18)](#testing-the-stored-values-118)
   - [Reading the values in the contributing bundle](#reading-the-values-in-the-contributing-bundle)
   - [Reacting to changes](#reacting-to-changes)
   - [Rules for bundle authors](#rules-for-bundle-authors)
@@ -322,6 +323,138 @@ final class SmsSection extends AbstractSettingsSection implements SettingsSectio
   UiKit's `locale_tabs_nav`, `tab`, `tab_active`, `tab_panel`.
 - The bundle's own sections: `brand` (Identity, Logos, Extra images, Advanced) and `appearance` (Theme, Light colours,
   Dark colours, Shape).
+
+### Testing the stored values (1.18)
+
+A section — or one field group of it, such as the Google and Microsoft subtabs of a calendar OAuth section — can have a
+**Test** button beside **Save**. Test checks that the **stored** values really connect (what Save wrote, never what is
+typed in the form). Save stays fully independent: it is never blocked and never waits for a test. While the form has
+unsaved changes the page says so ("Test uses the stored values: save first to test your changes") without disabling
+anything.
+
+Write a tester: implement `SectionTest\SettingsSectionTesterInterface` and register it with the
+`#[AsSettingsTester]` attribute (autoconfiguration). At most one tester per section and group.
+
+```php
+use Nowo\InstanceSettingsBundle\Attribute\AsSettingsTester;
+use Nowo\InstanceSettingsBundle\SectionTest\SectionTestContext;
+use Nowo\InstanceSettingsBundle\SectionTest\SettingsSectionTesterInterface;
+use Nowo\InstanceSettingsBundle\SectionTest\TestCheck;
+use Nowo\InstanceSettingsBundle\SectionTest\TestReport;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+
+/**
+ * Checks the stored Google OAuth client against Google's token endpoint. An authorization code that cannot exist is
+ * sent on purpose: Google answers 401 "invalid_client" when the client id / secret are wrong, and 400 "invalid_grant"
+ * once it accepted them — no user, no token and no consent screen involved.
+ */
+#[AsSettingsTester(section: 'calendar_oauth', group: 'google')]
+final readonly class GoogleOAuthTester implements SettingsSectionTesterInterface
+{
+    public function __construct(private HttpClientInterface $http) {}
+
+    public function test(SectionTestContext $context): TestReport
+    {
+        $clientId = $context->string('google_client_id');
+        $secret   = $context->secret('google_client_secret');     // decrypted for this call only: a local variable
+        if ($clientId === null || $secret === null) {
+            return TestReport::of(TestCheck::skipped('calendar_oauth.test.google.token', 'calendar_oauth.test.hint.not_configured'));
+        }
+
+        try {
+            // A fixed provider host, never one read from an editable field; timeout / max_duration = the budget, no redirects.
+            $response = $this->http->request('POST', 'https://oauth2.googleapis.com/token', $context->httpOptions() + [
+                'body' => ['grant_type' => 'authorization_code', 'code' => 'nowo-connection-test', 'redirect_uri' => 'https://example.invalid/', 'client_id' => $clientId, 'client_secret' => $secret],
+            ]);
+            $status = $response->getStatusCode();
+            $error  = $response->toArray(false)['error'] ?? null;  // Google's error code ("invalid_client"), never the body
+        } catch (TransportExceptionInterface) {
+            // Never put $e->getMessage() in a check: it is not a translation key and may echo the request.
+            return TestReport::of(TestCheck::fail('calendar_oauth.test.google.token', 'calendar_oauth.test.hint.unreachable', ['%host%' => 'oauth2.googleapis.com']));
+        }
+
+        return TestReport::of(match (true) {
+            $status === 400 && $error === 'invalid_grant' => TestCheck::ok('calendar_oauth.test.google.token', 'calendar_oauth.test.hint.client_accepted'),
+            $status === 401                               => TestCheck::fail('calendar_oauth.test.google.token', 'calendar_oauth.test.hint.client_rejected'),
+            default                                       => TestCheck::fail('calendar_oauth.test.google.token', 'calendar_oauth.test.hint.http_status', ['%status%' => $status]),
+        });
+    }
+}
+```
+
+```yaml
+# translations/app.en.yaml (the section's translation domain)
+calendar_oauth:
+  test:
+    google:
+      token: Google token endpoint
+    hint:
+      not_configured: Save a client ID and a client secret first.
+      unreachable: '%host% could not be reached.'
+      client_accepted: Google accepted the client ID and secret.
+      client_rejected: Google rejected the client ID or secret.
+      http_status: 'Unexpected answer (HTTP %status%).'
+```
+
+- **`#[AsSettingsTester(section: 'calendar_oauth')]`** tests the whole section (button beside Save on every subtab);
+  **`group: 'google'`** tests one field group (its button is shown only while that subtab is open, or with the group's
+  name in the stacked layout). The section must be registered and the group must be one of its resolved field groups
+  (declared groups, or one per 1.5 form group, two or more): anything else fails closed with a `LogicException` naming
+  the tester on first use. A tag without a valid section, an invalid group code, a service that does not implement
+  the interface or two testers for the same section and group fail the container build.
+- **`SectionTestContext`** (framework-free): `section`, `group` (null = section test), `fields()`, `groupFields()` (the
+  resolved fields of the group, every field for a section test), `value()` / `string()` (effective stored plain value:
+  stored, else the default), `secret()` / `hasSecret()` (decrypted on demand, one field per call) and
+  `timeBudgetSeconds()`. It reads through the bundle's store and closes when your `test()` returns: every read after
+  that throws, so keeping the context gives you nothing.
+- **`TestReport`** holds up to 20 `TestCheck`s; its `status` is `fail` when a check failed, `ok` when one passed and none
+  failed, else `skipped`. **`TestCheck::ok|fail|skipped(labelKey, hintKey, hintParams, domain)`**: label and hint are
+  **translation keys** (letters, digits, `_ . -`, no spaces) in the section's domain (or `domain`), parameters are up
+  to 10 scalars (strings cut at 200 characters). A sentence instead of a key throws, and the bundle shows a failed
+  check instead.
+- **Never a value — a best-effort guard, not a guarantee.** Before the report is shown, stored or logged, the bundle
+  compares every key and parameter, the translated label and hint, the summary line and the debug line of a throwing
+  tester with every stored secret **of the tested section**: the raw value, its common encodings (base64 and base64url
+  at any alignment, so a Basic `client:secret` header too; hex; URL and form encoding; JSON escaping; reversed), case
+  ignored, the whole value or any slice of 6 characters or more (a secret shorter than 6 characters only as the whole
+  text). A hit parameter becomes `[redacted]`, a hit key or text turns the check into a generic "details hidden"
+  check, and a warning names the section and the number of hits. It catches accidental echoes, not a determined tester,
+  and it does not know other sections' secrets, `.env` values or tokens fetched during the test. **Never put a
+  secret, a part of one or anything derived from one in a parameter**: use fixed codes, HTTP statuses and fixed host
+  names only. A tester that throws (anything, `Error` included) gives one failed check with a generic hint; the
+  exception class and its message — redacted the same way — are logged at `debug` only, never shown.
+- **Time budget**: `SettingsSectionTesterInterface::TIME_BUDGET_SECONDS` (10). The bundle cannot interrupt PHP code: a
+  tester waiting on the network holds its PHP / FrankenPHP worker until its own client gives up (`max_execution_time`
+  does not count that wait on Linux), and the bundle only logs a tester that ran over (`warning`, section, group and
+  seconds). Pass `$context->httpOptions()` (`timeout` and `max_duration` = the budget, `max_redirects` = 0) to every
+  request, or the budget to any other client.
+- **Fixed provider hosts.** Call the provider's own fixed endpoints only. Never send stored credentials to a host or
+  URL read from an editable field (or follow a redirect to one) without an allow-list: an editor of the section could
+  otherwise point it at their own server, save, and press Test.
+- **Stateless** (FrankenPHP worker mode with `kernel.reset` off): never keep a value, token or response in a
+  property; the tester is a shared service.
+- **Endpoint** (owned by the bundle): `POST <path_prefix>/sections/<section>/test` with the section form's CSRF token
+  (`_token`) and `group` for a group tester, mounted only once a tester is registered (route
+  `InstanceSettingsRoutes::TEST`). Checks: the UI gate and the section's area (and `security.test_roles` when set),
+  a tester for exactly that section and group (else 404), the CSRF token (else 403), the rate limit (429,
+  `security.test_rate_limiter`, else 10 tests per actor per 10 minutes) and one test at a time per section and actor
+  (409). The answer is the translated report (`no-store`); a refusal is `{"error": "rate_limited"|"busy", "message"}`.
+- **Last report**: status, time, actor (user identifier, shown to everyone who may test the section) and the
+  redacted checks are stored per section / group in the settings table under the reserved section
+  `_section_test_report` (no new table, no migration) and shown under the button. Exports, seeds, the settings reads
+  and `SettingRowReaderInterface::findAllRows()` never include the `_section_test_*` rows.
+- **`Event\SettingsTestedEvent`** (`section`, `group`, `status`, `actor`, `testedAt`) is dispatched after every test,
+  and an `info` line `Instance settings: section tested` is logged — names and status only.
+- **Page**: `settings/_section_test.html.twig` (reserved variable `section_test`, `Ui\SectionTestControls`) and
+  `bundles/nowoinstancesettings/js/nowo-instance-settings-test.js` (run `assets:install`): the script moves the
+  buttons beside Save, shows the results in a polite `aria-live` region per button (`textContent` only), and clears
+  results, the hint and any call in flight on `turbo:before-cache` and `pagehide`. Without JavaScript nothing is shown.
+  Hooks: `[data-nowo-instance-settings-test-root]`, `[data-nowo-instance-settings-test-button][data-group]`,
+  `[data-nowo-instance-settings-test-result]`, `[data-nowo-instance-settings-test-dirty]`; status classes use UiKit
+  tokens (`--nowo-ui-success-*`, `--nowo-ui-danger-*`, `--nowo-ui-warning-*`). A host section template includes the
+  partial the same way as the reveal partial.
+- **Without a tester nothing changes**: no button, no script, no route, byte-identical pages.
 
 ### Reading the values in the contributing bundle
 
