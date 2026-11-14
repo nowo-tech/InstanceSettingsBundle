@@ -44,7 +44,9 @@ test.describe('Expiring secrets', () => {
     await save(page);
     await expect(page.getByTestId('instance-settings-notice').filter({ hasText: 'Auth token' })).toHaveCount(0);
 
-    // A rotated secret with the date left as it was: the date is cleared.
+    // A rotated secret with the date left as it was: the date is cleared. 1.17 reveal_in_input: the stored secret is
+    // locked, so the new value needs "Replace the stored value".
+    await sectionForm(page).locator('[name="settings_section[auth_token:replace]"]').check();
     await sectionForm(page).locator('[name="settings_section[auth_token][value]"]').fill('tw-e2e-rotated-token');
     await save(page);
     await expect(sectionForm(page).locator(DATE)).toHaveValue('');

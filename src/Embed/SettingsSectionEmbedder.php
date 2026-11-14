@@ -62,6 +62,7 @@ use function array_push;
 use function explode;
 use function http_build_query;
 use function implode;
+use function in_array;
 use function is_string;
 use function sprintf;
 use function str_starts_with;
@@ -112,6 +113,8 @@ final readonly class SettingsSectionEmbedder
      * @param bool $revealOnToggle `web_ui.reveal_on_toggle` (1.16): the PasswordToggle eye of a revealable row reveals
      *                             the stored secret (same endpoint and checks as the Reveal button)
      * @param bool $revealToggleOnly `web_ui.reveal_toggle_only` (1.16): with the eye, no separate Reveal / Copy / Hide buttons
+     * @param bool $revealInInput `web_ui.reveal_in_input` (1.17, with `reveal_on_toggle`): a revealable row holding a
+     *                            stored secret is locked; a value typed into it is saved only with its Replace box
      * @param ExpiringSecrets|null $expiringSecrets 1.17: stored expiry dates and warnings of the expiring secrets (null =
      *                                              the date rows start empty and no warning is shown)
      */
@@ -135,6 +138,7 @@ final readonly class SettingsSectionEmbedder
         private bool $revealOnToggle = false,
         private bool $revealToggleOnly = false,
         private ?ExpiringSecrets $expiringSecrets = null,
+        private bool $revealInInput = false,
     ) {
     }
 
@@ -250,6 +254,16 @@ final readonly class SettingsSectionEmbedder
         // 1.15: the Reveal control, only for a user who may reveal (the plaintext itself never reaches the page).
         $reveal = $this->secretReveal($section);
 
+        // 1.17 (web_ui.reveal_in_input): the revealable rows holding a stored secret are locked for this user.
+        $locked = [];
+        if ($reveal instanceof SecretReveal && $reveal->inInput) {
+            foreach (array_keys($reveal->urls) as $name) {
+                if ($stored[$name] ?? false) {
+                    $locked[] = $name;
+                }
+            }
+        }
+
         // 1.17: the stored expiry dates and the warnings of the expiring secrets (no query for other sections).
         $expiryDates    = [];
         $expiryWarnings = [];
@@ -270,6 +284,7 @@ final readonly class SettingsSectionEmbedder
             // 1.17: expiry date rows of the expiring secrets.
             'secret_expiry_dates'    => $expiryDates,
             'secret_expiry_warnings' => $expiryWarnings,
+            'locked_secrets'         => $locked,
         ]);
         $form->handleRequest($request);
         // 1.14: the field groups as subtabs (one form: hidden panels still submit their fields); [] = stacked.
@@ -279,7 +294,7 @@ final readonly class SettingsSectionEmbedder
 
         if ($form->isSubmitted() && $form->isValid()) {
             try {
-                $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets, $expiryDates), SettingsChangedEvent::ORIGIN_FORM);
+                $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets, $expiryDates, $locked), SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
 
                 // 1.14: back to the open subtab (a known group code only, never a raw request value).
@@ -375,7 +390,7 @@ final readonly class SettingsSectionEmbedder
             $urls[$field] = $this->urlGenerator->generate(InstanceSettingsRoutes::REVEAL, ['section' => $section, 'field' => $field]);
         }
 
-        return new SecretReveal($section, $urls, $this->revealOnToggle, $this->revealOnToggle && $this->revealToggleOnly);
+        return new SecretReveal($section, $urls, $this->revealOnToggle, $this->revealOnToggle && $this->revealToggleOnly, $this->revealOnToggle && $this->revealInInput);
     }
 
     /**
@@ -418,11 +433,15 @@ final readonly class SettingsSectionEmbedder
      *
      * @param FormInterface<mixed> $form
      * @param array<string, SettingField> $fields
+     *                                            1.17 (web_ui.reveal_in_input): a locked row (`$locked`) keeps its stored secret whatever value was submitted for it
+     *                                            (a read-only input edited in the browser changes nothing), unless its Replace box is ticked; its clear box still
+     *                                            deletes it.
      * @param array<string, DateTimeImmutable> $expiryDates stored expiry dates (field => date)
+     * @param list<string> $locked locked secret rows (field names)
      *
      * @return array<string, mixed>
      */
-    private function submittedValues(FormInterface $form, array $fields, HiddenSecrets $hiddenSecrets, array $expiryDates = []): array
+    private function submittedValues(FormInterface $form, array $fields, HiddenSecrets $hiddenSecrets, array $expiryDates = [], array $locked = []): array
     {
         /** @var array<string, mixed> $data */
         $data   = (array) $form->getData();
@@ -458,8 +477,12 @@ final readonly class SettingsSectionEmbedder
 
                 continue;
             }
-            SecretFieldApplier::applyData($form->get($name)->getData(), static function (?string $secret) use (&$values, $name): void {
-                $values[$name] = $secret;
+            $replace = SettingsSectionType::replaceKey($name);
+            $typed   = !in_array($name, $locked, true) || ($form->has($replace) && $form->get($replace)->getData() === true);
+            SecretFieldApplier::applyData($form->get($name)->getData(), static function (?string $secret) use (&$values, $name, $typed): void {
+                if ($secret === null || $typed) {
+                    $values[$name] = $secret;
+                }
             });
             $key = SettingField::expiryKey($name);
             if ($field->expires && $form->has($key)) {

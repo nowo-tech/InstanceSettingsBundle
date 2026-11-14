@@ -6,6 +6,11 @@ nowo_instance_settings:
         table_prefix: 'demo_'
     web_ui:
         path_prefix: /admin/settings
+        # 1.16 / 1.17: the eye of a revealable row reveals the stored value, and a stored revealable secret is locked
+        # (read-only; "Replace the stored value" to type a new one). The demo has no PasswordToggle eye, so the row keeps
+        # its Reveal button; the lock and the server rule apply all the same.
+        reveal_on_toggle: true
+        reveal_in_input: true
     security:
         access_roles: [ROLE_ADMIN]
         allow_unauthenticated: true

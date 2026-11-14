@@ -68,20 +68,34 @@ Target 1.17.0 (Symfony Beacon request, owner decision D-20261114-09).
     else the stored one) and skipped for a field left without a secret. **Fallback seeding**:
     `SettingFallback::secret($field, $value, '2027-01-31')` seeds the date with the secret.
 - **Configuration** `expiring_secrets: {enabled, thresholds, warning, warning_days, timezone}`.
+- **Locked stored secrets: reveal in the input (`web_ui.reveal_in_input`, opt-in, default `false`).** Symfony Beacon
+  request, owner-approved design. With `reveal_on_toggle`, a revealable row holding a stored secret is **locked** for a
+  user who may reveal: the input is read-only and the PasswordToggle eye shows the stored value in that same input
+  (`type=text`) through the existing reveal call (endpoint, CSRF token, limiter, roles, audit, one call at a time), then
+  hides it again (second click, 60-second auto-hide, hidden page, `pagehide`, `turbo:before-cache`, submit). While shown:
+  `autocomplete="off"`, `spellcheck="false"`, `autocapitalize="off"`, `autocorrect="off"`, `data-1p-ignore`,
+  `data-lpignore`, `data-bwignore`, all restored on hide; the type switch drops the undo history. A new value needs the
+  new **Replace the stored value** box (`<field>:replace`); unticking re-locks. The submit and `formdata` handlers
+  never post the revealed value, and the **server ignores a value submitted for a locked row without Replace** — only
+  with the option on: hosts without it keep the 1.16 overwrite-by-typing behaviour. A polite status region announces
+  "shown" / "hidden", never the value. Three new translation keys (`reveal.replace`, `reveal.announce_shown`,
+  `reveal.announce_hidden`) in the seven locales.
 
 ### Changed
 
 - `PortabilityEnvelope::assertValid()` accepts versions 1 to 3 (`VERSION_WITH_SECRET_EXPIRY`); `KEYS` lists
   `secret_expiry`. `PortabilityEnvelope::VERSION` stays 2.
 - Optional trailing constructor arguments: `InstanceSettings` (`expiryStore`), `ConfigPortability` (`expiryStore`),
-  `FallbackSeeder` (`expiryStore`), `SettingsSectionEmbedder` (`expiringSecrets`), `SettingsSectionRegistry`
+  `FallbackSeeder` (`expiryStore`), `SettingsSectionEmbedder` (`expiringSecrets`, `revealInInput`), `SecretReveal`
+  (`inInput`), `SettingsSectionRegistry`
   (`expiryEnabled`), `SettingField` (`expires`), `SettingFallback` (`expiresOn`). Code building them by hand keeps
   working.
 
 ### Documentation
 
 - USAGE ([Expiring secrets](USAGE.md#expiring-secrets-117)) with the Beacon-style reminder listener, CONFIGURATION
-  ([`expiring_secrets`](CONFIGURATION.md#expiring-secrets-117)), UPGRADING (DDL for MySQL, MariaDB, PostgreSQL and
+  ([`expiring_secrets`](CONFIGURATION.md#expiring-secrets-117), [locked stored secrets](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117),
+  including the Firefox session restore check), UPGRADING (DDL for MySQL, MariaDB, PostgreSQL and
   SQLite).
 
 ## [1.16.1] - 2026-11-14

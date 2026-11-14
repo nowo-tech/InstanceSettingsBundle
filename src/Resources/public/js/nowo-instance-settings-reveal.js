@@ -39,6 +39,19 @@
  *   that hides still hides at once (and that answer is dropped).
  * - 1.16.1 (audit PK-I7): with data-toggle-only there is no Hide button, so an error message goes away on the next eye
  *   click or after MESSAGE_HIDE_MS.
+ * - 1.17 (web_ui.reveal_in_input, data-in-input on the root): a row the server marks data-nowo-instance-settings-locked
+ *   (a stored revealable secret) is LOCKED: its input is read-only and keeps the "saved" placeholder, so nothing can be
+ *   typed. The eye shows the stored value IN that input (type=text) through the same reveal call (endpoint, CSRF token,
+ *   limiter, roles, audit, one call at a time) and hides it again; while shown the input carries autocomplete="off",
+ *   spellcheck="false", autocapitalize="off", autocorrect="off" and the password-manager opt-outs (data-1p-ignore,
+ *   data-lpignore, data-bwignore), all restored on hide. The second click, the auto-hide delay, a hidden page,
+ *   pagehide, turbo:before-cache and every submit hide it: type=password, value emptied (switching the type also drops
+ *   the editor's undo history, so Ctrl+Z cannot bring the value back). The row's <output> is used for error messages
+ *   only, and its Reveal / Copy / Hide buttons stay hidden. The status element announces "shown" / "hidden", never the
+ *   value. Ticking the row's "Replace the stored value" box (data-nowo-instance-settings-replace-for, rendered by the
+ *   form) unlocks an empty password input, where the eye is PasswordToggle's own again; unticking locks it again. A
+ *   locked input never carries a value on submit (the formdata event blanks it, for new FormData(form) too), and the
+ *   server ignores one without the Replace box anyway.
  * Without this script nothing is added: the field stays write-only ("leave blank to keep"), as before 1.15.
  */
 (function () {
@@ -58,6 +71,24 @@
     var SECTION = 'data-nowo-instance-settings-reveal-section';
     var DONE = 'data-nowo-instance-settings-reveal-ready';
     var EYE = '[data-nowo-password-toggle-target="button"]';
+    var STATUS = '[data-nowo-instance-settings-reveal-status]';
+    var LOCKED = 'data-nowo-instance-settings-locked';
+    var REPLACE_FOR = 'data-nowo-instance-settings-replace-for';
+    var VALUE_INPUT = 'input[name$="[value]"]';
+    // 1.17: set on the input while it shows the stored value (restored on hide).
+    var MASKING = {
+        autocomplete: 'off',
+        spellcheck: 'false',
+        autocapitalize: 'off',
+        autocorrect: 'off',
+        'data-1p-ignore': 'true',
+        'data-lpignore': 'true',
+        'data-bwignore': 'true',
+    };
+    // 1.17: row => the input's attributes before the stored value was shown in it.
+    var shown = new WeakMap();
+    // 1.17: eye => its own label / title / pressed state, put back when the row is unlocked for a new value.
+    var eyeLabels = new WeakMap();
     var AUTO_HIDE_MS = 60000;
     var MESSAGE_HIDE_MS = 10000;
     var timers = new WeakMap();
@@ -121,16 +152,97 @@
         return row.querySelector(EYE);
     }
 
-    // 1.16 (web_ui.reveal_toggle_only): a row with the eye keeps its Reveal / Copy / Hide buttons hidden.
+    // 1.17: a stored secret row of a root with data-in-input (web_ui.reveal_in_input).
+    function inInputRow(row) {
+        var element = rootOf(row);
+
+        return !!(element && element.getAttribute('data-in-input') === 'true' && row.getAttribute(LOCKED) === 'true');
+    }
+
+    function inputOf(row) {
+        return row.querySelector(VALUE_INPUT);
+    }
+
+    // The row's "Replace the stored value" box, in the row's own form.
+    function replaceBox(row) {
+        var field = row.getAttribute('data-nowo-instance-settings-reveal') || '';
+        var scope = row.closest('form') || row.ownerDocument || document;
+        var holders = scope.querySelectorAll('[' + REPLACE_FOR + ']');
+        for (var i = 0; i < holders.length; i++) {
+            if (holders[i].getAttribute(REPLACE_FOR) === field) {
+                return holders[i].querySelector('input[type="checkbox"]');
+            }
+        }
+
+        return null;
+    }
+
+    // Locked: a stored secret, Replace not ticked.
+    function isLocked(row) {
+        var box = inInputRow(row) ? replaceBox(row) : null;
+
+        return inInputRow(row) && !(box && box.checked);
+    }
+
+    // The eye of a locked row shows the stored value in the input itself.
+    function usesInput(row) {
+        return isLocked(row) && !!eyeOf(row) && !!inputOf(row);
+    }
+
+    // 1.16 (web_ui.reveal_toggle_only): a row with the eye keeps its Reveal / Copy / Hide buttons hidden; 1.17: so does a
+    // locked row whose eye reveals into the input.
     function buttonsOff(row) {
         var element = rootOf(row);
 
-        return !!(element && element.getAttribute('data-toggle-only') === 'true' && eyeOf(row));
+        return !!(element && element.getAttribute('data-toggle-only') === 'true' && eyeOf(row)) || usesInput(row);
+    }
+
+    function announce(row, kind) {
+        var status = row.querySelector(STATUS);
+        if (status) {
+            status.textContent = label(rootOf(row), kind);
+        }
+    }
+
+    // Shows the stored value in the locked input (1.17).
+    function showIn(row, value) {
+        var input = inputOf(row);
+        var before = {};
+        for (var name in MASKING) {
+            before[name] = input.hasAttribute(name) ? input.getAttribute(name) : null;
+            input.setAttribute(name, MASKING[name]);
+        }
+        shown.set(row, before);
+        input.type = 'text';
+        input.value = value;
+        announce(row, 'shown');
+    }
+
+    // Hides it again: type=password (a new editor: no undo history), empty value, attributes restored.
+    function hideIn(row) {
+        var before = shown.get(row);
+        var input = inputOf(row);
+        if (!before || !input) {
+            return;
+        }
+        shown.delete(row);
+        input.value = '';
+        input.type = 'password';
+        input.value = '';
+        for (var name in before) {
+            if (before[name] === null) {
+                input.removeAttribute(name);
+            } else {
+                input.setAttribute(name, before[name]);
+            }
+        }
+        announce(row, 'hidden');
     }
 
     function setEye(row, revealed) {
         var eye = eyeOf(row);
-        if (!eye) {
+        if (!eye || (inInputRow(row) && !isLocked(row))) {
+            // 1.17: an unlocked row's eye is PasswordToggle's own.
             return;
         }
         eye.setAttribute('aria-pressed', revealed ? 'true' : 'false');
@@ -166,6 +278,7 @@
         var p = parts(row);
         // A call still in flight is dropped when it answers (the user already hid the row).
         pending.delete(row);
+        hideIn(row);
         setEye(row, false);
         if (!p.output) {
             return;
@@ -193,6 +306,24 @@
 
     function render(row, text, revealed) {
         var p = parts(row);
+        if (revealed && usesInput(row)) {
+            // 1.17: the stored value goes into the locked input; the <output> is for messages only.
+            if (p.output) {
+                p.output.textContent = '';
+                p.output.hidden = true;
+            }
+            showIn(row, text);
+            setEye(row, true);
+            var running = timers.get(row);
+            if (running) {
+                window.clearTimeout(running);
+            }
+            timers.set(row, window.setTimeout(function () {
+                clear(row);
+            }, AUTO_HIDE_MS));
+
+            return;
+        }
         if (!p.output) {
             return;
         }
@@ -310,11 +441,72 @@
             }
             row.setAttribute(DONE, '');
             row.appendChild(template.content.cloneNode(true));
+            var own = eyeOf(row);
+            if (own && !eyeLabels.has(own)) {
+                eyeLabels.set(own, { label: own.getAttribute('aria-label'), title: own.getAttribute('title'), pressed: own.getAttribute('aria-pressed') });
+            }
+            if (inInputRow(row)) {
+                // 1.17: locked unless the page came back with Replace ticked (a refused save).
+                setLocked(row, isLocked(row));
+            }
             if (eyeOf(row)) {
                 setEye(row, false);
                 var show = row.querySelector(SHOW);
                 if (show) {
                     show.hidden = buttonsOff(row);
+                }
+            }
+        }
+    }
+
+    function restoreAttribute(element, name, value) {
+        if (value === null || value === undefined) {
+            element.removeAttribute(name);
+        } else {
+            element.setAttribute(name, value);
+        }
+    }
+
+    // 1.17: locks (read-only, empty) or unlocks (an empty password input to type a new value) a stored secret row.
+    function setLocked(row, locked) {
+        clear(row, true);
+        var input = inputOf(row);
+        if (!input) {
+            return;
+        }
+        input.type = 'password';
+        input.value = '';
+        input.readOnly = locked;
+        var eye = eyeOf(row);
+        var own = eye ? eyeLabels.get(eye) : null;
+        if (locked) {
+            setEye(row, false);
+        } else if (eye && own) {
+            restoreAttribute(eye, 'aria-label', own.label);
+            restoreAttribute(eye, 'title', own.title);
+            restoreAttribute(eye, 'aria-pressed', own.pressed);
+            eye.classList.remove('is-password-visible');
+        }
+        var p = parts(row);
+        if (p.show) {
+            p.show.hidden = buttonsOff(row);
+        }
+    }
+
+    // 1.17: the Replace box of a locked row unlocks it (ticked) or locks it again (unticked).
+    function onChange(event) {
+        var box = event.target instanceof HTMLInputElement && event.target.type === 'checkbox' ? event.target : null;
+        var holder = box ? box.closest('[' + REPLACE_FOR + ']') : null;
+        if (!holder) {
+            return;
+        }
+        var scope = box.form || document;
+        var rows = scope.querySelectorAll(ROW);
+        for (var i = 0; i < rows.length; i++) {
+            if (rows[i].getAttribute('data-nowo-instance-settings-reveal') === holder.getAttribute(REPLACE_FOR) && inInputRow(rows[i])) {
+                setLocked(rows[i], !box.checked);
+                if (box.checked && inputOf(rows[i])) {
+                    inputOf(rows[i]).focus();
                 }
             }
         }
@@ -326,7 +518,8 @@
         var target = event.target instanceof Element ? event.target : null;
         var eye = target ? target.closest(EYE) : null;
         var row = eye ? eye.closest(ROW) : null;
-        if (!row || eyeOf(row) !== eye) {
+        if (!row || eyeOf(row) !== eye || (inInputRow(row) && !isLocked(row))) {
+            // 1.17: an unlocked row (Replace ticked) keeps PasswordToggle's own eye for the typed value.
             return;
         }
         if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') {
@@ -362,6 +555,28 @@
         var rows = form.querySelectorAll(ROW);
         for (var i = 0; i < rows.length; i++) {
             clear(rows[i], true);
+            // 1.17: a locked input never carries a value (the server ignores one without Replace anyway).
+            var input = inputOf(rows[i]);
+            if (input && isLocked(rows[i])) {
+                input.type = 'password';
+                input.value = '';
+            }
+        }
+    }
+
+    // 1.17: the form data set of a form (its submission, or a script's new FormData(form)) never holds a stored value
+    // shown in a locked input, nor any value of a locked input.
+    function onFormData(event) {
+        var form = event.target instanceof HTMLFormElement ? event.target : null;
+        if (!form || !event.formData) {
+            return;
+        }
+        var rows = form.querySelectorAll(ROW);
+        for (var i = 0; i < rows.length; i++) {
+            var input = inputOf(rows[i]);
+            if (input && input.name && (shown.has(rows[i]) || isLocked(rows[i]))) {
+                event.formData.set(input.name, '');
+            }
         }
     }
 
@@ -400,6 +615,8 @@
     document.addEventListener('keydown', onEye, true);
     document.addEventListener('submit', onSubmit, true);
     document.addEventListener('click', onClick);
+    document.addEventListener('change', onChange);
+    document.addEventListener('formdata', onFormData, true);
     document.addEventListener('visibilitychange', onVisibilityChange);
     // Audit PK-L1 / I2: never in the back / forward cache, nor in Turbo Drive's page snapshot (no Turbo dependency).
     window.addEventListener('pagehide', clearAll);

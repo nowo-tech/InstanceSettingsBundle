@@ -164,6 +164,9 @@ reveal:
   not_stored: Er is geen geheim opgeslagen voor dit veld.
   toggle_show: Opgeslagen waarde weergeven
   toggle_hide: Opgeslagen waarde verbergen
+  replace: "Opgeslagen waarde vervangen"
+  announce_shown: "Opgeslagen waarde in het veld getoond."
+  announce_hidden: "Opgeslagen waarde verborgen."
 secret_expiry:
   label: "Vervaldatum"
   help: "Optioneel. Een nieuw opgeslagen geheim wist deze datum, tenzij u tegelijk een nieuwe opgeeft."

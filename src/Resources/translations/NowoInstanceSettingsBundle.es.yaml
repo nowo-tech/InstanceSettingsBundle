@@ -164,6 +164,9 @@ reveal:
   not_stored: No hay ningún secreto guardado en este campo.
   toggle_show: Mostrar el valor guardado
   toggle_hide: Ocultar el valor guardado
+  replace: "Sustituir el valor guardado"
+  announce_shown: "Valor guardado mostrado en el campo."
+  announce_hidden: "Valor guardado oculto."
 secret_expiry:
   label: "Fecha de caducidad"
   help: "Opcional. Guardar un secreto nuevo borra esta fecha salvo que indiques otra a la vez."

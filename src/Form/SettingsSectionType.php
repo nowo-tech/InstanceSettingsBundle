@@ -102,13 +102,25 @@ final class SettingsSectionType extends AbstractType
      */
     public const EXPIRY_ATTRIBUTE = 'data-nowo-instance-settings-expiry-for';
 
+    /**
+     * Row attribute of a LOCKED secret row (1.17, `web_ui.reveal_in_input`): a stored revealable secret whose input the
+     * reveal script makes read-only; a new value needs the row's Replace box ({@see self::replaceKey()}).
+     */
+    public const LOCKED_ATTRIBUTE = 'data-nowo-instance-settings-locked';
+
+    /** Row attribute of the Replace box of a locked secret row (1.17), carrying the secret's field name. */
+    public const REPLACE_ATTRIBUTE = 'data-nowo-instance-settings-replace-for';
+
+    /** Suffix of the form child of a locked row's Replace box (1.17); a colon never occurs in a field name. */
+    public const REPLACE_SUFFIX = ':replace';
+
     /** Row attribute of an expiry date row within the warning window (1.17): `expiring` or `expired`. */
     public const EXPIRY_STATE_ATTRIBUTE = 'data-nowo-instance-settings-expiry';
 
     /**
      * Adds one form field per setting field.
      *
-     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>, secret_expiry_dates: array<string, DateTimeImmutable>, secret_expiry_warnings: array<string, ExpiringSecret>} $options
+     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>, secret_expiry_dates: array<string, DateTimeImmutable>, secret_expiry_warnings: array<string, ExpiringSecret>, locked_secrets: list<string>} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -144,6 +156,10 @@ final class SettingsSectionType extends AbstractType
                     $rowAttr[self::REVEAL_ATTRIBUTE]         = $name;
                     $rowAttr[self::REVEAL_SECTION_ATTRIBUTE] = $options['section']->getName();
                 }
+                $locked = in_array($name, $options['locked_secrets'], true);
+                if ($locked) {
+                    $rowAttr[self::LOCKED_ATTRIBUTE] = 'true';
+                }
                 $this->addWithDefaults($builder, $name, SecretType::class, array_replace_recursive([
                     'label'              => $field->labelKey(),
                     'help'               => $field->help,
@@ -156,6 +172,16 @@ final class SettingsSectionType extends AbstractType
                     // scaffold does not render. Keep them on the field so they show next to it.
                     'error_bubbling' => false,
                 ], $field->formOptions));
+                if ($locked) {
+                    // 1.17: without it, a value submitted for the locked row is ignored (the stored secret is kept).
+                    $this->addWithDefaults($builder, self::replaceKey($name), CheckboxType::class, [
+                        'label'              => 'reveal.replace',
+                        'translation_domain' => NowoInstanceSettingsBundle::TRANSLATION_DOMAIN,
+                        'required'           => false,
+                        'mapped'             => false,
+                        'row_attr'           => ($base['row_attr'] ?? []) + [self::REPLACE_ATTRIBUTE => $name],
+                    ]);
+                }
                 if ($field->expires) {
                     $this->addExpiryRow($builder, $name, $base['row_attr'] ?? [], $options['secret_expiry_dates'][$name] ?? null, $options['secret_expiry_warnings'][$name] ?? null);
                 }
@@ -205,6 +231,14 @@ final class SettingsSectionType extends AbstractType
                 self::keepHiddenFields($event, $dependent, $keepTyped);
             });
         }
+    }
+
+    /**
+     * Form child name of the Replace box of a locked secret row (1.17): `<field>:replace`.
+     */
+    public static function replaceKey(string $name): string
+    {
+        return $name . self::REPLACE_SUFFIX;
     }
 
     /**
@@ -333,7 +367,8 @@ final class SettingsSectionType extends AbstractType
      * `hidden_secrets` (1.9: {@see HiddenSecrets} or its value, default `drop`), `revealable_secrets` (1.15: the secret
      * field names whose row carries the Reveal marker; the page passes them only for a user who may reveal),
      * `secret_expiry_dates` (1.17: field => stored expiry date) and `secret_expiry_warnings` (1.17: field =>
-     * {@see ExpiringSecret} within the warning window).
+     * {@see ExpiringSecret} within the warning window), `locked_secrets` (1.17: the secret rows locked by
+     * `web_ui.reveal_in_input`; each gets a Replace box).
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -354,6 +389,8 @@ final class SettingsSectionType extends AbstractType
         $resolver->setAllowedTypes('stored_images', 'array');
         $resolver->setAllowedTypes('stored_image_urls', 'array');
         $resolver->setDefault('revealable_secrets', []);
+        $resolver->setDefault('locked_secrets', []);
+        $resolver->setAllowedTypes('locked_secrets', 'string[]');
         $resolver->setDefault('secret_expiry_dates', []);
         $resolver->setAllowedTypes('secret_expiry_dates', 'array');
         $resolver->setDefault('secret_expiry_warnings', []);
