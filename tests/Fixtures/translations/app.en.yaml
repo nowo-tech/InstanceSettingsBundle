@@ -40,3 +40,11 @@ oauth:
   client_id: Client id
   client_secret: Client secret
   signing_key: Webhook signing key
+providers:
+  label: Providers
+  mode: Mode
+  mode_main: Main
+  mode_backup: Backup
+  api_key: '<img src=x onerror=alert(1)> API key'
+  webhook_token: Webhook token
+  backup_key: Backup key

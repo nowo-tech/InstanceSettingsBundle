@@ -26,6 +26,10 @@ use function is_string;
  * Version 2 (1.4) adds `files`: `{"<section>.<field>": {"type": "image/png", "sha256": "…", "data": "<base64>"}}` for
  * image fields, whose `settings` value is their `isf:<sha256>` reference. An export without image fields stays
  * version 1, so older instances still import it.
+ *
+ * Version 3 (1.17) adds `secret_expiry`: `{"<section>": {"<field>": "2027-01-31"}}`, the expiry dates of expiring
+ * secrets, in clear (a date is not a secret; the secret itself still travels only sealed, under `secrets`). Only an
+ * export that carries at least one date is version 3, so every other export stays readable by 1.4 – 1.16.
  */
 final class PortabilityEnvelope
 {
@@ -35,11 +39,14 @@ final class PortabilityEnvelope
     /** Version of envelopes without image fields (readable by every 1.x). */
     public const VERSION_WITHOUT_FILES = 1;
 
+    /** Version of envelopes carrying `secret_expiry` (1.17); the highest version this bundle reads. */
+    public const VERSION_WITH_SECRET_EXPIRY = 3;
+
     /** Default `schema` value (configurable with `portability.schema`). */
     public const DEFAULT_SCHEMA = 'nowo-instance-settings';
 
     /** Top-level keys an envelope may carry. */
-    public const KEYS = ['schema', 'version', 'exported_at', 'settings', 'secrets', 'providers', 'files'];
+    public const KEYS = ['schema', 'version', 'exported_at', 'settings', 'secrets', 'providers', 'files', 'secret_expiry'];
 
     /**
      * Header of a new export.
@@ -58,7 +65,8 @@ final class PortabilityEnvelope
     }
 
     /**
-     * Checks schema, version (1 … {@see self::VERSION}) and top-level keys (`files` only from version 2).
+     * Checks schema, version (1 … {@see self::VERSION_WITH_SECRET_EXPIRY}) and top-level keys (`files` only from
+     * version 2, `secret_expiry` only from version 3).
      *
      * @param array<string, mixed> $payload
      *
@@ -77,7 +85,7 @@ final class PortabilityEnvelope
         if (!is_int($version)) {
             throw new PortabilityException('invalid_version');
         }
-        if ($version < 1 || $version > self::VERSION) {
+        if ($version < 1 || $version > self::VERSION_WITH_SECRET_EXPIRY) {
             throw new PortabilityException('unsupported_version');
         }
 
@@ -86,6 +94,9 @@ final class PortabilityEnvelope
         }
         if ($version < self::VERSION && array_key_exists('files', $payload)) {
             throw new PortabilityException('unknown_key:files');
+        }
+        if ($version < self::VERSION_WITH_SECRET_EXPIRY && array_key_exists('secret_expiry', $payload)) {
+            throw new PortabilityException('unknown_key:secret_expiry');
         }
 
         return $version;

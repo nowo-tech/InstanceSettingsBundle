@@ -46,6 +46,12 @@ export default defineConfig({
       testMatch: /image-crop\.spec\.ts/,
     },
     {
+      // InstanceSettings 1.17: reveal_in_input (the stored value shown in the input) also in Firefox.
+      name: 'firefox',
+      use: { ...devices['Desktop Firefox'] },
+      testMatch: /(reveal-in-input|reveal-lock)\.spec\.ts/,
+    },
+    {
       name: 'screenshots',
       use: { ...devices['Desktop Chrome'] },
       testMatch: /screenshots\.spec\.ts/,

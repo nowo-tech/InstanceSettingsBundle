@@ -629,7 +629,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         }>,
  *     },
  *     rate_limiter?: bool|array{ // Rate limiter configuration
- *         enabled?: bool|Param, // Default: false
+ *         enabled?: bool|Param, // Default: true
  *         limiters?: array<string, array{ // Default: []
  *             lock_factory?: scalar|Param|null, // The service ID of the lock factory used by this limiter (or null to disable locking). // Default: "auto"
  *             cache_pool?: scalar|Param|null, // The cache pool to use for storing the current limiter state. // Default: "cache.rate_limiter"
@@ -1644,11 +1644,21 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         layout_template?: scalar|Param|null, // Layout the pages extend. Null (default) = nowo_ui_kit.layouts.admin. // Default: null
  *         hidden_secrets?: "drop"|"keep_typed"|Param, // 1.9: a secret typed into a provider-dependent row hidden for the submitted provider: "drop" (default: ignored, only an explicit clear deletes) or "keep_typed" (saved whichever provider is selected; never required, its own constraints run). A section implementing SettingsSectionHiddenSecretsInterface overrides it. // Default: "drop"
  *         hidden_secrets_notice?: bool|Param, // 1.9: while hidden secrets are dropped, a section with provider-dependent secrets shows a notice above its form (translation key notice.hidden_secrets_dropped, NowoInstanceSettingsBundle domain). // Default: false
+ *         unlayered_styles?: bool|Param, // 1.13: the bundle stylesheet (colour input, image cards) sits in UiKit's cascade layer nowo-ui (default false: nowo-instance-settings.css, so host utilities and unlayered host CSS win). true links nowo-instance-settings.unlayered.css instead, for hosts that link UiKit's nowo-ui.unlayered.css. // Default: false
+ *         section_layout?: "stacked"|"tabs"|Param, // 1.14: how a section page lays out its field groups (SettingsSectionGroupsInterface, else the fields' form groups): "stacked" (default: one column, unchanged markup) or "tabs" (one UiKit subtab per group, ?settings_group=<code> in the URL; one form: Save saves every group). A section with fewer than two groups always renders stacked. SectionEmbedOptions::withSectionLayout() overrides it per embed. // Default: "stacked"
+ *         section_group_parameter?: scalar|Param|null, // 1.14 (audit MP-L1): query parameter of the open subtab with section_layout: tabs (default "settings_group", namespaced so a host page keeps its own ?group=). Letters, digits and underscores; SectionEmbedOptions::withGroupParameter() overrides it per embed. // Default: "settings_group"
  *         templates?: array<string, scalar|Param|null>,
+ *         section_icons?: array<string, scalar|Param|null>,
+ *         navigation_hidden?: list<scalar|Param|null>,
+ *         reveal_on_toggle?: bool|Param, // 1.16: on a revealable secret row, the PasswordToggle eye of the "new value" input reveals the STORED secret (the same POST endpoint, CSRF token, rate limiter, access checks and audit as the Reveal button) in a read-only element of the row, never in the input; a second click hides it. Default false: the eye only unmasks what was typed. // Default: false
+ *         reveal_toggle_only?: bool|Param, // 1.16: with reveal_on_toggle, hide the separate Reveal / Copy / Hide buttons on rows that have the eye (rows without it keep them). Default false. // Default: false
+ *         reveal_in_input?: bool|Param, // 1.17: with reveal_on_toggle, a revealable secret row holding a stored secret is LOCKED: its input is read-only, the eye shows the stored value in that same input (type=text, autofill / spellcheck off) and hides it again, and a new value can only be typed after ticking "Replace the stored value". The server then ignores a value submitted for that row without the Replace box. Ignored without reveal_on_toggle. Default false: the rows behave as in 1.16. // Default: false
  *     },
  *     security?: array{ // REQ-UI-002 private access of the admin UI.
  *         access_roles?: list<scalar|Param|null>,
  *         area_roles?: array<string, list<scalar|Param|null>>,
+ *         reveal_roles?: list<scalar|Param|null>,
+ *         reveal_rate_limiter?: scalar|Param|null, // 1.15: service id of a Symfony RateLimiterFactory (framework.rate_limiter.<name> gives limiter.<name>) consuming one token per reveal, keyed by the hashed actor; null = no limit. // Default: null
  *         access_checker?: scalar|Param|null, // Service id implementing InstanceSettingsAccessCheckerInterface; null = role-based default. // Default: null
  *         allow_unauthenticated?: bool|Param, // DEV / DEMO only (refused without kernel.debug): open the UI without login. // Default: false
  *     },
@@ -1705,6 +1715,17 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *             square?: bool|Param, // Default: false
  *             default?: scalar|Param|null, // Default: null
  *         }>,
+ *         error_illustrations?: array{ // 1.13: UiKit error page illustrations from the uploaded brand extra images (service nowo_instance_settings.brand.error_illustration_provider, set it as nowo_ui_kit.error_pages.illustration_provider). For status N: the uploaded extra image error_<N>, else the uploaded base extra image, else UiKit's error_pages.illustrations map. Configured defaults never count. Needs files.store: filesystem.
+ *             base?: scalar|Param|null, // Id of the extra image used for every status without its own uploaded error_<N> image (e.g. mascot). Null = none. // Default: null
+ *             per_code?: bool|Param, // Use the uploaded extra images error_<N> (N = 400 to 599) for their status. // Default: true
+ *         },
+ *     },
+ *     expiring_secrets?: array{ // Expiring secrets (1.17): an expiry date next to the secret fields declaring expires: true, threshold events and a page warning.
+ *         enabled?: bool|Param, // Maps the expiry table (instance_setting_secret_expiry) and registers the store, the read port and nowo:instance-settings:check-expiring-secrets. Off by default: no schema change. A section declaring expires: true without it fails at boot. Literal boolean only. // Default: false
+ *         thresholds?: list<int|Param>,
+ *         warning?: bool|Param, // The settings page warns on the section and next to an expiring secret within warning_days of its date, or expired. // Default: true
+ *         warning_days?: int|Param, // Days before the date from which the page warns (0 = only on the day and once expired). // Default: 30
+ *         timezone?: scalar|Param|null, // Zone of "today" for the thresholds and the warning (e.g. "Europe/Madrid"). Null: the PHP default zone. // Default: null
  *     },
  * }
  * @psalm-type DebugConfig = array{

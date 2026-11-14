@@ -6,6 +6,9 @@ namespace Nowo\InstanceSettingsBundle\Repository;
 
 use InvalidArgumentException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
+use Psr\Clock\ClockInterface;
+use Symfony\Component\Clock\NativeClock;
 
 use function count;
 use function explode;
@@ -19,10 +22,40 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
 {
     /**
      * @param SettingValueRepositoryInterface $repository storage of the rows
+     * @param SecretExpiryStoreInterface|null $expiryStore 1.17 (audit L3): the expiry date of a secret row written or
+     *                                                     deleted here is removed in the same transaction (its date
+     *                                                     belonged to the previous secret)
      */
     public function __construct(
         private SettingValueRepositoryInterface $repository,
+        private ?SecretExpiryStoreInterface $expiryStore = null,
+        private ?ClockInterface $clock = null,
     ) {
+    }
+
+    /**
+     * Removes the expiry dates of the secret rows written and of the rows deleted (1.17, audit L3): a raw write cannot
+     * know the date of the new secret. Set it again with {@see SecretExpiryStoreInterface::write()} when it is known.
+     *
+     * @param array<string, array{save?: array<string, StoredSettingRow>, remove?: array<string, true>}> $plans
+     */
+    private function forgetDates(array $plans): void
+    {
+        if (!$this->expiryStore instanceof SecretExpiryStoreInterface) {
+            return;
+        }
+        foreach ($plans as $section => $plan) {
+            $dates = [];
+            foreach ($plan['save'] ?? [] as $name => $row) {
+                if ($row->isSecret) {
+                    $dates[$name] = null;
+                }
+            }
+            foreach ($plan['remove'] ?? [] as $name => $unused) {
+                $dates[$name] = null;
+            }
+            $this->expiryStore->write($section, $dates, ($this->clock ?? new NativeClock())->now());
+        }
     }
 
     /**
@@ -68,6 +101,7 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
                 }
             }
             $this->repository->apply($entities, $deleted);
+            $this->forgetDates($plans);
         });
     }
 }
