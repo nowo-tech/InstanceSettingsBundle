@@ -35,6 +35,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- docs: demo screenshots regenerated on the UiKit base style
+- demo: opt into UiKit 2.51 `nowo_ui_kit.base_stylesheet`, use `nowo-ui-header__nav` for the masthead nav, screenshots regenerated with the themed shell
+
 ## [1.17.0] - 2026-11-14
 
 Target 1.17.0 (Symfony Beacon request, owner decision D-20261114-09).
