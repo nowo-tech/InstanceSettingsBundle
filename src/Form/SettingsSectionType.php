@@ -103,8 +103,9 @@ final class SettingsSectionType extends AbstractType
     public const EXPIRY_ATTRIBUTE = 'data-nowo-instance-settings-expiry-for';
 
     /**
-     * Row attribute of a LOCKED secret row (1.17, `web_ui.reveal_in_input`): a stored revealable secret whose input the
-     * reveal script makes read-only; a new value needs the row's Replace box ({@see self::replaceKey()}).
+     * Row attribute of a LOCKED secret row (1.17, `web_ui.reveal_in_input`), carrying its field name: a stored revealable
+     * secret whose input the reveal script makes read-only for every editor; a new value needs the row's Replace box
+     * ({@see self::replaceKey()}).
      */
     public const LOCKED_ATTRIBUTE = 'data-nowo-instance-settings-locked';
 
@@ -158,7 +159,7 @@ final class SettingsSectionType extends AbstractType
                 }
                 $locked = in_array($name, $options['locked_secrets'], true);
                 if ($locked) {
-                    $rowAttr[self::LOCKED_ATTRIBUTE] = 'true';
+                    $rowAttr[self::LOCKED_ATTRIBUTE] = $name;
                 }
                 $this->addWithDefaults($builder, $name, SecretType::class, array_replace_recursive([
                     'label'              => $field->labelKey(),

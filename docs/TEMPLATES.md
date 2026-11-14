@@ -38,7 +38,10 @@ and the section's CSRF token, never a secret; a host section template that wants
 (`{{ include('@NowoInstanceSettingsBundle/settings/_secret_reveal.html.twig') }}`) and the bundle stylesheet. A page
 that embeds two sections includes the partial once per section: each root names its section, every revealable row
 carries the same name, and the script binds each row to the root of its own section, so two sections declaring the same
-field name keep their own URLs, token and answers (audit F3).
+field name keep their own URLs, token and answers (audit F3). Since 1.17, `secret_lock` (bool): the form has rows locked
+by `web_ui.reveal_in_input` (`data-nowo-instance-settings-locked="<field>"`, for every editor); when it is true and
+there is no `secret_reveal` (an editor who may not reveal), include `settings/_secret_lock.html.twig`, which loads the
+script that keeps those rows read-only until their "Replace the stored value" box is ticked.
 
 ## Secrets in the pages
 

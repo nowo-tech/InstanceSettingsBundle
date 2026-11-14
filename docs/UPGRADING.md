@@ -96,15 +96,16 @@ To use them (Symfony Beacon request, owner decision D-20261114-09):
    loop over the unrendered children shows the row otherwise, after the subtabs).
 
 **Locked stored secrets (`web_ui.reveal_in_input`, opt-in).** Nothing changes unless you set it (with
-`reveal_on_toggle: true`; it is ignored otherwise). Then, for users who may reveal, a revealable row holding a stored
-secret is read-only and a new value needs the new "Replace the stored value" box: tell your admins, since typing over a
+`reveal_on_toggle: true`; it is ignored otherwise). Then, for **every editor** (with or without the reveal role), a
+revealable row holding a stored secret is read-only and a new value needs the new "Replace the stored value" box: tell your admins, since typing over a
 stored secret no longer replaces it, and **the server ignores a value posted for such a row without the box** (API
 clients posting the admin form directly must send `settings_section[<field>:replace]=1`). Run `assets:install` so the
 updated `nowo-instance-settings-reveal.js` and stylesheets are served. A host template that overrides
 `settings/_secret_reveal.html.twig` must add the status element
 (`<span data-nowo-instance-settings-reveal-status role="status" aria-live="polite">`) to its template for the
 announcements; one that overrides `_section_form_tabs.html.twig` should render `form[name ~ ':replace']` after each
-field. See [CONFIGURATION](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117).
+field; one that overrides `settings/section.html.twig` must include `settings/_secret_lock.html.twig` when
+`secret_lock` is true and there is no `secret_reveal` (the editors who may not reveal). See [CONFIGURATION](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117).
 
 What changes for everybody, flag or not:
 

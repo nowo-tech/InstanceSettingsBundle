@@ -34,7 +34,7 @@ async function revealScript(page: Page): Promise<string> {
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>reveal in input</title></head><body>
 <form name="settings_section" method="post" action="${ORIGIN}/save">
-  <div data-nowo-instance-settings-reveal="auth_token" data-nowo-instance-settings-reveal-section="sms" data-nowo-instance-settings-locked="true">
+  <div data-nowo-instance-settings-reveal="auth_token" data-nowo-instance-settings-reveal-section="sms" data-nowo-instance-settings-locked="auth_token">
     <nowo-password-toggle data-nowo-password-toggle class="form-password-toggle">
       <input type="password" id="secret" name="settings_section[auth_token][value]" autocomplete="new-password" placeholder="Saved: ••••">
       <span role="button" tabindex="0" data-nowo-password-toggle-target="button" aria-label="Show password">eye</span>
@@ -63,6 +63,26 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>reveal in 
 <script src="${ORIGIN}/${SCRIPT_PATH}"></script>
 </body></html>`;
 
+/** An editor who may not reveal (1.17 owner decision): the same locked row, no reveal marker, root or template. */
+const NON_REVEALER_PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>locked, no reveal</title></head><body>
+<form name="settings_section" method="post" action="${ORIGIN}/save">
+  <div data-nowo-instance-settings-locked="auth_token">
+    <nowo-password-toggle data-nowo-password-toggle class="form-password-toggle">
+      <input type="password" id="secret" name="settings_section[auth_token][value]" autocomplete="new-password" placeholder="Saved: ••••">
+      <span role="button" tabindex="0" data-nowo-password-toggle-target="button" aria-label="Show password">eye</span>
+    </nowo-password-toggle>
+    <input type="checkbox" name="settings_section[auth_token][clear]" value="1">
+  </div>
+  <div data-nowo-instance-settings-replace-for="auth_token">
+    <label><input type="checkbox" name="settings_section[auth_token:replace]" value="1"> Replace the stored value</label>
+  </div>
+  <input type="hidden" name="settings_section[_token]" value="form-token">
+  <button type="submit" id="save">Save</button>
+</form>
+<script src="${ORIGIN}/toggle-stand-in.js"></script>
+<script src="${ORIGIN}/${SCRIPT_PATH}"></script>
+</body></html>`;
+
 /** Stand-in for PasswordToggle's host handler: unmasks the typed text (what the eye does on an unlocked row). */
 const STAND_IN = `document.querySelectorAll('[data-nowo-password-toggle]').forEach(function (host) {
   host.addEventListener('click', function (event) {
@@ -74,7 +94,7 @@ const STAND_IN = `document.querySelectorAll('[data-nowo-password-toggle]').forEa
 
 type Setup = { reveals: PwRequest[]; saves: PwRequest[] };
 
-async function open(page: Page, options: { status?: number; clock?: boolean } = {}): Promise<Setup> {
+async function open(page: Page, options: { status?: number; clock?: boolean; revealer?: boolean } = {}): Promise<Setup> {
   const script = await revealScript(page);
   if (options.clock) {
     await page.clock.install();
@@ -83,7 +103,7 @@ async function open(page: Page, options: { status?: number; clock?: boolean } = 
   await page.route(`${ORIGIN}/**`, async (route) => {
     const url = route.request().url();
     if (url === `${ORIGIN}/page`) {
-      return route.fulfill({ contentType: 'text/html', body: PAGE });
+      return route.fulfill({ contentType: 'text/html', body: options.revealer === false ? NON_REVEALER_PAGE : PAGE });
     }
     if (url.endsWith('/toggle-stand-in.js')) {
       return route.fulfill({ contentType: 'text/javascript', body: STAND_IN });
@@ -110,7 +130,11 @@ async function open(page: Page, options: { status?: number; clock?: boolean } = 
     return route.abort();
   });
   await page.goto(`${ORIGIN}/page`);
-  await expect(page.locator('[data-nowo-instance-settings-reveal-status]')).toHaveCount(1);
+  if (options.revealer === false) {
+    await expect(page.locator(INPUT)).toHaveAttribute('readonly', '');
+  } else {
+    await expect(page.locator('[data-nowo-instance-settings-reveal-status]')).toHaveCount(1);
+  }
 
   return setup;
 }
@@ -316,5 +340,59 @@ test.describe('Reveal in input (locked stored secret)', () => {
     await expect(page.locator(INPUT)).toHaveValue('');
     await expect(page.locator(INPUT)).toHaveAttribute('type', 'password');
     await expect(page.locator(EYE)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('an editor who may not reveal gets the same lock, with PasswordToggle\'s eye hidden', async ({ page }) => {
+    const setup = await open(page, { revealer: false });
+    const input = page.locator(INPUT);
+    const eye = page.locator(EYE);
+
+    await expect(input).toHaveAttribute('readonly', '');
+    await expect(input).not.toBeEditable();
+    await expect(input).toHaveValue('');
+    await expect(eye).toBeHidden();
+
+    // A tampered value is emptied on submit, and never in a FormData.
+    await input.evaluate((element: HTMLInputElement) => {
+      element.readOnly = false;
+      element.value = 'tampered-value';
+    });
+    const data = await page.locator('form').evaluate((form: HTMLFormElement) => Object.fromEntries(new FormData(form).entries()));
+    expect(data['settings_section[auth_token][value]']).toBe('');
+
+    // Replace unlocks an empty input and brings PasswordToggle's eye back; unticking locks again.
+    await page.locator(REPLACE).check();
+    await expect(input).toBeEditable();
+    await expect(input).toHaveValue('');
+    await expect(eye).toBeVisible();
+    await input.fill('typed-by-editor');
+    await eye.click();
+    await expect(input).toHaveAttribute('type', 'text');
+    await page.locator(REPLACE).uncheck();
+    await expect(input).toHaveAttribute('readonly', '');
+    await expect(input).toHaveValue('');
+    await expect(input).toHaveAttribute('type', 'password');
+    await expect(eye).toBeHidden();
+    expect(setup.reveals).toHaveLength(0);
+
+    // Ticked again, the typed value is submitted.
+    await page.locator(REPLACE).check();
+    await input.fill('replaced-by-editor');
+    await page.locator('#save').click();
+    await expect.poll(() => setup.saves.length).toBe(1);
+    const body = new URLSearchParams(setup.saves[0].postData() ?? '');
+    expect(body.get('settings_section[auth_token][value]')).toBe('replaced-by-editor');
+    expect(body.get('settings_section[auth_token:replace]')).toBe('1');
+  });
+
+  test('an editor who may not reveal: a locked submit posts no value', async ({ page }) => {
+    const setup = await open(page, { revealer: false });
+    await page.locator(INPUT).evaluate((element: HTMLInputElement) => {
+      element.readOnly = false;
+      element.value = 'tampered-value';
+    });
+    await page.locator('#save').click();
+    await expect.poll(() => setup.saves.length).toBe(1);
+    expect(new URLSearchParams(setup.saves[0].postData() ?? '').get('settings_section[auth_token][value]')).toBe('');
   });
 });

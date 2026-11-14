@@ -69,8 +69,10 @@ Target 1.17.0 (Symfony Beacon request, owner decision D-20261114-09).
     `SettingFallback::secret($field, $value, '2027-01-31')` seeds the date with the secret.
 - **Configuration** `expiring_secrets: {enabled, thresholds, warning, warning_days, timezone}`.
 - **Locked stored secrets: reveal in the input (`web_ui.reveal_in_input`, opt-in, default `false`).** Symfony Beacon
-  request, owner-approved design. With `reveal_on_toggle`, a revealable row holding a stored secret is **locked** for a
-  user who may reveal: the input is read-only and the PasswordToggle eye shows the stored value in that same input
+  request, owner-approved design. With `reveal_on_toggle`, a revealable row holding a stored secret is **locked for every
+  editor** of the section (an editor who may not reveal gets the same read-only input, PasswordToggle's eye hidden, and
+  the script alone through the new `settings/_secret_lock.html.twig`): the input is read-only and, for a user who may
+  reveal, the PasswordToggle eye shows the stored value in that same input
   (`type=text`) through the existing reveal call (endpoint, CSRF token, limiter, roles, audit, one call at a time), then
   hides it again (second click, 60-second auto-hide, hidden page, `pagehide`, `turbo:before-cache`, submit). While shown:
   `autocomplete="off"`, `spellcheck="false"`, `autocapitalize="off"`, `autocorrect="off"`, `data-1p-ignore`,

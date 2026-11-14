@@ -39,8 +39,10 @@
  *   that hides still hides at once (and that answer is dropped).
  * - 1.16.1 (audit PK-I7): with data-toggle-only there is no Hide button, so an error message goes away on the next eye
  *   click or after MESSAGE_HIDE_MS.
- * - 1.17 (web_ui.reveal_in_input, data-in-input on the root): a row the server marks data-nowo-instance-settings-locked
- *   (a stored revealable secret) is LOCKED: its input is read-only and keeps the "saved" placeholder, so nothing can be
+ * - 1.17 (web_ui.reveal_in_input): a row the server marks data-nowo-instance-settings-locked="<field>" (a stored
+ *   revealable secret) is LOCKED for EVERY editor (owner decision), with or without the Reveal control; for an editor
+ *   who may not reveal, the page loads this script alone and PasswordToggle's eye is hidden while the row is locked.
+ *   For a user who may reveal (data-in-input on the root): its input is read-only and keeps the "saved" placeholder, so nothing can be
  *   typed. The eye shows the stored value IN that input (type=text) through the same reveal call (endpoint, CSRF token,
  *   limiter, roles, audit, one call at a time) and hides it again; while shown the input carries autocomplete="off",
  *   spellcheck="false", autocapitalize="off", autocorrect="off" and the password-manager opt-outs (data-1p-ignore,
@@ -73,6 +75,7 @@
     var EYE = '[data-nowo-password-toggle-target="button"]';
     var STATUS = '[data-nowo-instance-settings-reveal-status]';
     var LOCKED = 'data-nowo-instance-settings-locked';
+    var LOCK_DONE = 'data-nowo-instance-settings-lock-ready';
     var REPLACE_FOR = 'data-nowo-instance-settings-replace-for';
     var VALUE_INPUT = 'input[name$="[value]"]';
     // 1.17: set on the input while it shows the stored value (restored on hide).
@@ -152,11 +155,24 @@
         return row.querySelector(EYE);
     }
 
-    // 1.17: a stored secret row of a root with data-in-input (web_ui.reveal_in_input).
+    // 1.17: a stored secret row locked by the server (web_ui.reveal_in_input), for every editor: the attribute carries
+    // the field name, so a row is found whether or not this user has the Reveal control.
     function inInputRow(row) {
+        return !!(row && row.hasAttribute && row.hasAttribute(LOCKED));
+    }
+
+    // The reveal root of a locked row asks for the value to be shown in the input (a user who may reveal).
+    function inInputRoot(row) {
         var element = rootOf(row);
 
-        return !!(element && element.getAttribute('data-in-input') === 'true' && row.getAttribute(LOCKED) === 'true');
+        return !!(element && element.getAttribute('data-in-input') === 'true');
+    }
+
+    // Every locked row in scope (its own element, or one inside).
+    function lockedRows(scope) {
+        var where = scope && scope.querySelectorAll ? scope : document;
+
+        return where.querySelectorAll('[' + LOCKED + ']');
     }
 
     function inputOf(row) {
@@ -165,7 +181,7 @@
 
     // The row's "Replace the stored value" box, in the row's own form.
     function replaceBox(row) {
-        var field = row.getAttribute('data-nowo-instance-settings-reveal') || '';
+        var field = row.getAttribute(LOCKED) || '';
         var scope = row.closest('form') || row.ownerDocument || document;
         var holders = scope.querySelectorAll('[' + REPLACE_FOR + ']');
         for (var i = 0; i < holders.length; i++) {
@@ -186,7 +202,7 @@
 
     // The eye of a locked row shows the stored value in the input itself.
     function usesInput(row) {
-        return isLocked(row) && !!eyeOf(row) && !!inputOf(row);
+        return isLocked(row) && inInputRoot(row) && !!eyeOf(row) && !!inputOf(row);
     }
 
     // 1.16 (web_ui.reveal_toggle_only): a row with the eye keeps its Reveal / Copy / Hide buttons hidden; 1.17: so does a
@@ -425,9 +441,21 @@
         });
     }
 
-    // Upgrades every marked row in scope, each from the template of its own section's root (audit F3).
+    // Upgrades every marked row in scope, each from the template of its own section's root (audit F3), then locks the
+    // locked rows (1.17) unless the page came back with their Replace box ticked (a refused save).
     function init(scope) {
         var where = scope && scope.querySelectorAll ? scope : document;
+        upgrade(where);
+        var locked = lockedRows(where);
+        for (var j = 0; j < locked.length; j++) {
+            if (!locked[j].hasAttribute(LOCK_DONE)) {
+                locked[j].setAttribute(LOCK_DONE, '');
+                setLocked(locked[j], isLocked(locked[j]));
+            }
+        }
+    }
+
+    function upgrade(where) {
         var rows = where.querySelectorAll(ROW);
         for (var i = 0; i < rows.length; i++) {
             var row = rows[i];
@@ -444,10 +472,6 @@
             var own = eyeOf(row);
             if (own && !eyeLabels.has(own)) {
                 eyeLabels.set(own, { label: own.getAttribute('aria-label'), title: own.getAttribute('title'), pressed: own.getAttribute('aria-pressed') });
-            }
-            if (inInputRow(row)) {
-                // 1.17: locked unless the page came back with Replace ticked (a refused save).
-                setLocked(row, isLocked(row));
             }
             if (eyeOf(row)) {
                 setEye(row, false);
@@ -479,6 +503,11 @@
         input.readOnly = locked;
         var eye = eyeOf(row);
         var own = eye ? eyeLabels.get(eye) : null;
+        // An editor who may not reveal: PasswordToggle's eye has nothing to show on a locked, empty input.
+        var foreign = eye ? null : row.querySelector(EYE);
+        if (foreign) {
+            foreign.hidden = locked;
+        }
         if (locked) {
             setEye(row, false);
         } else if (eye && own) {
@@ -500,10 +529,9 @@
         if (!holder) {
             return;
         }
-        var scope = box.form || document;
-        var rows = scope.querySelectorAll(ROW);
+        var rows = lockedRows(box.form || document);
         for (var i = 0; i < rows.length; i++) {
-            if (rows[i].getAttribute('data-nowo-instance-settings-reveal') === holder.getAttribute(REPLACE_FOR) && inInputRow(rows[i])) {
+            if (rows[i].getAttribute(LOCKED) === holder.getAttribute(REPLACE_FOR)) {
                 setLocked(rows[i], !box.checked);
                 if (box.checked && inputOf(rows[i])) {
                     inputOf(rows[i]).focus();
@@ -552,7 +580,7 @@
         if (!form) {
             return;
         }
-        var rows = form.querySelectorAll(ROW);
+        var rows = form.querySelectorAll(ROW + ', [' + LOCKED + ']');
         for (var i = 0; i < rows.length; i++) {
             clear(rows[i], true);
             // 1.17: a locked input never carries a value (the server ignores one without Replace anyway).
@@ -571,7 +599,7 @@
         if (!form || !event.formData) {
             return;
         }
-        var rows = form.querySelectorAll(ROW);
+        var rows = form.querySelectorAll(ROW + ', [' + LOCKED + ']');
         for (var i = 0; i < rows.length; i++) {
             var input = inputOf(rows[i]);
             if (input && input.name && (shown.has(rows[i]) || isLocked(rows[i]))) {

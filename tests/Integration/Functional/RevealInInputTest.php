@@ -14,9 +14,10 @@ use Symfony\Component\DomCrawler\Form;
 use function array_replace_recursive;
 
 /**
- * 1.17 web_ui.reveal_in_input: a stored revealable secret is LOCKED. The server ignores a value submitted for it unless
- * its Replace box is ticked (a read-only input edited in the browser changes nothing), the clear box still deletes it,
- * and every host without the option keeps the overwrite-by-typing behaviour.
+ * 1.17 web_ui.reveal_in_input: a stored revealable secret is LOCKED for every editor (owner decision), whether or not
+ * the editor may reveal it. The server ignores a value submitted for it unless its Replace box is ticked (a read-only
+ * input edited in the browser changes nothing), the clear box still deletes it, and every host without the option
+ * keeps the overwrite-by-typing behaviour.
  */
 final class RevealInInputTest extends KernelTestCase
 {
@@ -37,7 +38,7 @@ final class RevealInInputTest extends KernelTestCase
         self::assertSame('Stored value shown in the field.', $root->attr('data-shown-label'));
         self::assertSame('Stored value hidden.', $root->attr('data-hidden-label'));
         self::assertStringContainsString('data-nowo-instance-settings-reveal-status', $root->filter('template')->html());
-        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-reveal="client_secret"][data-nowo-instance-settings-locked="true"]'));
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-reveal="client_secret"][data-nowo-instance-settings-locked="client_secret"]'));
         self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-replace-for="client_secret"] input[type="checkbox"][name="settings_section[client_secret:replace]"]'));
         self::assertStringContainsString('Replace the stored value', $html);
         self::assertCount(0, $crawler->filter('[name="settings_section[signing_key:replace]"]'), 'a write-only secret is not locked');
@@ -94,18 +95,52 @@ final class RevealInInputTest extends KernelTestCase
         }
     }
 
-    public function testAUserWhoMayNotRevealGetsNoLock(): void
+    public function testAnEditorWhoMayNotRevealGetsTheSameLock(): void
     {
         $kernel = $this->boot(self::IN_INPUT);
         $this->settings($kernel)->save('oauth', ['client_secret' => self::SECRET]);
         $client  = $this->client($kernel, 'admin');
         $crawler = $client->request('GET', '/admin/settings/sections/oauth');
-        self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-locked]'));
-        self::assertCount(0, $crawler->filter('[name="settings_section[client_secret:replace]"]'));
+
+        // Same locked row and Replace box, no reveal control, the script loaded alone.
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-locked="client_secret"]'));
+        self::assertCount(1, $crawler->filter('[name="settings_section[client_secret:replace]"]'));
+        self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-reveal-root]'));
+        self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-reveal]'));
+        self::assertCount(1, $crawler->filter('script[data-nowo-instance-settings-reveal-script]'));
+        self::assertStringNotContainsString(self::SECRET, (string) $client->getResponse()->getContent());
+
+        // A value posted without Replace is ignored for this editor too.
+        $client->submit($this->form($client), ['settings_section[client_secret][value]' => 'overwritten']);
+        self::assertSame(302, $client->getResponse()->getStatusCode());
+        $this->settings($kernel)->reset();
+        self::assertSame(self::SECRET, $this->settings($kernel)->getSecret('oauth.client_secret'));
+
+        // With Replace ticked it is saved.
+        $form = $this->form($client);
+        self::tick($form, 'settings_section[client_secret:replace]');
+        $client->submit($form, ['settings_section[client_secret][value]' => 'replaced-by-admin']);
+        $this->settings($kernel)->reset();
+        self::assertSame('replaced-by-admin', $this->settings($kernel)->getSecret('oauth.client_secret'));
+
+        // A section without a stored revealable secret loads no lock script.
+        $this->settings($kernel)->save('oauth', ['client_secret' => null]);
+        $crawler = $client->request('GET', '/admin/settings/sections/oauth');
+        self::assertCount(0, $crawler->filter('script[data-nowo-instance-settings-reveal-script]'));
+    }
+
+    public function testTheKillSwitchStillLocksTheRow(): void
+    {
+        $kernel = $this->boot(array_replace_recursive(self::IN_INPUT, ['security' => ['reveal_roles' => []]]));
+        $this->settings($kernel)->save('oauth', ['client_secret' => self::SECRET]);
+        $client  = $this->client($kernel, 'developer');
+        $crawler = $client->request('GET', '/admin/settings/sections/oauth');
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-locked="client_secret"]'), 'nobody may reveal: the lock stays');
+        self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-reveal-root]'));
 
         $client->submit($this->form($client), ['settings_section[client_secret][value]' => 'overwritten']);
         $this->settings($kernel)->reset();
-        self::assertSame('overwritten', $this->settings($kernel)->getSecret('oauth.client_secret'));
+        self::assertSame(self::SECRET, $this->settings($kernel)->getSecret('oauth.client_secret'));
     }
 
     public function testTheTabsLayoutKeepsTheReplaceBoxWithItsSecret(): void

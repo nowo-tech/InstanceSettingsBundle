@@ -114,7 +114,8 @@ final readonly class SettingsSectionEmbedder
      *                             the stored secret (same endpoint and checks as the Reveal button)
      * @param bool $revealToggleOnly `web_ui.reveal_toggle_only` (1.16): with the eye, no separate Reveal / Copy / Hide buttons
      * @param bool $revealInInput `web_ui.reveal_in_input` (1.17, with `reveal_on_toggle`): a revealable row holding a
-     *                            stored secret is locked; a value typed into it is saved only with its Replace box
+     *                            stored secret is locked for every editor; a value typed into it is saved only with
+     *                            its Replace box
      * @param ExpiringSecrets|null $expiringSecrets 1.17: stored expiry dates and warnings of the expiring secrets (null =
      *                                              the date rows start empty and no warning is shown)
      */
@@ -254,11 +255,12 @@ final readonly class SettingsSectionEmbedder
         // 1.15: the Reveal control, only for a user who may reveal (the plaintext itself never reaches the page).
         $reveal = $this->secretReveal($section);
 
-        // 1.17 (web_ui.reveal_in_input): the revealable rows holding a stored secret are locked for this user.
+        // 1.17 (web_ui.reveal_in_input, owner decision): every revealable row holding a stored secret is locked, for
+        // every editor of the section — whether or not this user may reveal it.
         $locked = [];
-        if ($reveal instanceof SecretReveal && $reveal->inInput) {
-            foreach (array_keys($reveal->urls) as $name) {
-                if ($stored[$name] ?? false) {
+        if ($this->revealOnToggle && $this->revealInInput) {
+            foreach ($fields as $name => $field) {
+                if ($field->revealable && ($stored[$name] ?? false)) {
                     $locked[] = $name;
                 }
             }
@@ -367,7 +369,9 @@ final readonly class SettingsSectionEmbedder
             // 1.14: subtabs of the field groups (web_ui.section_layout: tabs); null in the stacked layout. A reserved key
             // (audit MP-I3): always set here, so a host context value never wins.
             // 1.15: the Reveal control of the revealable secret rows (null = none, or the user may not reveal).
-            'secret_reveal'  => $reveal,
+            'secret_reveal' => $reveal,
+            // 1.17: locked secret rows on the page: the reveal script is loaded for them even without a reveal control.
+            'secret_lock'    => $locked !== [],
             'section_groups' => $groups === [] ? null : SectionGroupTabs::build($section, $groups, $definition->getTranslationDomain(), $formView, $requestedGroup, $groupParameter),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
