@@ -4,6 +4,7 @@
 
 - [Unreleased](#unreleased)
 - [To 1.16.0](#to-1160)
+- [To 1.15.1](#to-1151)
 - [To 1.15.0](#to-1150)
 - [To 1.14.1](#to-1141)
 - [To 1.14.0](#to-1140)
@@ -62,6 +63,35 @@ Nothing to do: every new option defaults to the behaviour of 1.15.
   `SecretReveal` takes optional `onToggle` / `toggleOnly`; `SettingsSectionEmbedder` takes two optional trailing
   booleans. Code constructing them by hand keeps working.
 
+## To 1.15.1
+
+From **1.15.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+Target 1.15.1, from **1.15.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+Nothing to change in the configuration. What you may observe (audit N2 / N3):
+
+1. **`Instance settings: secret reveal refused` with `reason: ui_gate` now names the actor** (the user identifier, as
+   every other reveal line since 1.15) instead of `null`. Alerts grouping refusals per actor start to group these.
+2. **A section or field name the bundle does not declare is logged as `key: unknown`.** Alerts or dashboards that
+   matched on a specific undeclared key (an attacker-chosen one) will not see it any more; declared names are
+   unchanged.
+3. **Refusal lines are throttled per caller.** With `security.reveal_rate_limiter` set, a caller writes as many
+   `warning` lines per window as the limiter allows (in a bucket of its own: refusals never spend reveals), then
+   `debug` lines. A "burst of refusals" alert therefore fires on the first N refusals per caller and window, not on
+   every one; keep `debug` in the logs you search if you need every attempt. Without a limiter, the line of a caller
+   the host cannot name is `debug`.
+4. Code that builds `InstanceSettingsAccessListener` or `SecretRevealer` by hand keeps working (one new optional
+   constructor argument each, last).
+
 ## To 1.15.0
 
 From **1.14.1**:
@@ -108,7 +138,10 @@ To use it (owner decision of 2026-11-13):
    ```
 
    Without it the section definitions refuse to load (router warm-up, so `cache:warmup` fails in the build, else the
-   first request) with a message naming the field and the option. Its two ways out: drop `revealable: true`, or set
+   first request) with a message naming the field and the option. **This takes down every consumer of the section
+   definitions, not just the reveal:** the whole admin UI, `InstanceSettingsInterface` reads anywhere in the
+   application, the seed / import / export commands and every host embed fail with the same error until the limiter is
+   set (audit N6). Its two ways out: drop `revealable: true`, or set
    `security.reveal_roles: []` (the kill switch — with reveals switched off a missing limiter blocks nothing).
    Hosts that declare **no** revealable field are untouched: no limiter, no new dependency, no behaviour change.
 

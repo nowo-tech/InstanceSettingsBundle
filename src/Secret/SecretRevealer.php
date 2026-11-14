@@ -22,10 +22,8 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
-use Symfony\Component\Security\Core\User\UserInterface;
 
 use function array_keys;
-use function hash;
 use function max;
 use function mb_check_encoding;
 
@@ -48,6 +46,10 @@ use function mb_check_encoding;
  * Every allowed reveal writes an audit entry: a {@see SecretRevealedEvent} (PSR-14) and a log line, both naming the
  * section, the field, the actor and the time, never the value (REQ-OBS-001). A refusal is logged the same way, with
  * its reason.
+ *
+ * The refusal line is written by {@see RevealRefusalLog} (1.15.1, audit N2 / N3): it names the actor, logs only the
+ * declared names (anything else is `unknown`) and is throttled per caller by the same rate limiter, in a bucket of its
+ * own.
  *
  * Stateless (REQ-RUNTIME-002): nothing about a reveal is kept on the service between requests — no memo of the value,
  * of the permission or of the limiter; the rate limiter is built per call from its factory (its state lives in the
@@ -73,6 +75,9 @@ final readonly class SecretRevealer
     /** Refusal reason: the stored secret is not UTF-8 text, so it cannot be delivered (audit F2). */
     public const REASON_NOT_TEXT = 'not_text';
 
+    /** Writes the refusal lines (1.15.1). */
+    private RevealRefusalLog $refusals;
+
     /**
      * @param SettingsSectionRegistry $registry declared sections and fields (the only source of names)
      * @param InstanceSettingsInterface $settings reads the decrypted secret
@@ -88,6 +93,7 @@ final readonly class SecretRevealer
      * @param RequestStack|null $requestStack client IP of the current request: the limiter key of a caller the host
      *                                        cannot name (`allow_unauthenticated`, a custom checker without a Symfony
      *                                        user), so such callers do not share one bucket (audit F5)
+     * @param RevealRefusalLog|null $refusalLog writes the refusal lines (1.15.1; null = one built from the arguments above)
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -97,9 +103,11 @@ final readonly class SecretRevealer
         private ?LoggerInterface $logger = null,
         private ?ClockInterface $clock = null,
         private ?RateLimiterFactoryInterface $rateLimiter = null,
-        private string $keySalt = '',
-        private ?RequestStack $requestStack = null,
+        string $keySalt = '',
+        ?RequestStack $requestStack = null,
+        ?RevealRefusalLog $refusalLog = null,
     ) {
+        $this->refusals = $refusalLog ?? new RevealRefusalLog($registry, $guard, $logger, $clock, $rateLimiter, $keySalt, $requestStack);
     }
 
     /**
@@ -148,9 +156,11 @@ final readonly class SecretRevealer
             // Audit F2: a secret that is not text cannot be delivered. Refusing is the only honest answer: substituting
             // or escaping bytes would hand over a silently mangled secret, and the audit entry would claim a reveal
             // the caller never received. The message and the log name the field, never a byte of the value.
-            $this->refuse($section, $field, self::REASON_NOT_TEXT);
-
-            throw new ConflictHttpException('The stored secret is not UTF-8 text and cannot be revealed.');
+            try {
+                $this->refuse($section, $field, self::REASON_NOT_TEXT);
+            } finally {
+                throw new ConflictHttpException('The stored secret is not UTF-8 text and cannot be revealed.');
+            }
         }
         $this->audit($section, $field, $value !== null);
 
@@ -169,13 +179,18 @@ final readonly class SecretRevealer
     public function assertRevealable(string $section, string $field): void
     {
         if (!$this->canReveal($section)) {
-            $this->refuse($section, $field, self::REASON_FORBIDDEN);
-            $this->guard->deny('Access denied to revealing this instance settings secret.');
+            try {
+                $this->refuse($section, $field, self::REASON_FORBIDDEN);
+            } finally {
+                $this->guard->deny('Access denied to revealing this instance settings secret.');
+            }
         }
         if (!$this->isRevealable($section, $field)) {
-            $this->refuse($section, $field, self::REASON_NOT_REVEALABLE);
-
-            throw new NotFoundHttpException('Unknown revealable secret field.');
+            try {
+                $this->refuse($section, $field, self::REASON_NOT_REVEALABLE);
+            } finally {
+                throw new NotFoundHttpException('Unknown revealable secret field.');
+            }
         }
     }
 
@@ -224,9 +239,13 @@ final readonly class SecretRevealer
         }
         $limit = $this->rateLimiter->create($this->rateLimitKey())->consume();
         if (!$limit->isAccepted()) {
-            $this->refuse($section, $field, self::REASON_RATE_LIMITED);
+            $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - $this->now()->getTimestamp());
 
-            throw new TooManyRequestsHttpException(max(1, $limit->getRetryAfter()->getTimestamp() - $this->now()->getTimestamp()), 'Too many secret reveals.');
+            try {
+                $this->refuse($section, $field, self::REASON_RATE_LIMITED);
+            } finally {
+                throw new TooManyRequestsHttpException($retryAfter, 'Too many secret reveals.');
+            }
         }
     }
 
@@ -239,13 +258,7 @@ final readonly class SecretRevealer
      */
     private function rateLimitKey(): string
     {
-        $actor = $this->actor();
-        if ($actor === null) {
-            $ip    = $this->requestStack?->getMainRequest()?->getClientIp();
-            $actor = $ip === null ? 'anonymous' : 'ip:' . $ip;
-        }
-
-        return hash('sha256', $this->keySalt . "\0" . $actor);
+        return $this->refusals->rateLimitKey();
     }
 
     /**
@@ -264,16 +277,11 @@ final readonly class SecretRevealer
     }
 
     /**
-     * Logs a refusal (names and reason only).
+     * Logs a refusal (declared names, actor and reason only; throttled per caller).
      */
     private function refuse(string $section, string $field, string $reason): void
     {
-        $this->logger?->warning(self::LOG_REFUSED, [
-            'key'    => $section . '.' . $field,
-            'actor'  => $this->actor(),
-            'at'     => $this->now()->format(DateTimeImmutable::ATOM),
-            'reason' => $reason,
-        ]);
+        $this->refusals->log($section, $field, $reason);
     }
 
     /**
@@ -281,9 +289,7 @@ final readonly class SecretRevealer
      */
     private function actor(): ?string
     {
-        $user = $this->guard->user();
-
-        return $user instanceof UserInterface ? $user->getUserIdentifier() : null;
+        return $this->refusals->actor();
     }
 
     private function now(): DateTimeImmutable

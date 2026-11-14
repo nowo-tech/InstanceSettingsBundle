@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.15.1] - 2026-11-14](#1151---2026-11-14)
 - [[1.15.0] - 2026-11-13](#1150---2026-11-13)
 - [[1.14.1] - 2026-11-13](#1141---2026-11-13)
 - [[1.14.0] - 2026-11-11](#1140---2026-11-11)
@@ -58,7 +59,47 @@ Target 1.16.0.
   from an owner UX report.
 - `Ui\SectionNavigation` (icons, hidden sections, first visible section); `SettingsPageFactory::navigation()`.
 
+## [1.15.1] - 2026-11-14
+
+Target 1.15.1.
+
+### Security
+
+- **The reveal refusal line names the actor, can no longer be chosen by the caller and is capped per caller** (audit of
+  2026-11-13, N2 / N3; Low, no GHSA: only 1.15.0 has the reveal). Both writers of
+  `Instance settings: secret reveal refused` — the UI gate (`ui_gate`) and `SecretRevealer` (`forbidden`,
+  `not_revealable`, `rate_limited`, `not_text`) — now go through one internal `Secret\RevealRefusalLog`:
+  - `actor` is the resolved user identifier on the `ui_gate` line too, which hard-coded `null`, so the per-actor alert
+    the line exists for could not group the refusals of an account that cannot open the UI (N2). It is the value the
+    reveal line, the other refusal reasons and `SecretRevealedEvent` already carry since 1.15; `null` still means a
+    caller the host cannot name.
+  - `key` is `<section>.<field>` only when the registry declares exactly that section and field (byte for byte);
+    any other name is logged as the constant `unknown`, never echoed (N3). A declared field that is not revealable
+    keeps its name.
+  - The line is throttled per caller (user identifier, else client IP) by `security.reveal_rate_limiter`, in a bucket
+    of its own (`refusal_log`, so refusals never spend the caller's reveals): a `warning` while the caller has budget,
+    `debug` past it (N3). Without a limiter (then nothing in the bundle is revealable) a caller the host cannot name
+    gets `debug` lines and a named caller keeps `warning`. Every refusal is still refused: a failure while writing the
+    line cannot turn the UI gate's 403, or the revealer's 403 / 404 / 409 / 429, into anything else: the line is
+    written in a `try` / `finally` and never throws; a broken limiter storage or logger leaves a constant `error`
+    line "Instance settings: secret reveal refusal could not be logged" instead (audit PJ-L1).
+  - The `refusal_log` bucket key cannot collide with a reveal key whatever the identifier (an identifier containing a
+    NUL byte could reach another user's bucket); the reveal key keeps its 1.15.0 bytes (audit PJ-I1).
+  - SECURITY / CONFIGURATION: the warning cap is per caller (rotating IPs get a budget each), so pair the per-actor
+    alert with an aggregate one; each refused reveal writes a limiter entry; `actor` is personal data, logged as
+    structured context since 1.15.0 (audit PJ-L2, PJ-I3, PJ-I4).
+
+### Fixed
+
+- `InstanceSettingsAccessListener` takes the refusal log as a new optional fourth constructor argument (wired by the
+  extension). A listener built by hand with the 1.15.0 arguments still logs, as the key `unknown` and, for an unnamed
+  caller, at `debug`.
+
 ### Documentation
+
+- **UPGRADING "To 1.15.0" step 3** now says that a revealable field without `reveal_rate_limiter` takes down **every**
+  consumer of the section definitions (admin pages, `InstanceSettings` reads, the commands, embeds), not just the
+  reveal (audit N6).
 
 - **Seed files under a volume-mounted store directory.** New "Containers and volumes" (filesystem store) and "Missing
   seed files" (seed command) notes in `CONFIGURATION.md`: a Docker named volume on `files.directory` is filled from the

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Probe;
 
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
+use Nowo\InstanceSettingsBundle\Secret\RevealRefusalLog;
 use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\RevealAuditListener;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\RevealFixtureSection;
@@ -37,8 +38,9 @@ final class RevealProbeTest extends KernelTestCase
      *
      * @param array<string, mixed> $config nowo_instance_settings
      * @param array<string, string> $extraServices extra service id => class
+     * @param array<string, array<string, mixed>>|null $extensions other extension configs (null = the 100 / hour limiter)
      */
-    private function boot(array $config = [], array $extraServices = [], bool $debug = false): InstanceSettingsTestKernel
+    private function boot(array $config = [], array $extraServices = [], bool $debug = false, ?array $extensions = null): InstanceSettingsTestKernel
     {
         return $this->bootKernel(
             array_replace_recursive(['security' => ['reveal_rate_limiter' => 'limiter.instance_settings_reveal']], $config),
@@ -48,7 +50,7 @@ final class RevealProbeTest extends KernelTestCase
                 'logger'                    => RecordingLogger::class,
             ] + $extraServices,
             debug: $debug,
-            extensions: ['framework' => ['rate_limiter' => ['instance_settings_reveal' => ['policy' => 'fixed_window', 'limit' => 100, 'interval' => '1 hour']]]],
+            extensions: $extensions ?? ['framework' => ['rate_limiter' => ['instance_settings_reveal' => ['policy' => 'fixed_window', 'limit' => 100, 'interval' => '1 hour']]]],
         );
     }
 
@@ -263,7 +265,41 @@ final class RevealProbeTest extends KernelTestCase
         $logger = $this->container($kernel)->get('logger');
         self::assertInstanceOf(RecordingLogger::class, $logger);
         self::assertStringContainsString(SecretRevealer::LOG_REFUSED, $logger->dump());
-        self::assertStringContainsString(InstanceSettingsAccessListener::REASON_UI_GATE, $logger->dump());
+        self::assertStringContainsString(InstanceSettingsAccessListener::REASON_UI_GATE, $logger->dump());        // 1.15.1 (audit N2): the line names the account the gate refused, so the per-actor alert can group it.
+        $refusal = null;
+        foreach ($logger->records as $record) {
+            if ($record['message'] === SecretRevealer::LOG_REFUSED) {
+                $refusal = $record;
+            }
+        }
+        self::assertNotNull($refusal);
+        self::assertSame('warning', $refusal['level']);
+        self::assertSame('viewer', $refusal['context']['actor']);
+        self::assertSame('oauth.client_secret', $refusal['context']['key']);
+    }
+
+    public function testAnUnauthenticatedProbeCannotChooseTheNamesOrFloodTheWarnings(): void
+    {
+        // 1.15.1 (audit N3): undeclared names are logged as `unknown`, and past the limiter's budget the lines of
+        // one caller drop to debug. Every call is still refused.
+        $kernel = $this->boot(extensions: ['framework' => ['rate_limiter' => ['instance_settings_reveal' => ['policy' => 'fixed_window', 'limit' => 2, 'interval' => '1 hour']]]]);
+        for ($i = 0; $i < 4; ++$i) {
+            $client = $this->client($kernel, null);
+            $client->request('POST', '/admin/settings/sections/oauth/secrets/attacker_chosen/reveal', ['_token' => 'whatever']);
+            self::assertContains($client->getResponse()->getStatusCode(), [401, 403]);
+        }
+        $logger = $this->container($kernel)->get('logger');
+        self::assertInstanceOf(RecordingLogger::class, $logger);
+        $levels = [];
+        foreach ($logger->records as $record) {
+            if ($record['message'] === SecretRevealer::LOG_REFUSED) {
+                $levels[] = $record['level'];
+                // The bundle's line never carries the chosen name (the framework's own router line may, at info).
+                self::assertSame(RevealRefusalLog::KEY_UNKNOWN, $record['context']['key']);
+                self::assertStringNotContainsString('attacker_chosen', (string) json_encode($record['context']));
+            }
+        }
+        self::assertSame(['warning', 'warning', 'debug', 'debug'], $levels);
     }
 
     public function testRevealerStatelessAcrossRequestsWithRotatedPermission(): void
