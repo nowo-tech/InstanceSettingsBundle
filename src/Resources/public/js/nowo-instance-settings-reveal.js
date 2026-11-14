@@ -21,6 +21,16 @@
  *   store this page does not own: the operating system may keep and sync its history (Windows Clipboard History,
  *   macOS Universal Clipboard). Hide asks for it to be emptied when this row's Copy was the last one used, but that is
  *   best effort — the browser may refuse, and nothing can reach what the system already synced (audit F4).
+ * - 1.16 (web_ui.reveal_on_toggle, data-on-toggle on the root): the PasswordToggle eye of a revealable row
+ *   ([data-nowo-password-toggle-target="button"] inside the row) runs the same reveal call instead of unmasking the
+ *   typed text: first click (or Enter / Space) reveals, the second hides. The answer goes to the same read-only
+ *   <output> as the Reveal button's (it has no name, so it is never part of the submitted form), never into the input,
+ *   whose type, value and name are left alone. The eye carries aria-pressed and the "reveal stored value" / "hide"
+ *   label; an error or a refusal (rate limit, access) shows the Reveal button's message and the eye returns to its
+ *   hidden state. Hiding, the auto-hide delay, the page being hidden and the form being submitted drop the value. With
+ *   data-toggle-only the Reveal / Copy / Hide buttons of rows that have the eye stay hidden.
+ * - A late answer is dropped when the row was hidden in the meantime (Hide or the eye clicked again before the server
+ *   answered), so a value the user already dismissed never appears.
  * Without this script nothing is added: the field stays write-only ("leave blank to keep"), as before 1.15.
  */
 (function () {
@@ -39,8 +49,10 @@
     var OUTPUT = '[data-nowo-instance-settings-reveal-output]';
     var SECTION = 'data-nowo-instance-settings-reveal-section';
     var DONE = 'data-nowo-instance-settings-reveal-ready';
+    var EYE = '[data-nowo-password-toggle-target="button"]';
     var AUTO_HIDE_MS = 60000;
     var timers = new WeakMap();
+    var pending = new WeakMap();
     var copied = null;
 
     // The Reveal root of this row's own section (audit F3): never "the first root of the document".
@@ -88,6 +100,41 @@
         };
     }
 
+    // 1.16: the PasswordToggle eye of this row, only when its root opted in (web_ui.reveal_on_toggle).
+    function eyeOf(row) {
+        var element = rootOf(row);
+        if (!element || element.getAttribute('data-on-toggle') !== 'true') {
+            return null;
+        }
+
+        return row.querySelector(EYE);
+    }
+
+    // 1.16 (web_ui.reveal_toggle_only): a row with the eye keeps its Reveal / Copy / Hide buttons hidden.
+    function buttonsOff(row) {
+        var element = rootOf(row);
+
+        return !!(element && element.getAttribute('data-toggle-only') === 'true' && eyeOf(row));
+    }
+
+    function setEye(row, revealed) {
+        var eye = eyeOf(row);
+        if (!eye) {
+            return;
+        }
+        eye.setAttribute('aria-pressed', revealed ? 'true' : 'false');
+        var text = label(rootOf(row), revealed ? 'toggle-hide' : 'toggle-show');
+        if (text) {
+            eye.setAttribute('aria-label', text);
+            eye.setAttribute('title', text);
+        }
+        if (revealed) {
+            eye.classList.add('is-password-visible');
+        } else {
+            eye.classList.remove('is-password-visible');
+        }
+    }
+
     // Best effort (audit F4): the page cannot clear what the system already kept or synced.
     function forgetClipboard(row) {
         if (copied !== row || !window.navigator.clipboard) {
@@ -106,6 +153,9 @@
 
     function clear(row, keepClipboard) {
         var p = parts(row);
+        // A call still in flight is dropped when it answers (the user already hid the row).
+        pending.delete(row);
+        setEye(row, false);
         if (!p.output) {
             return;
         }
@@ -118,7 +168,7 @@
             p.hide.hidden = true;
         }
         if (p.show) {
-            p.show.hidden = false;
+            p.show.hidden = buttonsOff(row);
         }
         var timer = timers.get(row);
         if (timer) {
@@ -135,16 +185,24 @@
         if (!p.output) {
             return;
         }
+        var off = buttonsOff(row);
         p.output.textContent = text;
         p.output.hidden = false;
         if (p.copy) {
-            p.copy.hidden = !revealed;
+            p.copy.hidden = off || !revealed;
         }
         if (p.hide) {
-            p.hide.hidden = false;
+            p.hide.hidden = off;
         }
         if (p.show) {
             p.show.hidden = true;
+        }
+        // The eye is "pressed" only while a value is shown: an error or a refusal leaves it in its hidden state.
+        setEye(row, revealed);
+        var previous = timers.get(row);
+        if (previous) {
+            window.clearTimeout(previous);
+            timers.delete(row);
         }
         if (revealed) {
             timers.set(row, window.setTimeout(function () {
@@ -158,8 +216,12 @@
         var field = row.getAttribute('data-nowo-instance-settings-reveal');
         var url = element ? urls(element)[field] : null;
         if (!element || !url) {
+            setEye(row, false);
+
             return;
         }
+        var call = {};
+        pending.set(row, call);
         var body = new URLSearchParams();
         body.set('_token', element.getAttribute('data-token') || '');
         window.fetch(url, {
@@ -173,6 +235,10 @@
                 return { ok: response.ok, payload: payload };
             });
         }).then(function (result) {
+            if (pending.get(row) !== call) {
+                return;
+            }
+            pending.delete(row);
             if (result.ok && typeof result.payload.value === 'string') {
                 render(row, result.payload.value, true);
 
@@ -180,6 +246,10 @@
             }
             render(row, label(element, result.payload && result.payload.error === 'not_stored' ? 'empty' : 'error'), false);
         }).catch(function () {
+            if (pending.get(row) !== call) {
+                return;
+            }
+            pending.delete(row);
             render(row, label(element, 'error'), false);
         });
     }
@@ -216,6 +286,49 @@
             }
             row.setAttribute(DONE, '');
             row.appendChild(template.content.cloneNode(true));
+            if (eyeOf(row)) {
+                setEye(row, false);
+                var show = row.querySelector(SHOW);
+                if (show) {
+                    show.hidden = buttonsOff(row);
+                }
+            }
+        }
+    }
+
+    // 1.16: the eye of an opted-in revealable row reveals / hides the stored value. Capture phase on the document, so
+    // the PasswordToggle handler (on its host, or Stimulus on the button) never unmasks the input in this mode.
+    function onEye(event) {
+        var target = event.target instanceof Element ? event.target : null;
+        var eye = target ? target.closest(EYE) : null;
+        var row = eye ? eye.closest(ROW) : null;
+        if (!row || eyeOf(row) !== eye) {
+            return;
+        }
+        if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (eye.getAttribute('aria-pressed') === 'true') {
+            clear(row);
+
+            return;
+        }
+        setEye(row, true);
+        reveal(row);
+    }
+
+    // A submitted form drops the values revealed in its rows (they are not form fields; this keeps them out of the
+    // back / forward cache snapshot too).
+    function onSubmit(event) {
+        var form = event.target instanceof HTMLFormElement ? event.target : null;
+        if (!form) {
+            return;
+        }
+        var rows = form.querySelectorAll(ROW);
+        for (var i = 0; i < rows.length; i++) {
+            clear(rows[i], true);
         }
     }
 
@@ -245,6 +358,9 @@
         }
     }
 
+    document.addEventListener('click', onEye, true);
+    document.addEventListener('keydown', onEye, true);
+    document.addEventListener('submit', onSubmit, true);
     document.addEventListener('click', onClick);
     document.addEventListener('visibilitychange', onVisibilityChange);
     document.addEventListener('turbo:load', function () {

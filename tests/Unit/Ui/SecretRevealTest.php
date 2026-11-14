@@ -21,6 +21,10 @@ final class SecretRevealTest extends TestCase
         self::assertSame('nowo_instance_settings_secret_reveal_oauth', $reveal->tokenId());
         self::assertSame('{"client_secret":"/admin/settings/sections/oauth/secrets/client_secret/reveal"}', $reveal->urlsJson());
         self::assertSame('{}', (new SecretReveal('oauth', []))->urlsJson());
+        self::assertFalse($reveal->onToggle, '1.16: the eye only unmasks what was typed unless opted in');
+        self::assertFalse($reveal->toggleOnly);
+        $toggle = new SecretReveal('oauth', [], true, true);
+        self::assertTrue($toggle->onToggle && $toggle->toggleOnly);
     }
 
     public function testTheAuditRecordNamesTheFieldTheActorAndTheTime(): void

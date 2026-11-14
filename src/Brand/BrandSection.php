@@ -34,6 +34,9 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
     /** Section name. */
     public const NAME = 'brand';
 
+    /** Tab icon (1.16; a UiKit prefixed icon name, rendered by the tabler-icons and ux_icon sets). */
+    public const ICON = 'tabler:palette';
+
     /**
      * The fixed image slots ({@see BrandAssetSlot::FIXED}), each stored in the field of the same name. Literal values:
      * the configuration tree reads this constant on every host, also without nowo-tech/brand-contracts installed.
@@ -119,6 +122,14 @@ final class BrandSection extends AbstractSettingsSection implements SectionFallb
     public function getIntro(): string
     {
         return 'brand.section.intro';
+    }
+
+    /**
+     * `tabler:palette` (1.16): the tab icon; `web_ui.section_icons.brand` overrides it.
+     */
+    public function getIcon(): string
+    {
+        return self::ICON;
     }
 
     /**

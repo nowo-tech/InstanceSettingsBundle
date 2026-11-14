@@ -162,3 +162,5 @@ reveal:
   copied: Copied
   error: The secret could not be revealed.
   not_stored: No secret is stored for this field.
+  toggle_show: Reveal stored value
+  toggle_hide: Hide stored value

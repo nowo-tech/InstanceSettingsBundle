@@ -10,8 +10,10 @@ use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Portability\PortabilityEnvelope;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
+use Nowo\InstanceSettingsBundle\Ui\SectionNavigation;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
@@ -22,6 +24,7 @@ use function array_diff;
 use function array_key_exists;
 use function array_keys;
 use function array_values;
+use function get_debug_type;
 use function implode;
 use function is_array;
 use function is_string;
@@ -146,6 +149,41 @@ final class Configuration implements ConfigurationInterface
                                     throw new InvalidConfigurationException(sprintf('Unknown nowo_instance_settings.web_ui.templates page(s) "%s"; allowed: %s.', implode('", "', array_diff(array_keys($v), array_keys(SettingsPages::TEMPLATES))), implode(', ', array_keys(SettingsPages::TEMPLATES))));
                                 })
                             ->end()
+                        ->end()
+                        ->arrayNode('section_icons')
+                            ->info('1.16: tab icon per section name, overriding or filling the section\'s getIcon(), including sections of other bundles. An icon is a canonical UiKit kind ("config") or a prefixed icon name ("tabler:palette"). A name that matches no registered section is ignored (debug log line).')
+                            ->useAttributeAsKey('section')
+                            ->normalizeKeys(false)
+                            ->scalarPrototype()
+                                ->validate()
+                                    ->ifTrue(static fn (mixed $v): bool => !is_string($v) || preg_match(SectionNavigation::ICON_PATTERN, $v) !== 1)
+                                    ->thenInvalid('nowo_instance_settings.web_ui.section_icons values must be a canonical UiKit icon kind such as "config" or a prefixed icon name such as "tabler:palette", got %s.')
+                                ->end()
+                            ->end()
+                            ->validate()
+                                ->ifTrue(static fn (array $v): bool => self::invalidSectionNames(array_keys($v)) !== [])
+                                ->then(static function (array $v): never {
+                                    throw new InvalidConfigurationException(sprintf('Invalid nowo_instance_settings.web_ui.section_icons section name(s) "%s": expected lower snake case section names.', implode('", "', self::invalidSectionNames(array_keys($v)))));
+                                })
+                            ->end()
+                        ->end()
+                        ->arrayNode('navigation_hidden')
+                            ->info('1.16: section names left out of the settings page tab bar and of the "first section" redirect. Presentation only: a hidden section stays registered, guarded by its area and embeddable (SettingsSectionEmbedder), and its own URL keeps working. A name that matches no registered section is ignored (debug log line).')
+                            ->scalarPrototype()->end()
+                            ->validate()
+                                ->ifTrue(static fn (array $v): bool => self::invalidSectionNames($v) !== [])
+                                ->then(static function (array $v): never {
+                                    throw new InvalidConfigurationException(sprintf('Invalid nowo_instance_settings.web_ui.navigation_hidden section name(s) "%s": expected lower snake case section names.', implode('", "', self::invalidSectionNames($v))));
+                                })
+                            ->end()
+                        ->end()
+                        ->booleanNode('reveal_on_toggle')
+                            ->info('1.16: on a revealable secret row, the PasswordToggle eye of the "new value" input reveals the STORED secret (the same POST endpoint, CSRF token, rate limiter, access checks and audit as the Reveal button) in a read-only element of the row, never in the input; a second click hides it. Default false: the eye only unmasks what was typed.')
+                            ->defaultFalse()
+                        ->end()
+                        ->booleanNode('reveal_toggle_only')
+                            ->info('1.16: with reveal_on_toggle, hide the separate Reveal / Copy / Hide buttons on rows that have the eye (rows without it keep them). Default false.')
+                            ->defaultFalse()
                         ->end()
                     ->end()
                 ->end()
@@ -450,6 +488,25 @@ final class Configuration implements ConfigurationInterface
             ->end();
 
         return $node;
+    }
+
+    /**
+     * Entries of `$names` that are not valid section names ({@see SettingsSectionRegistry::NAME_PATTERN}).
+     *
+     * @param array<mixed> $names
+     *
+     * @return list<string>
+     */
+    public static function invalidSectionNames(array $names): array
+    {
+        $invalid = [];
+        foreach ($names as $name) {
+            if (!is_string($name) || preg_match(SettingsSectionRegistry::NAME_PATTERN, $name) !== 1) {
+                $invalid[] = is_string($name) ? $name : get_debug_type($name);
+            }
+        }
+
+        return $invalid;
     }
 
     /**

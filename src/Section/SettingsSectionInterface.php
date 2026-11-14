@@ -42,7 +42,8 @@ interface SettingsSectionInterface
     public function getIntro(): Label|TranslatableMessage|string|null;
 
     /**
-     * Optional UiKit icon kind / name of the section tab.
+     * Optional UiKit icon of the section tab: a canonical kind (`config`) or a prefixed icon name (`tabler:palette`,
+     * shown by the tabler-icons and ux_icon sets). `web_ui.section_icons.<name>` overrides it (1.16).
      */
     public function getIcon(): ?string;
 

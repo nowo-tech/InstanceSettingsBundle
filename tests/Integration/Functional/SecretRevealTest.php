@@ -15,6 +15,7 @@ use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\DomCrawler\Crawler;
+use Symfony\Component\DomCrawler\Field\FormField;
 
 use function array_replace_recursive;
 use function json_decode;
@@ -78,6 +79,66 @@ final class SecretRevealTest extends KernelTestCase
         self::assertStringContainsString(SecretRevealer::LOG_REVEALED, $logger->dump());
         self::assertStringContainsString('oauth.client_secret', $logger->dump());
         self::assertStringNotContainsString(self::SECRET, $logger->dump(), 'no secret value in any log line');
+    }
+
+    public function testRevealOnToggleIsOffByDefault(): void
+    {
+        $kernel  = $this->boot();
+        $client  = $this->client($kernel, 'developer');
+        $crawler = $client->request('GET', '/admin/settings/sections/oauth');
+        $root    = $crawler->filter('[data-nowo-instance-settings-reveal-root]');
+
+        self::assertNull($root->attr('data-on-toggle'), '1.16: the eye only unmasks what was typed unless opted in');
+        self::assertNull($root->attr('data-toggle-only'));
+        self::assertNull($root->attr('data-toggle-show-label'));
+    }
+
+    public function testRevealOnToggleMarksTheRootAndKeepsTheValueOutOfTheForm(): void
+    {
+        $kernel = $this->boot(['web_ui' => ['reveal_on_toggle' => true]]);
+        $this->settings($kernel)->save('oauth', ['client_secret' => self::SECRET]);
+        $client  = $this->client($kernel, 'developer');
+        $crawler = $client->request('GET', '/admin/settings/sections/oauth');
+        $root    = $crawler->filter('[data-nowo-instance-settings-reveal-root]');
+
+        self::assertSame('true', $root->attr('data-on-toggle'));
+        self::assertNull($root->attr('data-toggle-only'), 'the Reveal / Copy / Hide buttons stay unless reveal_toggle_only');
+        self::assertSame('Reveal stored value', $root->attr('data-toggle-show-label'));
+        self::assertSame('Hide stored value', $root->attr('data-toggle-hide-label'));
+        self::assertStringNotContainsString(self::SECRET, (string) $client->getResponse()->getContent());
+        // The value is shown in the template's <output>: no name, so never a form field (not in the submitted payload).
+        $html = $root->filter('template')->html();
+        self::assertStringContainsString('<output', $html);
+        self::assertDoesNotMatchRegularExpression('/<output[^>]*\sname=/', $html);
+        self::assertStringContainsString('data-nowo-instance-settings-reveal-show', $html);
+
+        // The eye goes through the same endpoint: same CSRF token, same audit.
+        $client->request('POST', self::URL, ['_token' => $this->token($crawler)]);
+        self::assertSame(self::SECRET, $this->value($client));
+
+        // Saving the form after a reveal never changes the stored secret (the value input stays empty = keep).
+        $form = $crawler->filter('form[name="settings_section"]')->form();
+        $input = $form->get('settings_section[client_secret][value]');
+        self::assertInstanceOf(FormField::class, $input);
+        self::assertSame('', $input->getValue());
+        $client->submit($form, ['settings_section[client_id]' => 'client-1']);
+        self::assertSame(302, $client->getResponse()->getStatusCode());
+        self::assertSame(self::SECRET, $this->settings($kernel)->getSecret('oauth.client_secret'));
+        self::assertSame('client-1', $this->settings($kernel)->get('oauth.client_id'));
+
+        $listener = $this->container($kernel)->get('app.reveal_listener');
+        self::assertInstanceOf(RevealAuditListener::class, $listener);
+        self::assertCount(1, $listener->events);
+    }
+
+    public function testRevealToggleOnlyNeedsRevealOnToggle(): void
+    {
+        $crawler = $this->client($this->boot(['web_ui' => ['reveal_on_toggle' => true, 'reveal_toggle_only' => true]]), 'developer')->request('GET', '/admin/settings/sections/oauth');
+        self::assertSame('true', $crawler->filter('[data-nowo-instance-settings-reveal-root]')->attr('data-toggle-only'));
+
+        $crawler = $this->client($this->boot(['web_ui' => ['reveal_toggle_only' => true]]), 'developer')->request('GET', '/admin/settings/sections/oauth');
+        self::assertNull($crawler->filter('[data-nowo-instance-settings-reveal-root]')->attr('data-toggle-only'), 'ignored without reveal_on_toggle');
+        self::assertNull($crawler->filter('[data-nowo-instance-settings-reveal-root]')->attr('data-on-toggle'));
     }
 
     public function testAUserWithoutTheRevealRoleSeesNoControlAndIsRefusedByTheEndpoint(): void

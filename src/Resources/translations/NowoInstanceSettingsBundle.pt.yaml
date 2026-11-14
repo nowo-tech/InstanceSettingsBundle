@@ -162,3 +162,5 @@ reveal:
   copied: Copiado
   error: Não foi possível mostrar o segredo.
   not_stored: Não existe nenhum segredo guardado neste campo.
+  toggle_show: Mostrar o valor guardado
+  toggle_hide: Ocultar o valor guardado

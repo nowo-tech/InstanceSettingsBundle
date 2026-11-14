@@ -38,7 +38,6 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
 
-use function array_key_first;
 use function array_keys;
 use function count;
 use function date;
@@ -90,12 +89,16 @@ final class SettingsController extends AbstractController
 
     /**
      * Redirects to the first section the user may open (or renders the empty state).
+     *
+     * 1.16: the first one that is not in `web_ui.navigation_hidden`; when every section the user may open is hidden,
+     * the first of them (as before 1.16). Hiding never changes which sections the user may open.
      */
     #[Route(path: '', name: InstanceSettingsRoutes::INDEX, methods: ['GET'])]
     public function index(): Response
     {
-        $sections = $this->accessibleSections();
-        $first    = array_key_first($sections);
+        $navigation = $this->pages->navigation();
+        $navigation->reportUnknown($this->registry->names());
+        $first = $navigation->firstSection($this->accessibleSections());
         if ($first === null) {
             return $this->render($this->pages->template('section'), [
                 'page' => $this->pages->empty($this->canUsePortability()),

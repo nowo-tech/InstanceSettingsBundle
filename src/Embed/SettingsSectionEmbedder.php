@@ -98,6 +98,9 @@ final readonly class SettingsSectionEmbedder
      * @param string $groupParameter `web_ui.section_group_parameter` (1.14, audit MP-L1): query parameter of the open subtab
      * @param SecretRevealer|null $revealer secret reveal (1.15): the Reveal control of the revealable secret rows, for a
      *                                      user who may reveal; null = no reveal control at all
+     * @param bool $revealOnToggle `web_ui.reveal_on_toggle` (1.16): the PasswordToggle eye of a revealable row reveals
+     *                             the stored secret (same endpoint and checks as the Reveal button)
+     * @param bool $revealToggleOnly `web_ui.reveal_toggle_only` (1.16): with the eye, no separate Reveal / Copy / Hide buttons
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -116,6 +119,8 @@ final readonly class SettingsSectionEmbedder
         private SectionLayout $sectionLayout = SectionLayout::Stacked,
         private string $groupParameter = SectionGroupTabs::QUERY_PARAMETER,
         private ?SecretRevealer $revealer = null,
+        private bool $revealOnToggle = false,
+        private bool $revealToggleOnly = false,
     ) {
     }
 
@@ -147,6 +152,9 @@ final readonly class SettingsSectionEmbedder
      */
     public function handleBundlePage(Request $request, string $section): Response
     {
+        // 1.16: configured section icons / hidden sections naming no registered section are ignored (debug line).
+        $this->pages->navigation()->reportUnknown($this->registry->names());
+
         return $this->process($request, $section, null, []);
     }
 
@@ -333,7 +341,7 @@ final readonly class SettingsSectionEmbedder
             $urls[$field] = $this->urlGenerator->generate(InstanceSettingsRoutes::REVEAL, ['section' => $section, 'field' => $field]);
         }
 
-        return new SecretReveal($section, $urls);
+        return new SecretReveal($section, $urls, $this->revealOnToggle, $this->revealOnToggle && $this->revealToggleOnly);
     }
 
     /**

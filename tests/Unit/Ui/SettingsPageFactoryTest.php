@@ -8,6 +8,8 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\GeneralFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\IntroFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\MailerFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Support\PageFixtures;
+use Nowo\InstanceSettingsBundle\Ui\SectionNavigation;
+use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Nowo\UiKitBundle\View\Action;
 use Nowo\UiKitBundle\View\Label;
@@ -41,6 +43,43 @@ final class SettingsPageFactoryTest extends TestCase
         self::assertSame('NowoInstanceSettingsBundle', $page->bundle);
 
         self::assertSame([], PageFixtures::factory()->section(['mailer' => new MailerFixtureSection()], 'mailer', $form)->header->actions);
+    }
+
+    public function testHiddenSectionsLeaveTheTabBarButKeepTheirOwnPage(): void
+    {
+        // 1.16: web_ui.navigation_hidden is presentation only; the current page of a hidden section still renders.
+        $sections = ['mailer' => new MailerFixtureSection(), 'general' => new GeneralFixtureSection()];
+        $factory  = new SettingsPageFactory(PageFixtures::urlGeneratorForTests(), new SettingsPages(), new SectionNavigation(hidden: ['mailer']));
+        $form     = new FormView();
+
+        $page = $factory->section($sections, 'general', $form);
+        self::assertSame(['general'], array_map(static fn (SettingsSection $s): string => $s->id, $page->sections), 'no tab for the hidden section');
+        self::assertFalse($page->hasTabs());
+
+        $own = $factory->section($sections, 'mailer', $form);
+        self::assertSame(['mailer', 'general'], array_map(static fn (SettingsSection $s): string => $s->id, $own->sections), 'its own page keeps it as the current tab');
+        self::assertSame($form, $own->sections[0]->form);
+
+        // Embeds choose their tabs with their own allowlist: hiding does not apply there.
+        $embedded = $factory->embeddedSection(['mailer' => ['section' => $sections['mailer'], 'href' => '/host/mailer'], 'general' => ['section' => $sections['general'], 'href' => '/host/general']], 'general', $form);
+        self::assertSame(['mailer', 'general'], array_map(static fn (SettingsSection $s): string => $s->id, $embedded->sections));
+        self::assertSame('general', $factory->navigation()->firstSection($sections));
+    }
+
+    public function testSectionIconsOverrideAndFill(): void
+    {
+        $sections = ['mailer' => new MailerFixtureSection(), 'general' => new GeneralFixtureSection()];
+        $factory  = new SettingsPageFactory(PageFixtures::urlGeneratorForTests(), new SettingsPages(), new SectionNavigation(['mailer' => 'tabler:mail', 'general' => 'tabler:settings']));
+        $form     = new FormView();
+
+        $page = $factory->section($sections, 'mailer', $form);
+        self::assertSame(['tabler:mail', 'tabler:settings'], [$page->sections[0]->icon, $page->sections[1]->icon]);
+        $embedded = $factory->embeddedSection(['general' => ['section' => $sections['general'], 'href' => '/host/general']], 'general', $form);
+        self::assertSame('tabler:settings', $embedded->sections[0]->icon);
+
+        // Default: the section's own icon (none for general).
+        $default = PageFixtures::factory()->section($sections, 'mailer', $form);
+        self::assertSame(['config', null], [$default->sections[0]->icon, $default->sections[1]->icon]);
     }
 
     public function testParameterisedIntros(): void

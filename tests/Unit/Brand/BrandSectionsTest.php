@@ -40,6 +40,7 @@ final class BrandSectionsTest extends TestCase
             'email'  => ['label' => null, 'help' => 'app.email_help', 'max_width' => 600, 'max_height' => 200, 'max_bytes' => 9000, 'square' => false],
         ]));
         self::assertSame(['brand', 'brand.section.label', 'brand.section.intro', NowoInstanceSettingsBundle::TRANSLATION_DOMAIN], [$section->getName(), $section->getLabel(), $section->getIntro(), $section->getTranslationDomain()]);
+        self::assertSame('tabler:palette', $section->getIcon(), '1.16: the tab icon');
 
         $fields = $this->byName($section->getFields());
         self::assertSame(['name', 'short_name', 'eyebrow', 'wordmark', 'logo_light', 'logo_dark', 'mark', 'app_icon', 'favicon', 'extra_mascot', 'extra_email'], array_keys($fields));
@@ -89,6 +90,7 @@ final class BrandSectionsTest extends TestCase
         $fixture = new BrandFixture();
         $section = $fixture->appearanceSection;
         self::assertSame(['appearance', 'appearance.section.label', 'appearance.section.intro'], [$section->getName(), $section->getLabel(), $section->getIntro()]);
+        self::assertSame('tabler:layout-dashboard', $section->getIcon(), '1.16: the tab icon');
 
         $fields = $this->byName($section->getFields());
         self::assertCount(2 + 14 + 3, $fields);
