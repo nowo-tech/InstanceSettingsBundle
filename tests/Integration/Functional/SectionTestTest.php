@@ -41,9 +41,9 @@ use const JSON_THROW_ON_ERROR;
 final class SectionTestTest extends KernelTestCase
 {
     /** Throwaway values, never real secrets. */
-    private const GOOGLE_SECRET = 'Zq7Wk2Rv9TfXp4Lm';
+    private const GOOGLE_SECRET = 'throwawayzzfixtureone';
 
-    private const MICROSOFT_SECRET = 'Ms-8Hd3-Qy6Jn2Vb';
+    private const MICROSOFT_SECRET = 'throwaway-zz-fixture-two';
 
     private const PAGE = '/admin/settings/sections/calendar_oauth';
 
