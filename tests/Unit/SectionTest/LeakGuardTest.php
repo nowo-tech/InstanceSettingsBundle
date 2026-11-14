@@ -52,7 +52,7 @@ final class LeakGuardTest extends TestCase
     public function testEncodingsAndCaseOfASecretAreHits(): void
     {
         // Audit PU-L1: the common encodings a tester may echo by accident.
-        $secret = 'Zq8Rw3Ty6Up1Ab9C';
+        $secret = 'ThrowAwayLeakGuardFixture';
         foreach ([
             'base64'     => base64_encode($secret),
             'base64 url' => rtrim(strtr(base64_encode('?' . $secret), '+/', '-_'), '='),
