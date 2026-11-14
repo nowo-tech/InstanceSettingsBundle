@@ -13,12 +13,18 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\RevealFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LoggerInterface;
 use Psr\Log\LogLevel;
+use RuntimeException;
+use Stringable;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\RateLimiter\LimiterStateInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
+use Symfony\Component\RateLimiter\Storage\StorageInterface;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorage;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\User\InMemoryUser;
@@ -154,6 +160,80 @@ final class RevealRefusalLogTest extends TestCase
 
         self::assertNull($log->actor());
         self::assertSame(hash('sha256', "test-salt\0anonymous"), $log->rateLimitKey());
+    }
+
+    public function testABrokenLimiterStorageNeverEscapesAndLeavesAConstantErrorLine(): void
+    {
+        // Audit PJ-L1: logging never decides anything, so it must never throw. A broken limiter storage leaves one
+        // constant-text error line through the same logger instead of the refusal line.
+        $limiter = new RateLimiterFactory(['id' => 'reveal', 'policy' => 'fixed_window', 'limit' => 5, 'interval' => '1 hour'], self::brokenStorage());
+        $this->log($this->guard('developer'), $limiter)->log('oauth', 'attacker_chosen', SecretRevealer::REASON_NOT_REVEALABLE);
+
+        self::assertCount(1, $this->logger->records);
+        self::assertSame(LogLevel::ERROR, $this->logger->records[0]['level']);
+        self::assertSame(RevealRefusalLog::LOG_UNLOGGED, $this->logger->records[0]['message']);
+        self::assertSame(['reason' => SecretRevealer::REASON_NOT_REVEALABLE], $this->logger->records[0]['context']);
+        self::assertStringNotContainsString('attacker_chosen', $this->logger->dump());
+    }
+
+    public function testAThrowingLoggerIsSwallowed(): void
+    {
+        $log = new RevealRefusalLog($this->registry(), $this->guard('developer'), self::throwingLogger(), null, $this->limiter(5), 'test-salt', $this->stack);
+        $log->log('oauth', 'client_secret', SecretRevealer::REASON_FORBIDDEN);
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function testNoIdentifierCanReachAnotherBucket(): void
+    {
+        // Audit PJ-I1: with `\0` both as the salt separator and the bucket separator, the reveal key of the identifier
+        // "refusal_log\0alice" was alice's refusal_log key. The refusal_log bucket now starts with a byte the reveal
+        // key never has there, and the reveal key keeps its 1.15.0 bytes.
+        $alice   = $this->log($this->guard('alice'), null);
+        $forged  = $this->log($this->guard('refusal_log' . "\0" . 'alice'), null);
+        $forged1 = $this->log($this->guard('refusal_log' . "\1" . 'alice'), null);
+        $refusal = $alice->rateLimitKey(RevealRefusalLog::BUCKET_REFUSAL_LOG);
+
+        self::assertNotSame($refusal, $forged->rateLimitKey());
+        self::assertNotSame($refusal, $forged1->rateLimitKey());
+        self::assertSame(hash('sha256', "test-salt\0alice"), $alice->rateLimitKey());
+        self::assertSame(hash('sha256', "test-salt\1refusal_log\0alice"), $refusal);
+    }
+
+    /**
+     * A limiter storage whose backend is down.
+     */
+    public static function brokenStorage(): StorageInterface
+    {
+        return new class implements StorageInterface {
+            public function save(LimiterStateInterface $limiterState): void
+            {
+                throw new RuntimeException('storage down');
+            }
+
+            public function fetch(string $limiterStateId): ?LimiterStateInterface
+            {
+                throw new RuntimeException('storage down');
+            }
+
+            public function delete(string $limiterStateId): void
+            {
+                throw new RuntimeException('storage down');
+            }
+        };
+    }
+
+    /**
+     * A logger whose handler is down.
+     */
+    public static function throwingLogger(): LoggerInterface
+    {
+        return new class extends AbstractLogger {
+            public function log(mixed $level, string|Stringable $message, array $context = []): void
+            {
+                throw new RuntimeException('logger down');
+            }
+        };
     }
 
     private function log(AccessGuard $guard, ?RateLimiterFactory $limiter): RevealRefusalLog

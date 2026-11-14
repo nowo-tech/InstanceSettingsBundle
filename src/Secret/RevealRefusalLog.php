@@ -16,6 +16,7 @@ use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
+use Throwable;
 
 use function array_keys;
 use function hash;
@@ -33,11 +34,11 @@ use function hash;
  *   (audit N3).
  * - The line is a `warning` while the caller still has budget in the reveal rate limiter
  *   (`security.reveal_rate_limiter`), in a bucket of its own (the refusals never eat the caller's reveals), and a
- *   `debug` line past it (audit N3: an unauthenticated caller cannot flood the alert). Without a limiter nothing in
+ *   `debug` line past it (audit N3: the warnings of one caller are capped; a caller rotating IPs gets a budget per IP). Without a limiter nothing in
  *   the bundle is revealable (the registry fails closed), so the line of a caller the host cannot name is `debug`
  *   and a named caller keeps its `warning`.
  *
- * Logging never decides anything: the caller refuses whatever happens here.
+ * Logging never decides anything and never throws: the caller refuses whatever happens here (audit PJ-L1).
  *
  * Stateless (REQ-RUNTIME-002): the actor, the request and the limiter are read per call; nothing is memoised.
  *
@@ -47,6 +48,9 @@ final readonly class RevealRefusalLog
 {
     /** Key logged for a section or field name the registry does not declare (audit N3). */
     public const KEY_UNKNOWN = 'unknown';
+
+    /** Error line written instead of the refusal line when the latter could not be written (audit PJ-L1). */
+    public const LOG_UNLOGGED = 'Instance settings: secret reveal refusal could not be logged';
 
     /** Limiter bucket of the refusal lines, apart from the reveals' own bucket. */
     public const BUCKET_REFUSAL_LOG = 'refusal_log';
@@ -72,21 +76,31 @@ final readonly class RevealRefusalLog
     }
 
     /**
-     * Writes the refusal line of `$section`.`$field` with `$reason`.
+     * Writes the refusal line of `$section`.`$field` with `$reason`. Never throws (audit PJ-L1): a limiter storage or a
+     * logger that fails must not turn the refusal into another answer, so a failure leaves one constant-text
+     * {@see self::LOG_UNLOGGED} error line through the same logger when it still works, else nothing.
      */
     public function log(string $section, string $field, string $reason): void
     {
         if (!$this->logger instanceof LoggerInterface) {
             return;
         }
-        $actor = $this->actor();
 
-        $this->logger->log($this->level($actor), SecretRevealer::LOG_REFUSED, [
-            'key'    => $this->key($section, $field),
-            'actor'  => $actor,
-            'at'     => ($this->clock?->now() ?? (new NativeClock())->now())->format(DateTimeImmutable::ATOM),
-            'reason' => $reason,
-        ]);
+        try {
+            $actor = $this->actor();
+            $this->logger->log($this->level($actor), SecretRevealer::LOG_REFUSED, [
+                'key'    => $this->key($section, $field),
+                'actor'  => $actor,
+                'at'     => ($this->clock?->now() ?? (new NativeClock())->now())->format(DateTimeImmutable::ATOM),
+                'reason' => $reason,
+            ]);
+        } catch (Throwable) {
+            try {
+                $this->logger->error(self::LOG_UNLOGGED, ['reason' => $reason]);
+            } catch (Throwable) {
+                // The logger itself is down: nothing left to write to. The caller refuses regardless.
+            }
+        }
     }
 
     /**
@@ -111,7 +125,9 @@ final readonly class RevealRefusalLog
             $actor = $ip === null ? 'anonymous' : 'ip:' . $ip;
         }
 
-        return hash('sha256', $this->keySalt . "\0" . ($bucket === '' ? '' : $bucket . "\0") . $actor);
+        // The reveals' key keeps its 1.15.0 bytes (salt, NUL, actor). Any other bucket puts \1 right after the salt,
+        // where the reveal key always has NUL, so no identifier can make the two inputs equal (audit PJ-I1).
+        return hash('sha256', $bucket === '' ? $this->keySalt . "\0" . $actor : $this->keySalt . "\1" . $bucket . "\0" . $actor);
     }
 
     /**

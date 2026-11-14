@@ -14,6 +14,7 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\RevealFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
+use Nowo\InstanceSettingsBundle\Tests\Unit\Secret\RevealRefusalLogTest;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
@@ -146,6 +147,15 @@ final class InstanceSettingsAccessListenerTest extends TestCase
         $listener = new InstanceSettingsAccessListener(new AccessGuard($this->checker(false)), '/admin/settings', null, $refusals);
 
         $this->deny($listener, $this->reveal('oauth', 'client_secret'));
+    }
+
+    public function testABrokenLimiterOrLoggerStillLeavesTheGates403(): void
+    {
+        // Audit PJ-L1: the refusal log never throws, and the deny sits in a finally anyway.
+        $guard  = new AccessGuard($this->checker(false));
+        $broken = new RateLimiterFactory(['id' => 'reveal', 'policy' => 'fixed_window', 'limit' => 5, 'interval' => '1 hour'], RevealRefusalLogTest::brokenStorage());
+        $this->deny(new InstanceSettingsAccessListener($guard, '/admin/settings', null, new RevealRefusalLog(new SettingsSectionRegistry([new RevealFixtureSection()]), $guard, new RecordingLogger(), null, $broken)), $this->reveal('oauth', 'client_secret'));
+        $this->deny(new InstanceSettingsAccessListener($guard, '/admin/settings', RevealRefusalLogTest::throwingLogger()), $this->reveal('oauth', 'client_secret'));
     }
 
     public function testAHandBuiltListenerWithOnlyALoggerNeverEchoesNames(): void

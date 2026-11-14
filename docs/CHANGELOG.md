@@ -35,7 +35,7 @@ Target 1.15.1.
 
 ### Security
 
-- **The reveal refusal line names the actor and can no longer be chosen or flooded by the caller** (audit of
+- **The reveal refusal line names the actor, can no longer be chosen by the caller and is capped per caller** (audit of
   2026-11-13, N2 / N3; Low, no GHSA: only 1.15.0 has the reveal). Both writers of
   `Instance settings: secret reveal refused` — the UI gate (`ui_gate`) and `SecretRevealer` (`forbidden`,
   `not_revealable`, `rate_limited`, `not_text`) — now go through one internal `Secret\RevealRefusalLog`:
@@ -50,7 +50,14 @@ Target 1.15.1.
     of its own (`refusal_log`, so refusals never spend the caller's reveals): a `warning` while the caller has budget,
     `debug` past it (N3). Without a limiter (then nothing in the bundle is revealable) a caller the host cannot name
     gets `debug` lines and a named caller keeps `warning`. Every refusal is still refused: a failure while writing the
-    line cannot turn the UI gate's 403 into anything else.
+    line cannot turn the UI gate's 403, or the revealer's 403 / 404 / 409 / 429, into anything else: the line is
+    written in a `try` / `finally` and never throws; a broken limiter storage or logger leaves a constant `error`
+    line "Instance settings: secret reveal refusal could not be logged" instead (audit PJ-L1).
+  - The `refusal_log` bucket key cannot collide with a reveal key whatever the identifier (an identifier containing a
+    NUL byte could reach another user's bucket); the reveal key keeps its 1.15.0 bytes (audit PJ-I1).
+  - SECURITY / CONFIGURATION: the warning cap is per caller (rotating IPs get a budget each), so pair the per-actor
+    alert with an aggregate one; each refused reveal writes a limiter entry; `actor` is personal data, logged as
+    structured context since 1.15.0 (audit PJ-L2, PJ-I3, PJ-I4).
 
 ### Fixed
 

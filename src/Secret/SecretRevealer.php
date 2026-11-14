@@ -156,9 +156,11 @@ final readonly class SecretRevealer
             // Audit F2: a secret that is not text cannot be delivered. Refusing is the only honest answer: substituting
             // or escaping bytes would hand over a silently mangled secret, and the audit entry would claim a reveal
             // the caller never received. The message and the log name the field, never a byte of the value.
-            $this->refuse($section, $field, self::REASON_NOT_TEXT);
-
-            throw new ConflictHttpException('The stored secret is not UTF-8 text and cannot be revealed.');
+            try {
+                $this->refuse($section, $field, self::REASON_NOT_TEXT);
+            } finally {
+                throw new ConflictHttpException('The stored secret is not UTF-8 text and cannot be revealed.');
+            }
         }
         $this->audit($section, $field, $value !== null);
 
@@ -177,13 +179,18 @@ final readonly class SecretRevealer
     public function assertRevealable(string $section, string $field): void
     {
         if (!$this->canReveal($section)) {
-            $this->refuse($section, $field, self::REASON_FORBIDDEN);
-            $this->guard->deny('Access denied to revealing this instance settings secret.');
+            try {
+                $this->refuse($section, $field, self::REASON_FORBIDDEN);
+            } finally {
+                $this->guard->deny('Access denied to revealing this instance settings secret.');
+            }
         }
         if (!$this->isRevealable($section, $field)) {
-            $this->refuse($section, $field, self::REASON_NOT_REVEALABLE);
-
-            throw new NotFoundHttpException('Unknown revealable secret field.');
+            try {
+                $this->refuse($section, $field, self::REASON_NOT_REVEALABLE);
+            } finally {
+                throw new NotFoundHttpException('Unknown revealable secret field.');
+            }
         }
     }
 
@@ -232,9 +239,13 @@ final readonly class SecretRevealer
         }
         $limit = $this->rateLimiter->create($this->rateLimitKey())->consume();
         if (!$limit->isAccepted()) {
-            $this->refuse($section, $field, self::REASON_RATE_LIMITED);
+            $retryAfter = max(1, $limit->getRetryAfter()->getTimestamp() - $this->now()->getTimestamp());
 
-            throw new TooManyRequestsHttpException(max(1, $limit->getRetryAfter()->getTimestamp() - $this->now()->getTimestamp()), 'Too many secret reveals.');
+            try {
+                $this->refuse($section, $field, self::REASON_RATE_LIMITED);
+            } finally {
+                throw new TooManyRequestsHttpException($retryAfter, 'Too many secret reveals.');
+            }
         }
     }
 

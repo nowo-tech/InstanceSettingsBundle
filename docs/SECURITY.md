@@ -191,8 +191,19 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
   (`forbidden`, `not_revealable`, `rate_limited`, `not_text`, `ui_gate`). The PSR-14 `SecretRevealedEvent` carries
   the same names (1.15). Since 1.15.1 (audit N2 / N3) the refusal line names the resolved actor on every reason
   (`ui_gate` included), logs only declared names (anything else is `key: unknown`), and is throttled per caller by
-  `security.reveal_rate_limiter` in a bucket of its own: `warning` while the caller has budget, `debug` past it, so an
-  unauthenticated caller can neither choose what the line says nor flood the alert built on it.
+  `security.reveal_rate_limiter` in a bucket of its own: `warning` while the caller has budget, `debug` past it. An
+  unauthenticated caller can no longer choose what the line says, and its warnings are capped **per caller**: the
+  budget belongs to a user identifier, else a client IP, so a caller rotating IPs gets a fresh budget for each one.
+  Pair the per-actor alert with an aggregate one, for example the count of `key: unknown` refusals per minute across
+  all callers. Each refused reveal (an unauthenticated `ui_gate` request included) also writes one entry to the
+  limiter's storage. Writing the line never decides anything and never throws: if the limiter storage or the logger
+  fails, the refusal keeps its 403 / 404 / 409 / 429 and a constant `error` line "Instance settings: secret reveal
+  refusal could not be logged" (with the reason only) is written when the logger still works (audit PJ-L1, PJ-L2).
+- **The actor is personal data.** `actor` is the raw user identifier the host's user provider returns — often an
+  e-mail address. It has been on the reveal line and in `SecretRevealedEvent` since 1.15.0 and, since 1.15.1, is on
+  every refusal line too. Cover these lines with your log retention and access rules. The identifier is passed as
+  structured context (the `actor` key), never interpolated into the message, so a processor can hash or drop it
+  (audit PJ-I3 / PJ-I4).
 - Never logged: values, secrets, uploaded file content. Exceptions carry reason codes and keys only.
 - `SettingsChangedEvent` carries field names only (plus old / new image hashes in `fileChanges`); hosts that write an
   audit trail record names and hashes, not values.
