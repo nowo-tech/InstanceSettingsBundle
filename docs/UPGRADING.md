@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.15.1](#to-1151)
 - [To 1.15.0](#to-1150)
 - [To 1.14.1](#to-1141)
 - [To 1.14.0](#to-1140)
@@ -35,6 +36,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.15.1
+
+From **1.15.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 Target 1.15.1, from **1.15.0**:
 
