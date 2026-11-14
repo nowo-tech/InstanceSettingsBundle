@@ -120,7 +120,7 @@ final class AppearanceSection extends AbstractSettingsSection implements Setting
     }
 
     /**
-     * `tabler:layout-dashboard` (1.16): the tab icon; `web_ui.section_icons.brand` overrides it.
+     * `tabler:layout-dashboard` (1.16): the tab icon; `web_ui.section_icons.appearance` overrides it.
      */
     public function getIcon(): string
     {
