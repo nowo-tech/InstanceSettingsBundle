@@ -117,7 +117,7 @@ final class SecretRevealTest extends KernelTestCase
         self::assertSame(self::SECRET, $this->value($client));
 
         // Saving the form after a reveal never changes the stored secret (the value input stays empty = keep).
-        $form = $crawler->filter('form[name="settings_section"]')->form();
+        $form  = $crawler->filter('form[name="settings_section"]')->form();
         $input = $form->get('settings_section[client_secret][value]');
         self::assertInstanceOf(FormField::class, $input);
         self::assertSame('', $input->getValue());
