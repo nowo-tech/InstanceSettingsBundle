@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.18.0] - 2026-11-14](#1180---2026-11-14)
 - [[1.17.0] - 2026-11-14](#1170---2026-11-14)
 - [[1.16.1] - 2026-11-14](#1161---2026-11-14)
 - [[1.16.0] - 2026-11-14](#1160---2026-11-14)
@@ -34,6 +35,8 @@ All notable changes to this project are documented here. The format follows
 - [[1.0.0] - 2026-10-31](#100---2026-10-31)
 
 ## [Unreleased]
+
+## [1.18.0] - 2026-11-14
 
 Target 1.18.0.
 
