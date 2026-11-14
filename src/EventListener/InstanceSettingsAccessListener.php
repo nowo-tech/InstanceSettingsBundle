@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\EventListener;
 
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
+use Nowo\InstanceSettingsBundle\Secret\RevealRefusalLog;
 use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
@@ -31,6 +33,11 @@ use function str_starts_with;
  * the log, and an alert counting reveal refusals per actor would miss exactly the probe that knows the least. The
  * listener therefore writes the same refusal line itself, with the reason `ui_gate`, when the request it denies is the
  * reveal route.
+ *
+ * 1.15.1 (audit N2 / N3): that line is written by {@see RevealRefusalLog}, like {@see SecretRevealer}'s own: it names the
+ * resolved actor (the user identifier, as every other reveal line of the bundle), never echoes a section or field name
+ * the registry does not declare, and is throttled per caller by the reveal rate limiter. A failure while logging never
+ * turns the refusal into anything else: the request is denied whatever happens.
  */
 final readonly class InstanceSettingsAccessListener
 {
@@ -44,12 +51,15 @@ final readonly class InstanceSettingsAccessListener
 
     /**
      * @param string $pathPrefix `web_ui.path_prefix`
-     * @param LoggerInterface|null $logger receives the refusal line of a denied reveal (names and reason only, never a value)
+     * @param LoggerInterface|null $logger receives the refusal line of a denied reveal when no `$refusalLog` is given
+     *                                     (a listener built by hand: the key is then always `unknown`)
+     * @param RevealRefusalLog|null $refusalLog writes the refusal line of a denied reveal (1.15.1; wired by the extension)
      */
     public function __construct(
         private AccessGuard $guard,
         private string $pathPrefix,
         private ?LoggerInterface $logger = null,
+        private ?RevealRefusalLog $refusalLog = null,
     ) {
     }
 
@@ -74,31 +84,33 @@ final readonly class InstanceSettingsAccessListener
         }
 
         if (!$this->guard->isGranted()) {
-            $this->logRevealRefusal($request);
-            $this->guard->deny('Access denied to the instance settings UI.');
+            try {
+                $this->logRevealRefusal($request);
+            } finally {
+                // Fail closed: whatever the logging does, the request is refused.
+                $this->guard->deny('Access denied to the instance settings UI.');
+            }
         }
     }
 
     /**
      * Logs the reveal refusal of a request denied by the UI gate (1.15, audit F6): the same message and shape as
-     * {@see SecretRevealer}'s own refusals, so one alerting rule covers both, with the route's section and field names
-     * and never a value.
+     * {@see SecretRevealer}'s own refusals, so one alerting rule covers both, never a value.
      */
     private function logRevealRefusal(Request $request): void
     {
-        if (!$this->logger instanceof LoggerInterface || $request->attributes->get('_route') !== InstanceSettingsRoutes::REVEAL) {
+        if ($request->attributes->get('_route') !== InstanceSettingsRoutes::REVEAL) {
             return;
         }
+        // A listener built by hand with the 1.15 signature: no registry to check the names against (every key is
+        // `unknown`) and no limiter (a caller the host cannot name only writes debug lines).
+        $refusalLog = $this->refusalLog ?? new RevealRefusalLog(new SettingsSectionRegistry(), $this->guard, $this->logger);
         $parameters = $request->attributes->get('_route_params');
         $parameters = is_array($parameters) ? $parameters : [];
         $section    = $parameters['section'] ?? null;
         $field      = $parameters['field'] ?? null;
 
-        $this->logger->warning(SecretRevealer::LOG_REFUSED, [
-            'key'    => (is_string($section) ? $section : '?') . '.' . (is_string($field) ? $field : '?'),
-            'actor'  => null,
-            'reason' => self::REASON_UI_GATE,
-        ]);
+        $refusalLog->log(is_string($section) ? $section : '', is_string($field) ? $field : '', self::REASON_UI_GATE);
     }
 
     private function isBundleController(mixed $controller): bool
