@@ -21,3 +21,7 @@ nowo_instance_settings:
     # it is uploaded; the server still checks and re-encodes it.
     files:
         enabled: true
+    # 1.17: expiry dates of the secret fields declaring expires: true (the SMS auth token). Maps the
+    # demo_instance_setting_secret_expiry table (the entrypoint runs doctrine:schema:update).
+    expiring_secrets:
+        enabled: true

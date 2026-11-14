@@ -23,17 +23,17 @@ final class EntityManagerMappingPassTest extends TestCase
     public function testTheEntitiesStayOnTheDedicatedManagerOnly(): void
     {
         $container = $this->container('settings', ['default', 'settings']);
-        $this->chain($container, 'default', ['App\Entity', EntityManagerMappingPass::ENTITY_NAMESPACE, EntityManagerMappingPass::FILE_ENTITY_NAMESPACE]);
-        $this->chain($container, 'settings', [EntityManagerMappingPass::ENTITY_NAMESPACE, EntityManagerMappingPass::FILE_ENTITY_NAMESPACE]);
+        $this->chain($container, 'default', ['App\Entity', EntityManagerMappingPass::ENTITY_NAMESPACE, EntityManagerMappingPass::FILE_ENTITY_NAMESPACE, EntityManagerMappingPass::EXPIRY_ENTITY_NAMESPACE]);
+        $this->chain($container, 'settings', [EntityManagerMappingPass::ENTITY_NAMESPACE, EntityManagerMappingPass::FILE_ENTITY_NAMESPACE, EntityManagerMappingPass::EXPIRY_ENTITY_NAMESPACE]);
         $container->getDefinition('doctrine.orm.default_metadata_driver')->addMethodCall('setDefaultDriver', [new Reference('x')]);
 
         (new EntityManagerMappingPass())->process($container);
 
         // Other managers: the host's drivers for the namespaces are gone; drivers that map nothing come first, before the
         // host's drivers and before any default driver (DoctrineBundle 3.4 auto_discover_entities).
-        $excluded = ['addDriver:' . EntityManagerMappingPass::ENTITY_NAMESPACE, 'addDriver:' . EntityManagerMappingPass::FILE_ENTITY_NAMESPACE];
+        $excluded = ['addDriver:' . EntityManagerMappingPass::ENTITY_NAMESPACE, 'addDriver:' . EntityManagerMappingPass::FILE_ENTITY_NAMESPACE, 'addDriver:' . EntityManagerMappingPass::EXPIRY_ENTITY_NAMESPACE];
         self::assertSame([...$excluded, 'addDriver:App\Entity', 'setDefaultDriver:'], $this->calls($container, 'default'));
-        foreach ([0, 1] as $index) {
+        foreach ([0, 1, 2] as $index) {
             $driver = $container->getDefinition('doctrine.orm.default_metadata_driver')->getMethodCalls()[$index][1][0];
             self::assertInstanceOf(Definition::class, $driver);
             self::assertSame(ExcludedEntityNamespaceDriver::class, $driver->getClass());

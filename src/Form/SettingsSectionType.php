@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Form;
 
 use Closure;
+use DateTimeImmutable;
 use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
 use Nowo\DoctrineEncryptBundle\Form\Type\SecretType;
 use Nowo\FormKitBundle\Attribute\FormKitConfig;
 use Nowo\FormKitBundle\Form\FormOptionsTrait;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecret;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
@@ -19,6 +21,7 @@ use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Exception\TransformationFailedException;
 use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
+use Symfony\Component\Form\Extension\Core\Type\DateType;
 use Symfony\Component\Form\Extension\Core\Type\EmailType;
 use Symfony\Component\Form\Extension\Core\Type\IntegerType;
 use Symfony\Component\Form\Extension\Core\Type\NumberType;
@@ -37,6 +40,7 @@ use Symfony\Component\OptionsResolver\Exception\InvalidOptionsException;
 use Symfony\Component\OptionsResolver\Options;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 
+use function abs;
 use function array_replace_recursive;
 use function array_reverse;
 use function in_array;
@@ -93,9 +97,18 @@ final class SettingsSectionType extends AbstractType
     public const REVEAL_SECTION_ATTRIBUTE = 'data-nowo-instance-settings-reveal-section';
 
     /**
+     * Row attribute of the expiry date row of an expiring secret (1.17), carrying the secret's field name. Never a value
+     * of the secret.
+     */
+    public const EXPIRY_ATTRIBUTE = 'data-nowo-instance-settings-expiry-for';
+
+    /** Row attribute of an expiry date row within the warning window (1.17): `expiring` or `expired`. */
+    public const EXPIRY_STATE_ATTRIBUTE = 'data-nowo-instance-settings-expiry';
+
+    /**
      * Adds one form field per setting field.
      *
-     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>} $options
+     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>, secret_expiry_dates: array<string, DateTimeImmutable>, secret_expiry_warnings: array<string, ExpiringSecret>} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -143,6 +156,9 @@ final class SettingsSectionType extends AbstractType
                     // scaffold does not render. Keep them on the field so they show next to it.
                     'error_bubbling' => false,
                 ], $field->formOptions));
+                if ($field->expires) {
+                    $this->addExpiryRow($builder, $name, $base['row_attr'] ?? [], $options['secret_expiry_dates'][$name] ?? null, $options['secret_expiry_warnings'][$name] ?? null);
+                }
 
                 continue;
             }
@@ -192,6 +208,41 @@ final class SettingsSectionType extends AbstractType
     }
 
     /**
+     * The expiry date row of an expiring secret (1.17), right after the secret row: a date-only input (UTC on both
+     * sides, so the browser's day is the stored day), unmapped, prefilled with the stored date. The help text is the
+     * warning while the date is within `warning_days` or passed; every text goes through the translator and Twig's
+     * escaping (no `help_html`).
+     *
+     * @param FormBuilderInterface<mixed> $builder
+     * @param array<string, string> $rowAttr the secret's visible-when / group row attributes
+     */
+    private function addExpiryRow(FormBuilderInterface $builder, string $name, array $rowAttr, ?DateTimeImmutable $date, ?ExpiringSecret $warning): void
+    {
+        $rowAttr[self::EXPIRY_ATTRIBUTE] = $name;
+        $help                            = 'secret_expiry.help';
+        $parameters                      = [];
+        if ($warning instanceof ExpiringSecret) {
+            $rowAttr[self::EXPIRY_STATE_ATTRIBUTE] = $warning->isExpired() ? 'expired' : 'expiring';
+            $help                                  = $warning->isExpired() ? 'secret_expiry.warning_expired' : 'secret_expiry.warning_expiring';
+            $parameters                            = ['%date%' => $warning->expiresOnString(), '%days%' => (string) abs($warning->daysLeft)];
+        }
+        $this->addWithDefaults($builder, SettingField::expiryKey($name), DateType::class, [
+            'label'                       => 'secret_expiry.label',
+            'translation_domain'          => NowoInstanceSettingsBundle::TRANSLATION_DOMAIN,
+            'help'                        => $help,
+            'help_translation_parameters' => $parameters,
+            'row_attr'                    => $rowAttr,
+            'widget'                      => 'single_text',
+            'input'                       => 'datetime_immutable',
+            'model_timezone'              => 'UTC',
+            'view_timezone'               => 'UTC',
+            'required'                    => false,
+            'mapped'                      => false,
+            'data'                        => $date,
+        ]);
+    }
+
+    /**
      * Replaces the submitted value of every field hidden for the submitted controlling value with its current view
      * value (a secret with "blank = keep"), so a hidden row never fails validation and re-renders with its stored
      * value. With `$keepTypedSecrets` (1.9, {@see HiddenSecrets::KeepTyped}) a hidden secret is left as submitted, so a
@@ -228,6 +279,11 @@ final class SettingsSectionType extends AbstractType
                 $submitted          = $data[$field->name] ?? null;
                 $clear              = is_array($submitted) ? ($submitted[SecretFieldApplier::KEY_CLEAR] ?? null) : null;
                 $data[$field->name] = is_string($clear) && $form->get($field->name)->has(SecretFieldApplier::KEY_CLEAR) ? [SecretFieldApplier::KEY_CLEAR => $clear] : [];
+                // 1.17: its expiry date row is hidden too: keep the stored date.
+                $expiry = SettingField::expiryKey($field->name);
+                if ($form->has($expiry)) {
+                    $data[$expiry] = $form->get($expiry)->getViewData();
+                }
 
                 continue;
             }
@@ -275,7 +331,9 @@ final class SettingsSectionType extends AbstractType
      * Options: `section` and `fields` (required), `stored_secrets` and `stored_images` (field => bool), `stored_image_urls`
      * (1.12: field => URL of the stored image, shown in the image input box),
      * `hidden_secrets` (1.9: {@see HiddenSecrets} or its value, default `drop`), `revealable_secrets` (1.15: the secret
-     * field names whose row carries the Reveal marker; the page passes them only for a user who may reveal).
+     * field names whose row carries the Reveal marker; the page passes them only for a user who may reveal),
+     * `secret_expiry_dates` (1.17: field => stored expiry date) and `secret_expiry_warnings` (1.17: field =>
+     * {@see ExpiringSecret} within the warning window).
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -296,6 +354,10 @@ final class SettingsSectionType extends AbstractType
         $resolver->setAllowedTypes('stored_images', 'array');
         $resolver->setAllowedTypes('stored_image_urls', 'array');
         $resolver->setDefault('revealable_secrets', []);
+        $resolver->setDefault('secret_expiry_dates', []);
+        $resolver->setAllowedTypes('secret_expiry_dates', 'array');
+        $resolver->setDefault('secret_expiry_warnings', []);
+        $resolver->setAllowedTypes('secret_expiry_warnings', 'array');
         $resolver->setAllowedTypes('revealable_secrets', 'string[]');
         $resolver->setAllowedTypes('csrf_token_id', 'string');
         $resolver->setDefault('hidden_secrets', HiddenSecrets::Drop);

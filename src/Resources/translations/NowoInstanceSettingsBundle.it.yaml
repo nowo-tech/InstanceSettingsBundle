@@ -164,3 +164,10 @@ reveal:
   not_stored: Nessun segreto salvato per questo campo.
   toggle_show: Mostra il valore salvato
   toggle_hide: Nascondi il valore salvato
+secret_expiry:
+  label: "Data di scadenza"
+  help: "Facoltativa. Salvare un nuovo segreto cancella questa data, a meno che non ne indichi una nuova insieme."
+  warning_expiring: "Scade il %date% (tra %days% giorno/i). Sostituisci il segreto e aggiorna questa data."
+  warning_expired: "Scaduto il %date% (%days% giorno/i fa). Sostituisci il segreto e aggiorna questa data."
+  notice_expiring: "«%field%» scade il %date% (tra %days% giorno/i)."
+  notice_expired: "«%field%» è scaduto il %date% (%days% giorno/i fa)."

@@ -164,3 +164,10 @@ reveal:
   not_stored: Für dieses Feld ist kein Geheimnis gespeichert.
   toggle_show: Gespeicherten Wert anzeigen
   toggle_hide: Gespeicherten Wert verbergen
+secret_expiry:
+  label: "Ablaufdatum"
+  help: "Optional. Ein neu gespeichertes Geheimnis löscht dieses Datum, sofern Sie nicht gleichzeitig ein neues angeben."
+  warning_expiring: "Läuft am %date% ab (in %days% Tag(en)). Ersetzen Sie das Geheimnis und aktualisieren Sie dieses Datum."
+  warning_expired: "Am %date% abgelaufen (vor %days% Tag(en)). Ersetzen Sie das Geheimnis und aktualisieren Sie dieses Datum."
+  notice_expiring: "„%field%“ läuft am %date% ab (in %days% Tag(en))."
+  notice_expired: "„%field%“ ist am %date% abgelaufen (vor %days% Tag(en))."

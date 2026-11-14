@@ -164,3 +164,10 @@ reveal:
   not_stored: No hay ningún secreto guardado en este campo.
   toggle_show: Mostrar el valor guardado
   toggle_hide: Ocultar el valor guardado
+secret_expiry:
+  label: "Fecha de caducidad"
+  help: "Opcional. Guardar un secreto nuevo borra esta fecha salvo que indiques otra a la vez."
+  warning_expiring: "Caduca el %date% (dentro de %days% día(s)). Sustituye el secreto y actualiza esta fecha."
+  warning_expired: "Caducó el %date% (hace %days% día(s)). Sustituye el secreto y actualiza esta fecha."
+  notice_expiring: "“%field%” caduca el %date% (dentro de %days% día(s))."
+  notice_expired: "“%field%” caducó el %date% (hace %days% día(s))."

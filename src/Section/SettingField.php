@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Section;
 
 use InvalidArgumentException;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecretSourceInterface;
 use Nowo\InstanceSettingsBundle\Form\SettingColorType;
 use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\ThemeCardsType;
@@ -27,7 +28,10 @@ use function is_scalar;
 use function is_string;
 use function preg_match;
 use function sprintf;
+use function str_ends_with;
+use function strlen;
 use function strtolower;
+use function substr;
 
 /**
  * One field of a settings section: name, type, default, labels, validation and the secret / portable flags.
@@ -51,6 +55,12 @@ final readonly class SettingField
 
     /** Allowed form groups (1.5): dot-separated lower snake case segments, e.g. `colors.light`. */
     public const GROUP_PATTERN = '/^[a-z][a-z0-9_]{0,63}(?:\.[a-z][a-z0-9_]{0,63}){0,3}$/D';
+
+    /**
+     * Suffix of the companion key of an expiring secret's date (1.17, {@see self::expiryKey()}). A colon never occurs in
+     * a field name ({@see self::NAME_PATTERN}), so the key cannot collide with a field.
+     */
+    public const EXPIRY_KEY_SUFFIX = ':expires_on';
 
     /** @var list<Constraint> */
     public array $constraints;
@@ -88,6 +98,9 @@ final readonly class SettingField
      * @param bool $revealable 1.15: a stored secret may be read back through the reveal endpoint by a user holding the
      *                         reveal roles ({@see InstanceSettingsAccessCheckerInterface::AREA_REVEAL}). Only for secret
      *                         fields, default false: a secret is never revealable unless the host says so
+     * @param bool $expires 1.17: the secret carries an expiry date (date only, stored next to it in the opt-in
+     *                      `instance_setting_secret_expiry` table, `expiring_secrets.enabled: true`). Only for secret
+     *                      fields, default false: a field without it behaves exactly as before 1.17
      */
     public function __construct(
         public string $name,
@@ -105,6 +118,7 @@ final readonly class SettingField
         ?ImageSpec $image = null,
         ?string $group = null,
         public bool $revealable = false,
+        public bool $expires = false,
     ) {
         if (preg_match(self::NAME_PATTERN, $name) !== 1) {
             throw new InvalidArgumentException(sprintf('Invalid setting field name "%s": expected lower snake case matching %s.', $name, self::NAME_PATTERN));
@@ -117,6 +131,9 @@ final readonly class SettingField
         }
         if ($revealable && !$secret) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": only a secret field can be revealable.', $name));
+        }
+        if ($expires && !$secret) {
+            throw new InvalidArgumentException(sprintf('Setting field "%s": only a secret field can carry an expiry date (expires).', $name));
         }
         if ($type === SettingType::Choice && $choices === []) {
             throw new InvalidArgumentException(sprintf('Setting field "%s": a choice field needs at least one choice.', $name));
@@ -247,12 +264,19 @@ final readonly class SettingField
      * it on for a secret the admin has to read somewhere else (an OAuth client secret), never for a key whose plaintext
      * nobody needs again (an encryption key, a webhook signing key). See `docs/SECURITY.md`.
      *
+     * With `$expires` (1.17) the secret gets a companion expiry date (date only): editable next to the field in the
+     * settings UI, saved under the key {@see self::expiryKey()}, read through
+     * {@see ExpiringSecretSourceInterface} and announced by `nowo:instance-settings:check-expiring-secrets`. Saving a
+     * new secret clears the date, or replaces it with the date given in the same save; removing the secret removes
+     * it. Needs `expiring_secrets.enabled: true`. The date is never a secret and the secret never leaves through it.
+     *
      * @param iterable<Constraint> $constraints
      * @param bool $revealable the stored secret may be read back through the reveal endpoint (1.15)
+     * @param bool $expires the secret carries an expiry date (1.17)
      */
-    public static function secret(string $name, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = [], SettingType $type = SettingType::String, bool $revealable = false): self
+    public static function secret(string $name, ?string $label = null, ?string $help = null, bool $required = false, iterable $constraints = [], SettingType $type = SettingType::String, bool $revealable = false, bool $expires = false): self
     {
-        return new self($name, $type, null, $label, $help, $required, secret: true, constraints: $constraints, revealable: $revealable);
+        return new self($name, $type, null, $label, $help, $required, secret: true, constraints: $constraints, revealable: $revealable, expires: $expires);
     }
 
     /**
@@ -290,7 +314,7 @@ final readonly class SettingField
      */
     public function notPortable(): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $this->group, $this->revealable);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, false, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $this->group, $this->revealable, $this->expires);
     }
 
     /**
@@ -300,7 +324,7 @@ final readonly class SettingField
      */
     public function withFormOptions(array $formOptions): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image, $this->group, $this->revealable);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $formOptions + $this->formOptions, $this->visibleWhen, $this->image, $this->group, $this->revealable, $this->expires);
     }
 
     /**
@@ -473,7 +497,7 @@ final readonly class SettingField
             $values[] = $value;
         }
 
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values], $this->image, $this->group, $this->revealable);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, ['field' => $field, 'in' => $values], $this->image, $this->group, $this->revealable, $this->expires);
     }
 
     /**
@@ -485,7 +509,7 @@ final readonly class SettingField
      */
     public function withGroup(string $group): self
     {
-        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $group, $this->revealable);
+        return new self($this->name, $this->type, $this->default, $this->label, $this->help, $this->required, $this->secret, $this->portable, $this->constraints, $this->choices, $this->formOptions, $this->visibleWhen, $this->image, $group, $this->revealable, $this->expires);
     }
 
     /**
@@ -525,6 +549,28 @@ final readonly class SettingField
         }
 
         return is_scalar($value) ? (string) $value : '';
+    }
+
+    /**
+     * Companion key of the expiry date of an expiring secret (1.17): `<name>:expires_on`. It is the key of the date in
+     * {@see InstanceSettingsInterface::save()} values, of the admin form row and of its validation errors.
+     */
+    public static function expiryKey(string $name): string
+    {
+        return $name . self::EXPIRY_KEY_SUFFIX;
+    }
+
+    /**
+     * Field name of a companion expiry key (1.17), or null when `$key` is not one.
+     */
+    public static function expiryField(string $key): ?string
+    {
+        if (!str_ends_with($key, self::EXPIRY_KEY_SUFFIX)) {
+            return null;
+        }
+        $name = substr($key, 0, -strlen(self::EXPIRY_KEY_SUFFIX));
+
+        return preg_match(self::NAME_PATTERN, $name) === 1 ? $name : null;
     }
 
     /**

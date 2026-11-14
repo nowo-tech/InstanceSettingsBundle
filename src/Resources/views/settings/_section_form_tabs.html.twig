@@ -60,6 +60,10 @@
                     {% if form[name] is defined and not form[name].rendered %}
                         {{ form_row(form[name]) }}
                     {% endif %}
+                    {% set _expiry = name ~ ':expires_on' %}
+                    {% if form[_expiry] is defined and not form[_expiry].rendered %}
+                        {{ form_row(form[_expiry]) }}
+                    {% endif %}
                 {% endfor %}
             </fieldset>
         </div>

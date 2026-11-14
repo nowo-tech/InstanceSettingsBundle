@@ -10,6 +10,9 @@ use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\EventListener\WorkerBoundaryResetListener;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
@@ -35,7 +38,10 @@ use Symfony\Contracts\Service\ResetInterface;
 use WeakReference;
 
 use function array_key_exists;
+use function array_keys;
+use function array_map;
 use function implode;
+use function in_array;
 use function is_float;
 use function is_int;
 use function is_string;
@@ -73,6 +79,8 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      * @param SettingFileStoreInterface|null $fileStore image field storage (1.4; required to save an image)
      * @param ImageProcessor $images image sniffing, limits and re-encoding (1.4)
      * @param SettingFileUrls $fileUrls file route URLs (1.4)
+     * @param SecretExpiryStoreInterface|null $expiryStore expiry dates of the expiring secrets (1.17; required to save a
+     *                                                     section that declares one)
      */
     public function __construct(
         private readonly SettingValueRepositoryInterface $repository,
@@ -85,6 +93,7 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         private readonly ?SettingFileStoreInterface $fileStore = null,
         private readonly ImageProcessor $images = new ImageProcessor(),
         private readonly SettingFileUrls $fileUrls = new SettingFileUrls(),
+        private readonly ?SecretExpiryStoreInterface $expiryStore = null,
     ) {
     }
 
@@ -250,15 +259,17 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      */
     public function save(string $section, array $values, string $origin = SettingsChangedEvent::ORIGIN_API): array
     {
-        $fields     = $this->registry->fields($section);
-        $definition = $this->registry->get($section);
+        $fields = $this->registry->fields($section);
+        // 1.17: the companion expiry dates (`<field>:expires_on`) of expiring secrets, taken out before anything else.
+        [$values, $expiryInput, $expiryViolations] = $this->extractExpiryDates($section, $values);
+        $definition                                = $this->registry->get($section);
         if ($definition instanceof SettingsSectionSaveFilterInterface) {
             // 1.5: the section may rewrite its values (lower-case colours, drop a value equal to its runtime default).
             $values = $definition->filterValues($values, $this->getSection($section));
         }
         $normalized  = [];
         $imageValues = [];
-        $violations  = [];
+        $violations  = $expiryViolations;
         $required    = [];
         // Pass 1: normalize every value; `required` is decided in pass 2, once the controlling values are normalized.
         foreach ($values as $name => $value) {
@@ -386,30 +397,144 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
             }
         }
 
-        if ($changed === []) {
+        // 1.17: the expiry dates follow their secrets (a new secret clears the date unless one is given with it).
+        $expiryChanges = $expiryInput === [] && !$this->changesExpiringSecret($fields, $changed) ? [] : $this->expiryChanges($section, $fields, $expiryInput, $normalized, $existing, $changed);
+
+        if ($changed === [] && $expiryChanges === []) {
             return [];
         }
 
-        if ($fileChanges === []) {
+        if ($fileChanges === [] && $expiryChanges === []) {
             $this->repository->apply($save, $remove);
         } else {
-            $this->applyWithFiles($section, $save, $remove, $newImages, $orphans, $now);
+            $this->applyWithFiles($section, $save, $remove, $newImages, $orphans, $now, $expiryChanges);
         }
         $this->reset();
 
+        $saved   = [...$changed, ...array_map(SettingField::expiryKey(...), array_keys($expiryChanges))];
         $context = [
             'bundle'  => 'NowoInstanceSettingsBundle',
             'section' => $section,
-            'fields'  => implode(',', $changed),
+            'fields'  => implode(',', $saved),
             'origin'  => $origin,
         ];
         if ($fileChanges !== []) {
             $context['files'] = $this->describeFiles($fileChanges, $newImages);
         }
         $this->logger?->info('Instance settings saved.', $context);
-        $this->dispatcher?->dispatch(new SettingsChangedEvent($section, $changed, $secrets, $origin, $fileChanges));
+        if ($changed !== []) {
+            // A date-only change is not a settings change: the event keeps listing field names only (1.17).
+            $this->dispatcher?->dispatch(new SettingsChangedEvent($section, $changed, $secrets, $origin, $fileChanges));
+        }
 
-        return $changed;
+        return $saved;
+    }
+
+    /**
+     * Takes the companion expiry dates (`<field>:expires_on`, 1.17) out of the saved values: the remaining values, the
+     * parsed dates (field => date or null) and the violations of the malformed ones (keyed by the companion key).
+     *
+     * @param array<array-key, mixed> $values
+     *
+     * @throws UnknownSettingException for the companion key of a field that does not declare `expires`
+     *
+     * @return array{0: array<array-key, mixed>, 1: array<string, DateTimeImmutable|null>, 2: array<string, list<string>>}
+     */
+    private function extractExpiryDates(string $section, array $values): array
+    {
+        $dates      = [];
+        $violations = [];
+        foreach ($values as $key => $value) {
+            $name = SettingField::expiryField((string) $key);
+            if ($name === null) {
+                continue;
+            }
+            if (!$this->registry->field($section, $name)->expires) {
+                throw UnknownSettingException::field($section, (string) $key);
+            }
+            unset($values[$key]);
+            $date = ExpiryDate::parse($value);
+            if ($date === false) {
+                $violations[(string) $key] = ['This value is not a valid date.'];
+
+                continue;
+            }
+            $dates[$name] = $date;
+        }
+
+        return [$values, $dates, $violations];
+    }
+
+    /**
+     * Whether a changed field of the save is an expiring secret (its date may have to be cleared).
+     *
+     * @param array<string, SettingField> $fields
+     * @param list<string> $changed
+     */
+    private function changesExpiringSecret(array $fields, array $changed): bool
+    {
+        foreach ($changed as $name) {
+            if ($fields[$name]->expires) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The expiry date writes of a save (1.17, field => date or null = remove), by the documented rule:
+     *
+     * - a **new secret** is saved: its date is cleared, or set to the date given in the same save;
+     * - the secret is **removed**: its date is removed (a date given with it is ignored);
+     * - the secret is **kept** and a date is given: the date is set (null removes it) — only while a secret is stored.
+     *
+     * A write equal to the stored date is dropped.
+     *
+     * @param array<string, SettingField> $fields
+     * @param array<string, DateTimeImmutable|null> $input dates given with the save
+     * @param array<string, bool|float|int|string|null> $normalized normalized saved values
+     * @param array<string, SettingValue> $existing stored rows of the section
+     * @param list<string> $changed changed field names
+     *
+     * @throws InvalidSettingValueException for a date given for a field without a stored or saved secret
+     *
+     * @return array<string, DateTimeImmutable|null>
+     */
+    private function expiryChanges(string $section, array $fields, array $input, array $normalized, array $existing, array $changed): array
+    {
+        $store      = $this->expiryStore ?? throw new LogicException(sprintf('Instance settings section "%s" declares an expiring secret: the store needs a SecretExpiryStoreInterface (nowo_instance_settings.expiring_secrets.enabled: true).', $section));
+        $stored     = $store->findBySection($section);
+        $changes    = [];
+        $violations = [];
+        foreach ($fields as $name => $field) {
+            if (!$field->expires) {
+                continue;
+            }
+            $given = array_key_exists($name, $input);
+            if (in_array($name, $changed, true)) {
+                // New secret: the given date, else none. Removed secret: none.
+                $target = ($normalized[$name] ?? null) !== null && $given ? $input[$name] : null;
+            } elseif ($given) {
+                if ($input[$name] !== null && ($existing[$name] ?? null)?->getSecretValue() === null) {
+                    $violations[SettingField::expiryKey($name)] = ['Save the secret before its expiry date.'];
+
+                    continue;
+                }
+                $target = $input[$name];
+            } else {
+                continue;
+            }
+            $current = $stored[$name] ?? null;
+            if (($current === null ? null : ExpiryDate::format($current->expiresOn)) !== ($target === null ? null : ExpiryDate::format($target))) {
+                $changes[$name] = $target;
+            }
+        }
+        if ($violations !== []) {
+            throw new InvalidSettingValueException($section, $violations);
+        }
+
+        return $changes;
     }
 
     /**
@@ -475,28 +600,35 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
     }
 
     /**
-     * Writes the image files, orphans the replaced ones and applies the rows in one transaction.
+     * Writes the image files, orphans the replaced ones, applies the rows and writes the expiry dates (1.17) in one
+     * transaction.
      *
      * @param list<SettingValue> $save
      * @param list<SettingValue> $remove
      * @param array<string, ProcessedImage|null> $newImages
      * @param list<array{0: string, 1: string}> $orphans field => replaced hash
+     * @param array<string, DateTimeImmutable|null> $expiryChanges field => expiry date or null (1.17)
      */
-    private function applyWithFiles(string $section, array $save, array $remove, array $newImages, array $orphans, DateTimeImmutable $now): void
+    private function applyWithFiles(string $section, array $save, array $remove, array $newImages, array $orphans, DateTimeImmutable $now, array $expiryChanges = []): void
     {
-        $store = $this->fileStore ?? throw new LogicException('Instance settings image fields need a file store (SettingFileStoreInterface).');
+        $store = $newImages === [] && $orphans === [] ? $this->fileStore : ($this->fileStore ?? throw new LogicException('Instance settings image fields need a file store (SettingFileStoreInterface).'));
         // @igor-ignore - The closure runs synchronously inside the transaction and is not stored by the repository.
         // A staged (filesystem) store applies its file changes only after the outermost commit (1.7, audit JG-M1).
-        FileStoreTransaction::run($this->repository, $store, function () use ($store, $section, $save, $remove, $newImages, $orphans, $now): void {
+        FileStoreTransaction::run($this->repository, $store, function () use ($store, $section, $save, $remove, $newImages, $orphans, $now, $expiryChanges): void {
             foreach ($newImages as $name => $image) {
                 if ($image instanceof ProcessedImage) {
-                    $store->save($section, $name, $image, $now);
+                    $store?->save($section, $name, $image, $now);
                 }
             }
             foreach ($orphans as [$name, $sha]) {
-                $store->orphan($section, $name, $sha, $now);
+                $store?->orphan($section, $name, $sha, $now);
             }
-            $this->repository->apply($save, $remove);
+            if ($save !== [] || $remove !== []) {
+                $this->repository->apply($save, $remove);
+            }
+            if ($expiryChanges !== []) {
+                $this->expiryStore?->write($section, $expiryChanges, $now);
+            }
         });
     }
 

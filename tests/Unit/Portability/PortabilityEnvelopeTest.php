@@ -22,11 +22,12 @@ final class PortabilityEnvelopeTest extends TestCase
         self::assertSame(1, PortabilityEnvelope::assertValid(['schema' => 's', 'version' => '1'], 's'));
 
         $cases = [
-            'invalid_schema'      => ['schema' => 'x', 'version' => 1],
-            'invalid_version'     => ['schema' => 's', 'version' => 'one'],
-            'unsupported_version' => ['schema' => 's', 'version' => 3],
-            'unknown_key:files'   => ['schema' => 's', 'version' => 1, 'files' => []],
-            'unknown_key:extra'   => ['schema' => 's', 'version' => 1, 'extra' => true],
+            'invalid_schema'            => ['schema' => 'x', 'version' => 1],
+            'invalid_version'           => ['schema' => 's', 'version' => 'one'],
+            'unsupported_version'       => ['schema' => 's', 'version' => 4],
+            'unknown_key:secret_expiry' => ['schema' => 's', 'version' => 2, 'secret_expiry' => []],
+            'unknown_key:files'         => ['schema' => 's', 'version' => 1, 'files' => []],
+            'unknown_key:extra'         => ['schema' => 's', 'version' => 1, 'extra' => true],
         ];
         foreach ($cases as $reason => $payload) {
             try {
