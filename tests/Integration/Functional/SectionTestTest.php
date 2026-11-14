@@ -12,9 +12,11 @@ use Nowo\InstanceSettingsBundle\SectionTest\LeakGuard;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
 use Nowo\InstanceSettingsBundle\SectionTest\TestStatus;
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\CalendarOAuthFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\CalendarSectionTester;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\GoogleGroupTester;
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\ProvidersSectionTester;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\SettingsTestedListener;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
@@ -422,6 +424,40 @@ final class SectionTestTest extends KernelTestCase
         $listener = $this->container($kernel)->get('app.tested_listener');
         self::assertInstanceOf(SettingsTestedListener::class, $listener);
         self::assertSame([], $listener->events, 'a save runs no test');
+    }
+
+    public function testTheTestButtonSharesThePageWithLockedAndExpiringSecrets(): void
+    {
+        // 1.17 locked stored secrets (reveal_in_input) and expiring secrets on the same section page as the Test button.
+        $kernel = $this->bootKernel(
+            ['web_ui' => ['reveal_on_toggle' => true, 'reveal_in_input' => true], 'security' => ['reveal_rate_limiter' => 'limiter.instance_settings_reveal'], 'expiring_secrets' => ['enabled' => true, 'timezone' => 'UTC']],
+            services: [ExpiringFixtureSection::class => ExpiringFixtureSection::class, ProvidersSectionTester::class => ProvidersSectionTester::class, 'logger' => RecordingLogger::class],
+            extensions: ['framework' => ['rate_limiter' => ['instance_settings_reveal' => ['policy' => 'fixed_window', 'limit' => 100, 'interval' => '1 hour']]]],
+        );
+        $this->settings($kernel)->save('providers', ['api_key' => self::GOOGLE_SECRET, 'api_key:expires_on' => (new DateTimeImmutable('today'))->modify('+5 days'), 'webhook_token' => self::MICROSOFT_SECRET]);
+        $this->settings($kernel)->reset();
+        $client  = $this->client($kernel, 'developer');
+        $crawler = $client->request('GET', '/admin/settings/sections/providers');
+        $html    = (string) $client->getResponse()->getContent();
+
+        self::assertSame(200, $client->getResponse()->getStatusCode());
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-test-root]'));
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-locked="api_key"]'), 'the stored secret row stays locked');
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-locked="webhook_token"]'));
+        self::assertStringContainsString('name="settings_section[api_key:expires_on]"', $html);
+        self::assertStringContainsString('data-nowo-instance-settings-expiry="expiring"', $html);
+        self::assertCount(1, $crawler->filter('link[data-nowo-instance-settings-styles]'), 'one stylesheet for every widget');
+        $this->assertNoSecret($html);
+
+        $client->request('POST', '/admin/settings/sections/providers/test', ['_token' => $this->token($crawler)]);
+        self::assertSame('ok', $this->json($client)['status']);
+        $this->assertNoSecret((string) $client->getResponse()->getContent());
+
+        // Saving the untouched form still works next to the Test markup, and the test changed nothing stored.
+        $client->submit($crawler->filter('form[name="settings_section"]')->form());
+        self::assertSame(302, $client->getResponse()->getStatusCode());
+        $this->settings($kernel)->reset();
+        self::assertSame(self::GOOGLE_SECRET, $this->settings($kernel)->getSecret('providers.api_key'));
     }
 
     /**
