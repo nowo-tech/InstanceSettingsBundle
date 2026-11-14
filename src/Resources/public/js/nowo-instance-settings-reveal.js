@@ -31,6 +31,14 @@
  *   data-toggle-only the Reveal / Copy / Hide buttons of rows that have the eye stay hidden.
  * - A late answer is dropped when the row was hidden in the meantime (Hide or the eye clicked again before the server
  *   answered), so a value the user already dismissed never appears.
+ * - 1.16.1 (audit PK-L1 / I2): leaving the page (pagehide) and Turbo Drive's turbo:before-cache drop every revealed
+ *   value, so neither the back / forward cache nor Turbo's page snapshot brings it back. Turbo is not required: the
+ *   script only listens for its event. The clipboard is kept, as when the page is hidden (audit N1).
+ * - 1.16.1 (audit PK-I8): one call at a time per row. Auto-repeated key presses on the eye (a held Enter) are ignored,
+ *   and a click that would reveal while the row's previous call is still waiting for the server does nothing; a click
+ *   that hides still hides at once (and that answer is dropped).
+ * - 1.16.1 (audit PK-I7): with data-toggle-only there is no Hide button, so an error message goes away on the next eye
+ *   click or after MESSAGE_HIDE_MS.
  * Without this script nothing is added: the field stays write-only ("leave blank to keep"), as before 1.15.
  */
 (function () {
@@ -51,8 +59,11 @@
     var DONE = 'data-nowo-instance-settings-reveal-ready';
     var EYE = '[data-nowo-password-toggle-target="button"]';
     var AUTO_HIDE_MS = 60000;
+    var MESSAGE_HIDE_MS = 10000;
     var timers = new WeakMap();
     var pending = new WeakMap();
+    // Rows whose reveal call is still on the network. Unlike pending, clear() leaves it: a hidden row's call is still out.
+    var inFlight = new WeakSet();
     var copied = null;
 
     // The Reveal root of this row's own section (audit F3): never "the first root of the document".
@@ -208,6 +219,11 @@
             timers.set(row, window.setTimeout(function () {
                 clear(row);
             }, AUTO_HIDE_MS));
+        } else if (off) {
+            // No Hide button for the message (audit PK-I7): it goes away by itself.
+            timers.set(row, window.setTimeout(function () {
+                clear(row, true);
+            }, MESSAGE_HIDE_MS));
         }
     }
 
@@ -220,8 +236,13 @@
 
             return;
         }
+        // One call at a time per row (audit PK-I8): the server answers the one already out.
+        if (inFlight.has(row)) {
+            return;
+        }
         var call = {};
         pending.set(row, call);
+        inFlight.add(row);
         var body = new URLSearchParams();
         body.set('_token', element.getAttribute('data-token') || '');
         window.fetch(url, {
@@ -231,6 +252,8 @@
             headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
             body: body.toString(),
         }).then(function (response) {
+            inFlight.delete(row);
+
             return response.json().then(function (payload) {
                 return { ok: response.ok, payload: payload };
             });
@@ -246,6 +269,7 @@
             }
             render(row, label(element, result.payload && result.payload.error === 'not_stored' ? 'empty' : 'error'), false);
         }).catch(function () {
+            inFlight.delete(row);
             if (pending.get(row) !== call) {
                 return;
             }
@@ -310,11 +334,20 @@
         }
         event.preventDefault();
         event.stopPropagation();
+        // A held key (audit PK-I8): kept from PasswordToggle too, so it never unmasks the input.
+        if (event.type === 'keydown' && event.repeat) {
+            return;
+        }
         if (eye.getAttribute('aria-pressed') === 'true') {
             clear(row);
 
             return;
         }
+        if (inFlight.has(row)) {
+            return;
+        }
+        // Drops a message still on screen (audit PK-I7) before the new call.
+        clear(row, true);
         setEye(row, true);
         reveal(row);
     }
@@ -339,7 +372,9 @@
             return;
         }
         if (target.closest(SHOW)) {
-            reveal(row);
+            if (!inFlight.has(row)) {
+                reveal(row);
+            }
         } else if (target.closest(HIDE)) {
             clear(row);
         } else if (target.closest(COPY)) {
@@ -347,14 +382,17 @@
         }
     }
 
-    function onVisibilityChange() {
-        if (document.visibilityState !== 'hidden') {
-            return;
-        }
+    // Audit N1: the admin may be switching away to paste, so the clipboard is kept.
+    function clearAll() {
         var rows = document.querySelectorAll(ROW);
         for (var i = 0; i < rows.length; i++) {
-            // Audit N1: the page is hidden because the admin is switching away to paste, so keep the clipboard.
             clear(rows[i], true);
+        }
+    }
+
+    function onVisibilityChange() {
+        if (document.visibilityState === 'hidden') {
+            clearAll();
         }
     }
 
@@ -363,6 +401,9 @@
     document.addEventListener('submit', onSubmit, true);
     document.addEventListener('click', onClick);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    // Audit PK-L1 / I2: never in the back / forward cache, nor in Turbo Drive's page snapshot (no Turbo dependency).
+    window.addEventListener('pagehide', clearAll);
+    document.addEventListener('turbo:before-cache', clearAll);
     document.addEventListener('turbo:load', function () {
         init(document);
     });

@@ -74,8 +74,23 @@ const STAND_IN = `document.querySelectorAll('[data-nowo-password-toggle]').forEa
 
 type Setup = { reveals: PwRequest[]; saves: PwRequest[] };
 
-async function open(page: Page, options: { onToggle: boolean; toggleOnly?: boolean; status?: number }): Promise<Setup> {
+type Options = {
+  onToggle: boolean;
+  toggleOnly?: boolean;
+  status?: number;
+  /** 1.16.1: one status per reveal call, in order (the last one repeats); overrides `status`. */
+  statuses?: number[];
+  /** 1.16.1: the reveal answer is held back this long (ms), to test late answers. */
+  delay?: number;
+  /** 1.16.1: fake timers (page.clock), to run the auto-hide delays without waiting. */
+  clock?: boolean;
+};
+
+async function open(page: Page, options: Options): Promise<Setup> {
   const script = await revealScript(page);
+  if (options.clock) {
+    await page.clock.install();
+  }
   const setup: Setup = { reveals: [], saves: [] };
   await page.route(`${ORIGIN}/**`, async (route) => {
     const url = route.request().url();
@@ -90,12 +105,16 @@ async function open(page: Page, options: { onToggle: boolean; toggleOnly?: boole
     }
     if (url.endsWith('/reveal/auth_token')) {
       setup.reveals.push(route.request());
-      const status = options.status ?? 200;
+      const statuses = options.statuses ?? [options.status ?? 200];
+      const status = statuses[Math.min(setup.reveals.length - 1, statuses.length - 1)];
+      if (options.delay) {
+        await new Promise((done) => setTimeout(done, options.delay));
+      }
       return route.fulfill({
         status,
         contentType: 'application/json',
         body: JSON.stringify(status === 200 ? { key: 'sms.auth_token', value: SECRET } : { message: 'Too Many Requests' }),
-      });
+      }).catch(() => {});
     }
     if (url.endsWith('/save')) {
       setup.saves.push(route.request());
@@ -112,6 +131,10 @@ async function open(page: Page, options: { onToggle: boolean; toggleOnly?: boole
 
 const eye = (page: Page) => page.locator('[data-nowo-password-toggle-target="button"]');
 const output = (page: Page) => page.locator('[data-nowo-instance-settings-reveal-output]');
+const showButton = (page: Page) => page.locator('[data-nowo-instance-settings-reveal-show]');
+
+/** Leaves time for a held-back reveal answer to arrive (and be dropped or rendered). */
+const settle = (page: Page, ms: number) => page.waitForTimeout(ms);
 
 test.describe('InstanceSettings reveal on toggle (1.16)', () => {
   test('the eye reveals the stored value outside the form and hides it again', async ({ page }) => {
@@ -212,5 +235,163 @@ test.describe('InstanceSettings reveal on toggle (1.16)', () => {
     await expect(page.locator('#secret')).toHaveAttribute('type', 'text');
     expect(setup.reveals).toHaveLength(0);
     await expect(output(page)).toHaveText('');
+  });
+  // Audit PK I4: an answer that arrives after the user hid the row is dropped.
+  test('a late answer after the eye was clicked again is dropped', async ({ page }) => {
+    const setup = await open(page, { onToggle: true, delay: 800 });
+    await eye(page).click();
+    await eye(page).click();
+    await settle(page, 1300);
+    expect(setup.reveals).toHaveLength(1);
+    await expect(output(page)).toHaveText('');
+    await expect(output(page)).toBeHidden();
+    await expect(eye(page)).toHaveAttribute('aria-pressed', 'false');
+    expect(await page.evaluate((s) => document.body.innerHTML.includes(s), SECRET)).toBe(false);
+  });
+
+  test('a late answer after the page was hidden is dropped (Reveal button path)', async ({ page }) => {
+    const setup = await open(page, { onToggle: false, delay: 800 });
+    await showButton(page).click();
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await settle(page, 1300);
+    expect(setup.reveals).toHaveLength(1);
+    await expect(output(page)).toHaveText('');
+  });
+
+  // Audit PK L1 / I2: Turbo Drive's page cache and the back / forward cache never keep a revealed value.
+  for (const event of ['turbo:before-cache', 'pagehide']) {
+    test(`${event} drops the values revealed by the eye and by the Reveal button`, async ({ page }) => {
+      await open(page, { onToggle: true });
+      await eye(page).click();
+      await expect(output(page)).toHaveText(SECRET);
+      await page.evaluate((name) => {
+        (name === 'pagehide' ? window : document).dispatchEvent(new Event(name, { bubbles: true }));
+      }, event);
+      await expect(output(page)).toHaveText('');
+      await expect(output(page)).toBeHidden();
+      await expect(eye(page)).toHaveAttribute('aria-pressed', 'false');
+      // What Turbo would snapshot: the cloned body.
+      expect(await page.evaluate((s) => (document.body.cloneNode(true) as HTMLElement).innerHTML.includes(s), SECRET)).toBe(false);
+
+      await showButton(page).click();
+      await expect(output(page)).toHaveText(SECRET);
+      await page.evaluate((name) => {
+        (name === 'pagehide' ? window : document).dispatchEvent(new Event(name, { bubbles: true }));
+      }, event);
+      await expect(output(page)).toHaveText('');
+      await expect(showButton(page)).toBeVisible();
+    });
+  }
+
+  test('turbo:before-cache drops a call still in flight', async ({ page }) => {
+    await open(page, { onToggle: true, delay: 800 });
+    await eye(page).click();
+    await page.evaluate(() => document.dispatchEvent(new Event('turbo:before-cache', { bubbles: true })));
+    await settle(page, 1300);
+    await expect(output(page)).toHaveText('');
+    await expect(eye(page)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // Audit PK I7: with reveal_toggle_only there is no Hide button for an error message.
+  test('reveal_toggle_only: an error message goes away on the next eye click', async ({ page }) => {
+    const setup = await open(page, { onToggle: true, toggleOnly: true, statuses: [429, 200], delay: 600 });
+    await eye(page).click();
+    await expect(output(page)).toHaveText('The secret could not be revealed.');
+    await eye(page).click();
+    // Gone at once, before the second answer arrives.
+    await expect(output(page)).toHaveText('');
+    await expect(output(page)).toHaveText(SECRET);
+    expect(setup.reveals).toHaveLength(2);
+  });
+
+  test('reveal_toggle_only: an error message goes away by itself', async ({ page }) => {
+    await open(page, { onToggle: true, toggleOnly: true, status: 429, clock: true });
+    await eye(page).click();
+    await expect(output(page)).toHaveText('The secret could not be revealed.');
+    await page.clock.runFor(11_000);
+    await expect(output(page)).toHaveText('');
+    await expect(output(page)).toBeHidden();
+  });
+
+  test('the error message stays while the Hide button is there (no reveal_toggle_only)', async ({ page }) => {
+    await open(page, { onToggle: true, status: 429, clock: true });
+    await eye(page).click();
+    await expect(output(page)).toHaveText('The secret could not be revealed.');
+    await page.clock.runFor(11_000);
+    await expect(output(page)).toHaveText('The secret could not be revealed.');
+    await expect(page.locator('[data-nowo-instance-settings-reveal-hide]')).toBeVisible();
+  });
+
+  test('a revealed value is hidden again after 60 seconds', async ({ page }) => {
+    await open(page, { onToggle: true, clock: true });
+    await eye(page).click();
+    await expect(output(page)).toHaveText(SECRET);
+    await page.clock.runFor(61_000);
+    await expect(output(page)).toHaveText('');
+    await expect(eye(page)).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // Audit PK I8: holding Enter on the eye, or clicking while a call is in flight, sends no further reveal call.
+  test('auto-repeated Enter on the eye is ignored and never reaches PasswordToggle', async ({ page }) => {
+    const setup = await open(page, { onToggle: true });
+    const passed = await page.evaluate(() => {
+      const host = document.querySelector('[data-nowo-password-toggle]')!;
+      (window as unknown as { __keys: number }).__keys = 0;
+      host.addEventListener('keydown', () => { (window as unknown as { __keys: number }).__keys++; });
+      const button = document.querySelector('[data-nowo-password-toggle-target="button"]')!;
+      let prevented = 0;
+      for (let i = 0; i < 5; i++) {
+        const event = new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true });
+        button.dispatchEvent(event);
+        prevented += event.defaultPrevented ? 1 : 0;
+      }
+
+      return { prevented, keys: (window as unknown as { __keys: number }).__keys };
+    });
+    expect(passed).toEqual({ prevented: 5, keys: 0 });
+    await settle(page, 200);
+    expect(setup.reveals).toHaveLength(0);
+    await expect(eye(page)).toHaveAttribute('aria-pressed', 'false');
+
+    // A real (first) Enter still reveals, and holding it does not hide it again.
+    await eye(page).focus();
+    await page.keyboard.press('Enter');
+    await expect(output(page)).toHaveText(SECRET);
+    await page.evaluate(() => {
+      const button = document.querySelector('[data-nowo-password-toggle-target="button"]')!;
+      for (let i = 0; i < 5; i++) {
+        button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat: true, bubbles: true, cancelable: true }));
+      }
+    });
+    await expect(output(page)).toHaveText(SECRET);
+    await expect(eye(page)).toHaveAttribute('aria-pressed', 'true');
+    expect(setup.reveals).toHaveLength(1);
+  });
+
+  test('a reveal click while a call is in flight sends no second call', async ({ page }) => {
+    const setup = await open(page, { onToggle: true, delay: 800 });
+    // Eye: reveal, hide (drops the answer), reveal again while the first call is still out -> ignored.
+    await eye(page).click();
+    await eye(page).click();
+    await eye(page).click();
+    await expect(eye(page)).toHaveAttribute('aria-pressed', 'false');
+    await settle(page, 1300);
+    expect(setup.reveals).toHaveLength(1);
+    await expect(output(page)).toHaveText('');
+    // Once the call answered, the eye reveals again.
+    await eye(page).click();
+    await expect(output(page)).toHaveText(SECRET);
+    expect(setup.reveals).toHaveLength(2);
+  });
+
+  test('a Reveal button double click sends one call', async ({ page }) => {
+    const setup = await open(page, { onToggle: false, delay: 500 });
+    await showButton(page).dblclick();
+    await expect(output(page)).toHaveText(SECRET);
+    await settle(page, 300);
+    expect(setup.reveals).toHaveLength(1);
   });
 });

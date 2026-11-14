@@ -372,11 +372,22 @@ nowo_instance_settings:
   blank still keeps the stored secret. Submitting the form also drops any revealed value from the page.
 - **Hidden again** on the second click, after the 60-second auto-hide, when the page is hidden (another tab, a
   minimised window — the clipboard is kept, audit N1), on submit and when the user hides it before the server answered
-  (a late answer is dropped).
+  (a late answer is dropped). 1.16.1: also when the page is left — `pagehide`, so the back / forward cache never keeps
+  it, and `turbo:before-cache` on hosts using Turbo Drive, so Turbo's page snapshot never brings it back on Back
+  (audit PK-L1). Both apply to the Reveal button's value too; the clipboard is kept, as for a hidden page. Turbo is
+  not required: the script only listens for its event.
 - **Errors.** A refused or rate-limited reveal shows the Reveal button's message and the eye stays in its hidden
-  state.
+  state. 1.16.1: with `reveal_toggle_only`, where there is no Hide button, the message goes away on the next eye click
+  or by itself after 10 seconds (audit PK-I7).
+- **One call at a time** (1.16.1, audit PK-I8). Holding Enter on the eye does not repeat the reveal (auto-repeated
+  key presses are ignored), and a click that would reveal while the row's previous call is still waiting for the
+  server is ignored (eye and Reveal button alike); a click that hides still hides at once and drops that answer.
 - **Accessibility.** The eye gets `aria-pressed` and the label "Reveal stored value" / "Hide stored value"
-  (`reveal.toggle_show` / `reveal.toggle_hide`, `NowoInstanceSettingsBundle` domain).
+  (`reveal.toggle_show` / `reveal.toggle_hide`, `NowoInstanceSettingsBundle` domain). The `<output>` is an
+  `aria-live="polite"` region, as for the Reveal button since 1.15: **a screen reader reads the revealed secret aloud**
+  as soon as it is shown (audit PK-I1). That is what a blind admin needs from an explicit reveal, but anyone in
+  earshot hears it too; with the eye the reveal is one click away from the familiar "show what I typed" control, so
+  tell screen reader users before enabling `reveal_on_toggle`.
 - **In this mode the eye does not unmask the typed text** on revealable rows: to check what you typed, clear the field
   and type again. Rows that are not revealable, and users who may not reveal (no reveal markup at all), keep the plain
   PasswordToggle eye.

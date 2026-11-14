@@ -33,6 +33,34 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.16.1.
+
+### Fixed
+
+- **A revealed secret no longer survives in Turbo Drive's page cache or the back / forward cache** (audit PK-L1, Low,
+  pre-existing since 1.15; no GHSA: same tab, same authorised user). On hosts using Turbo Drive, a Turbo link visit
+  fires neither `submit` nor `visibilitychange`, so Turbo's snapshot kept the `<output>` text and Back showed the value
+  again without the 60-second auto-hide. `nowo-instance-settings-reveal.js` now clears every revealed row — Reveal
+  button and eye alike, calls still in flight included — on `turbo:before-cache` and on `pagehide` (audit PK-I2). The
+  clipboard is kept, as for a hidden page (audit N1). Turbo is not a dependency: the script only listens for its
+  event.
+- **`reveal_toggle_only`: an error message no longer stays on screen** (audit PK-I7). With no Hide button, a refused
+  reveal's message now goes away on the next eye click or by itself after 10 seconds. Unchanged when the Hide button
+  is there.
+- **Holding Enter on the eye no longer fires a reveal call per key repeat** (audit PK-I8). Auto-repeated `keydown`
+  events (`event.repeat`) are ignored — still kept from PasswordToggle, so they never unmask the input — and a click
+  that would reveal while the row's previous call is still in flight is ignored, for the eye and the Reveal button.
+  A click that hides still hides at once and drops the late answer.
+
+### Documentation
+
+- CONFIGURATION ([Revealing from the password eye](CONFIGURATION.md#revealing-from-the-password-eye-116)): the
+  `aria-live` output makes a screen reader read the revealed secret aloud (audit PK-I1); the new hide triggers, the
+  `reveal_toggle_only` error timeout and the one-call-at-a-time rule.
+- `AppearanceSection::getIcon()` docblock: the override key is `web_ui.section_icons.appearance` (audit PK-I3).
+- The reveal-on-toggle Playwright spec covers late answers (eye clicked again, page hidden), `turbo:before-cache`,
+  `pagehide`, the auto-hide delays, auto-repeated Enter and clicks while a call is in flight (audit PK-I4).
+
 ## [1.16.0] - 2026-11-14
 
 Target 1.16.0.
