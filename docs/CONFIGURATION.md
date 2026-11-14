@@ -298,7 +298,11 @@ How it works, and what you accept by turning it on:
   in a minute, or more than one distinct `key` in one session, is worth an alert; so is a burst of
   `Instance settings: secret reveal refused` warnings. The reasons are `forbidden`, `not_revealable`, `rate_limited`,
   `not_text` and `ui_gate` (the last one written by the UI gate, which refuses a caller who cannot open the UI at all
-  before the endpoint runs — audit F6).
+  before the endpoint runs — audit F6). Every refusal line carries the actor's user identifier (`null` for a caller the
+  host cannot name) and only declared names: a section or field the bundle does not declare is `key: unknown`. The
+  lines are throttled per caller by `reveal_rate_limiter`, in a bucket of their own: `warning` up to the limiter's
+  budget per window, `debug` past it, so a caller cannot flood this alert (1.15.1, audit N2 / N3). Size the alert's
+  threshold below the limiter's limit.
 - The endpoint belongs to the admin UI: it exists only with `web_ui.enabled: true`. Without JavaScript the row stays
   write-only, as before 1.15.
 

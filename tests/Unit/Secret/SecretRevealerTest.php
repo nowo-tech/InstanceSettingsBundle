@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\Secret;
 
 use Nowo\InstanceSettingsBundle\Event\SecretRevealedEvent;
+use Nowo\InstanceSettingsBundle\Secret\RevealRefusalLog;
 use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
@@ -35,6 +36,7 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Symfony\Component\Security\Core\User\InMemoryUser;
 use Symfony\Component\Validator\Validation;
 
+use function array_column;
 use function dirname;
 use function file_get_contents;
 use function in_array;
@@ -167,6 +169,80 @@ final class SecretRevealerTest extends TestCase
         self::assertFalse($revealer->isRevealable($section, $field));
         $this->expectException(NotFoundHttpException::class);
         $revealer->reveal($section, $field);
+    }
+
+    public function testARefusalNamesTheActorAndNeverEchoesAnUndeclaredName(): void
+    {
+        // 1.15.1 (audit N2 / N3): the refusal line carries the user identifier (as the reveal line does) and only the
+        // names the registry declares; a client-chosen name becomes the constant `unknown`.
+        $settings = $this->settings();
+        $revealer = $this->revealer($settings, $this->roleGuard(['ROLE_ADMIN', 'ROLE_DEVELOPER']), $this->limiter(10));
+
+        foreach ([['oauth', 'attacker_chosen'], ['attacker_chosen', 'client_secret'], ['oauth', 'signing_key']] as [$section, $field]) {
+            try {
+                $revealer->reveal($section, $field);
+                self::fail('not a revealable field');
+            } catch (NotFoundHttpException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        self::assertSame([RevealRefusalLog::KEY_UNKNOWN, RevealRefusalLog::KEY_UNKNOWN, 'oauth.signing_key'], array_column(array_column($this->logger->records, 'context'), 'key'));
+        self::assertSame(['user', 'user', 'user'], array_column(array_column($this->logger->records, 'context'), 'actor'));
+        self::assertStringNotContainsString('attacker_chosen', $this->logger->dump());
+
+        // A forbidden caller is named too.
+        try {
+            $this->revealer($settings, $this->roleGuard(['ROLE_ADMIN']), $this->limiter(10))->reveal('oauth', 'client_secret');
+            self::fail('no reveal role');
+        } catch (AccessDeniedHttpException) {
+            self::assertSame('user', $this->logger->records[3]['context']['actor']);
+        }
+    }
+
+    public function testRateLimitedRefusalLinesAreThrottledToo(): void
+    {
+        // 1.15.1 (audit N3): a caller hammering past its reveal budget writes as many warnings as the limiter
+        // allows, then debug lines; every call past the budget is still refused.
+        $settings = $this->settings();
+        $settings->save('oauth', ['client_secret' => self::SECRET]);
+        $revealer = $this->revealer($settings, rateLimiter: $this->limiter(1));
+
+        self::assertSame(self::SECRET, $revealer->reveal('oauth', 'client_secret'));
+        for ($i = 0; $i < 3; ++$i) {
+            try {
+                $revealer->reveal('oauth', 'client_secret');
+                self::fail('past the budget');
+            } catch (TooManyRequestsHttpException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+        self::assertSame(['info', 'warning', 'debug', 'debug'], array_column($this->logger->records, 'level'));
+    }
+
+    public function testAnInjectedRefusalLogIsUsed(): void
+    {
+        $other    = new RecordingLogger();
+        $revealer = new SecretRevealer(
+            $this->registry(),
+            $this->settings(),
+            new AccessGuard(new AllowAllInstanceSettingsAccessChecker(), true),
+            $this->dispatcher,
+            $this->logger,
+            refusalLog: new RevealRefusalLog($this->registry(), new AccessGuard(new AllowAllInstanceSettingsAccessChecker(), true), $other),
+        );
+
+        try {
+            $revealer->reveal('oauth', 'signing_key');
+            self::fail('not revealable');
+        } catch (NotFoundHttpException) {
+            self::assertSame([], $this->logger->records);
+            self::assertCount(1, $other->records);
+        }
+    }
+
+    private function limiter(int $limit): RateLimiterFactory
+    {
+        return new RateLimiterFactory(['id' => 'reveal', 'policy' => 'fixed_window', 'limit' => $limit, 'interval' => '1 hour'], new InMemoryStorage());
     }
 
     public function testTheRevealableFieldsOfASection(): void

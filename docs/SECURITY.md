@@ -187,8 +187,12 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
 - `info` "Instance configuration exported." / "… imported." with section names / changed keys and whether secrets
   were included.
 - `info` "Instance settings: secret revealed" with `<section>.<field>`, the actor's user identifier, the time and
-  whether a secret was stored; `warning` "Instance settings: secret reveal refused" with the same names and the reason
-  (`forbidden`, `not_revealable`, `rate_limited`). The PSR-14 `SecretRevealedEvent` carries the same names (1.15).
+  whether a secret was stored; `warning` "Instance settings: secret reveal refused" with the same fields and the reason
+  (`forbidden`, `not_revealable`, `rate_limited`, `not_text`, `ui_gate`). The PSR-14 `SecretRevealedEvent` carries
+  the same names (1.15). Since 1.15.1 (audit N2 / N3) the refusal line names the resolved actor on every reason
+  (`ui_gate` included), logs only declared names (anything else is `key: unknown`), and is throttled per caller by
+  `security.reveal_rate_limiter` in a bucket of its own: `warning` while the caller has budget, `debug` past it, so an
+  unauthenticated caller can neither choose what the line says nor flood the alert built on it.
 - Never logged: values, secrets, uploaded file content. Exceptions carry reason codes and keys only.
 - `SettingsChangedEvent` carries field names only (plus old / new image hashes in `fileChanges`); hosts that write an
   audit trail record names and hashes, not values.

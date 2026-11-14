@@ -31,7 +31,38 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.15.1.
+
+### Security
+
+- **The reveal refusal line names the actor and can no longer be chosen or flooded by the caller** (audit of
+  2026-11-13, N2 / N3; Low, no GHSA: only 1.15.0 has the reveal). Both writers of
+  `Instance settings: secret reveal refused` — the UI gate (`ui_gate`) and `SecretRevealer` (`forbidden`,
+  `not_revealable`, `rate_limited`, `not_text`) — now go through one internal `Secret\RevealRefusalLog`:
+  - `actor` is the resolved user identifier on the `ui_gate` line too, which hard-coded `null`, so the per-actor alert
+    the line exists for could not group the refusals of an account that cannot open the UI (N2). It is the value the
+    reveal line, the other refusal reasons and `SecretRevealedEvent` already carry since 1.15; `null` still means a
+    caller the host cannot name.
+  - `key` is `<section>.<field>` only when the registry declares exactly that section and field (byte for byte);
+    any other name is logged as the constant `unknown`, never echoed (N3). A declared field that is not revealable
+    keeps its name.
+  - The line is throttled per caller (user identifier, else client IP) by `security.reveal_rate_limiter`, in a bucket
+    of its own (`refusal_log`, so refusals never spend the caller's reveals): a `warning` while the caller has budget,
+    `debug` past it (N3). Without a limiter (then nothing in the bundle is revealable) a caller the host cannot name
+    gets `debug` lines and a named caller keeps `warning`. Every refusal is still refused: a failure while writing the
+    line cannot turn the UI gate's 403 into anything else.
+
+### Fixed
+
+- `InstanceSettingsAccessListener` takes the refusal log as a new optional fourth constructor argument (wired by the
+  extension). A listener built by hand with the 1.15.0 arguments still logs, as the key `unknown` and, for an unnamed
+  caller, at `debug`.
+
 ### Documentation
+
+- **UPGRADING "To 1.15.0" step 3** now says that a revealable field without `reveal_rate_limiter` takes down **every**
+  consumer of the section definitions (admin pages, `InstanceSettings` reads, the commands, embeds), not just the
+  reveal (audit N6).
 
 - **Seed files under a volume-mounted store directory.** New "Containers and volumes" (filesystem store) and "Missing
   seed files" (seed command) notes in `CONFIGURATION.md`: a Docker named volume on `files.directory` is filled from the
