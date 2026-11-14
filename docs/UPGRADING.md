@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [To 1.18.0](#to-1180)
 - [To 1.16.1](#to-1161)
 - [To 1.16.0](#to-1160)
 - [To 1.16.0](#to-1160-1)
@@ -39,6 +40,30 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+### To 1.18.0
+
+From **1.16.x / 1.17.x**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+php bin/console assets:install   # new script bundles/nowoinstancesettings/js/nowo-instance-settings-test.js
+```
+
+- **Nothing to do without a tester**: no new table, no migration, no route, the pages are byte-identical.
+- **To add a Test button**, write a `SettingsSectionTesterInterface` service with `#[AsSettingsTester(section: …,
+  group: …)]` ([USAGE](USAGE.md#testing-the-stored-values-118)). Optionally narrow who may test with
+  `security.test_roles` and replace the built-in rate limit with `security.test_rate_limiter`
+  ([CONFIGURATION](CONFIGURATION.md#section-test-button-118)).
+- The last reports, running markers and built-in rate windows are rows of `instance_setting_value` under the reserved
+  sections `_section_test_report`, `_section_test_lock` and `_section_test_rate`. Tooling that reads the raw store
+  (`SettingRowReaderInterface::findAllRows()`) sees them; skip sections whose name starts with `_`.
+- A custom `access_checker` is asked for the new `_test` area only when `security.test_roles` is set.
+- `area_roles._test` is now refused at compile time (use `security.test_roles`).
+- Host section templates: the reserved template variable `section_test` (null without a tester); include
+  `@NowoInstanceSettingsBundle/settings/_section_test.html.twig` like the reveal partial to show the buttons.
+- New constructor arguments, all optional and last: `SettingsController` (`$tester`), `SettingsSectionEmbedder`
+  (`$tester`), `InstanceSettingsRouteLoader` (`$sectionTests`).
 
 ## To 1.16.1
 

@@ -10,6 +10,7 @@
 - [security](#security)
   - [Revealing a stored secret (1.15)](#revealing-a-stored-secret-115)
   - [Revealing from the password eye (1.16)](#revealing-from-the-password-eye-116)
+  - [Section Test button (1.18)](#section-test-button-118)
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
@@ -53,9 +54,11 @@ nowo_instance_settings:
         reveal_toggle_only: false      # 1.16: with reveal_on_toggle, no separate Reveal / Copy / Hide buttons on rows with the eye
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
-        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles ("_reveal" is refused)
+        area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles ("_reveal" and "_test" are refused)
         reveal_roles: [ROLE_DEVELOPER] # 1.15: roles that may reveal a stored secret of a revealable field ([] refuses every reveal)
         reveal_rate_limiter: null      # 1.15: service id of a RateLimiterFactory consuming one token per reveal
+        test_roles: null               # 1.18: roles that may run a section's Test button (null = the section's own area; [] = nobody)
+        test_rate_limiter: null        # 1.18: service id of a RateLimiterFactory per test (null = built-in 10 per actor per 10 minutes)
         access_checker: null           # service id implementing InstanceSettingsAccessCheckerInterface
         allow_unauthenticated: false   # DEV / DEMO only; refused unless kernel.debug is true
     portability:
@@ -211,6 +214,8 @@ nowo_instance_settings:
 | `area_roles` | `{}` | Map `<area> => [roles]` that **replaces** `access_roles` for one area: a section name (`mailer: [ROLE_SUPER_ADMIN]`) or `_portability` (the import / export page, which can download sealed secrets). Lists must not be empty. Sections the user cannot open are not shown as tabs and are left out of (and refused in) the user's web export / import. When any section is listed, **`_portability` must be listed too** (compile error otherwise) unless `portability.web_ui: false` or a custom `access_checker` is used. |
 | `reveal_roles` | `[ROLE_DEVELOPER]` | **1.15.** Roles that may reveal a stored secret of a field declared `revealable: true`, asked **on top of** the section's own area (both are needed). They never fall back to `access_roles`, and `area_roles._reveal` is refused (compile error) so there is one place to look. An empty list refuses every reveal, which is how you turn the feature off for the whole instance. Ignored when `access_checker` is set: the custom checker decides the `_reveal` area (`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`). |
 | `reveal_rate_limiter` | `null` | **1.15. Required as soon as any field declares `revealable: true`** (owner decision of 2026-11-13: a revealable secret is never served without a brake). Service id of a Symfony `RateLimiterFactory` (`framework.rate_limiter.<name>` registers `limiter.<name>`, needs `symfony/rate-limiter`) consuming one token per reveal, keyed by the SHA-256 of the actor's user identifier. Without it a revealable field fails closed when the section definitions load (router warm-up / `cache:warmup`, else the first request) with a message naming the field and this option. A host with **no** revealable field needs nothing: no limiter, no dependency, no change. |
+| `test_roles` | `null` | **1.18.** Roles that may run the **Test** button of a section (any of them), asked **on top of** the section's own area. `null`: whoever may open the section may test it. An empty list refuses every test. `area_roles._test` is refused (compile error). With a custom `access_checker`, the `_test` area (`InstanceSettingsAccessCheckerInterface::AREA_TEST`) is asked only when this is not `null`. See [Section Test button](#section-test-button-118). |
+| `test_rate_limiter` | `null` | **1.18.** Service id of a Symfony `RateLimiterFactory` consuming one token per section test, keyed by the salted SHA-256 of the actor (user identifier, else client IP). `null`: the built-in limit, 10 tests per actor per 10 minutes, kept in the settings table (no dependency). |
 | `access_checker` | `null` | Service id implementing `InstanceSettingsAccessCheckerInterface` (`canAccess(?object $user, ?string $area): bool`; `$area` null = the UI itself). Replaces the role checker. |
 | `allow_unauthenticated` | `false` | **DEV / DEMO only.** Opens the UI without login; the container refuses it unless `kernel.debug` is true. |
 
@@ -394,6 +399,42 @@ nowo_instance_settings:
 - Without JavaScript nothing reveals. Without PasswordToggle there is no eye: the Reveal / Copy / Hide buttons stay,
   whatever `reveal_toggle_only` says. The page script is the existing `nowo-instance-settings-reveal.js` (no inline
   script; strict CSP safe).
+
+### Section Test button (1.18)
+
+A section with a registered tester (`#[AsSettingsTester]`, see [USAGE](USAGE.md#testing-the-stored-values-118)) gets
+a **Test** button beside **Save**, for the whole section and / or per field group. It tests the **stored** values;
+Save is never blocked and never waits for it. Nothing is configured to turn it on, and a host without a tester sees no
+change (no button, no script, no route).
+
+```yaml
+nowo_instance_settings:
+    security:
+        test_roles: [ROLE_OPS]                          # optional: narrow who may test (default: the section's area)
+        test_rate_limiter: limiter.instance_settings_test   # optional: replaces the built-in 10 tests / actor / 10 minutes
+
+framework:
+    rate_limiter:
+        instance_settings_test: { policy: sliding_window, limit: 20, interval: '15 minutes' }
+```
+
+- **Endpoint**: `POST <web_ui.path_prefix>/sections/<section>/test` (route `nowo_instance_settings_section_test`,
+  mounted only once a tester is registered), body `_token` (the section form's CSRF token id
+  `nowo_instance_settings_section_<section>`) and `group` (optional). Answers `no-store`.
+- **Order of the checks**: the UI gate and the section area (plus `test_roles` when set) → a tester for exactly that
+  section and group, names compared byte for byte (404) → CSRF (403) → rate limit (429 + `Retry-After`) → one test at
+  a time per section and actor (409; a marker older than 120 seconds is taken over).
+- **Time budget**: 10 seconds (`SettingsSectionTesterInterface::TIME_BUDGET_SECONDS`), documented for testers; a tester
+  that runs over is logged, not interrupted.
+- **Stored state**: the last report per section / group, the running markers and the built-in rate windows are rows of
+  `instance_setting_value` under the reserved sections `_section_test_report`, `_section_test_lock` and
+  `_section_test_rate` (names are SHA-256 hashes; no user identifier in a name). **No new table, no migration.** No
+  registered section can use those names (section names start with a letter); exports and seeds never read them.
+- **Logs** (names only, never a value): `info` "Instance settings: section tested" (section, group, status, actor,
+  time) and "Instance settings: section test refused" (reason `rate_limited` / `busy`); `warning` "… report redacted"
+  (leak guard hits) and "… ran over its time budget"; `debug` "… section tester threw" (exception class, redacted
+  message).
+- **Event**: `Nowo\InstanceSettingsBundle\Event\SettingsTestedEvent` (section, group, status, actor, time).
 
 ## portability
 
