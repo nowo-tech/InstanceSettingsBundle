@@ -167,6 +167,7 @@ reveal:
   replace: "Sostituisci il valore salvato"
   announce_shown: "Valore salvato mostrato nel campo."
   announce_hidden: "Valore salvato nascosto."
+  replace_required: "Seleziona «Sostituisci il valore salvato» per cambiarlo."
 secret_expiry:
   label: "Data di scadenza"
   help: "Facoltativa. Salvare un nuovo segreto cancella questa data, a meno che non ne indichi una nuova insieme."

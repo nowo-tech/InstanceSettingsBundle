@@ -49,7 +49,7 @@ test.describe('Locked stored secret (reveal_in_input)', () => {
     await expect(sectionForm(page).locator(VALUE)).toHaveValue('');
     await expect(sectionForm(page).locator(REPLACE)).not.toBeChecked();
 
-    // A tampered post (around every browser-side protection) changes nothing.
+    // A tampered post (around every browser-side protection) is refused with an error on the row, and changes nothing.
     const fields = await sectionForm(page).evaluate((form: HTMLFormElement) => {
       const out: Record<string, string> = {};
       for (const element of Array.from(form.elements) as HTMLInputElement[]) {
@@ -63,7 +63,8 @@ test.describe('Locked stored secret (reveal_in_input)', () => {
     });
     fields.out['settings_section[auth_token][value]'] = 'tw-tampered';
     const response = await page.request.post(fields.action, { form: fields.out, maxRedirects: 0 });
-    expect(response.status()).toBe(302);
+    expect(response.status()).toBe(422);
+    expect(await response.text()).toContain('Tick “Replace the stored value” to change it.');
     expect(await stored(page)).toBe('tw-lock-first');
 
     // Replace: unlocked, empty; untick locks again and drops what was typed.

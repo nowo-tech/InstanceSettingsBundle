@@ -407,9 +407,9 @@ nowo_instance_settings:
 
 ### Locked stored secrets: reveal in the input (1.17)
 
-Symfony Beacon request (owner-approved design: a stored secret is **locked**). With both options on, a revealable
-secret row that holds a stored secret is locked for **every editor of the section** (owner decision), whether or not
-the editor may reveal it:
+Symfony Beacon request (owner-approved design: a stored secret is **locked**). With both options on, **every secret
+row that holds a stored secret** — revealable or not (owner decision D-I3) — is locked for **every editor of the
+section** (owner decision), whether or not the editor may reveal it:
 
 ```yaml
 nowo_instance_settings:
@@ -419,7 +419,8 @@ nowo_instance_settings:
 ```
 
 - **Locked.** The input is read-only and keeps the "Saved: ••••" placeholder; nothing can be typed. For an editor who
-  may not reveal (no reveal role, or `reveal_roles: []`), the page loads the script alone
+  may not reveal (no reveal role, or `reveal_roles: []`), and on a secret that is not revealable at all, there is no
+  reveal: the page loads the script alone when it has no Reveal control
   (`settings/_secret_lock.html.twig`, template variable `secret_lock`) and PasswordToggle's eye is hidden while the row
   is locked; that editor ticks Replace like everybody else. For a user who may reveal, the PasswordToggle eye switches that same input between `type=password` (empty) and `type=text` holding the stored value, fetched through
   the existing reveal call (endpoint, CSRF token, `reveal_rate_limiter`, roles, audit, one call at a time). The row's
@@ -431,8 +432,11 @@ nowo_instance_settings:
   `autocorrect="off"` (Chrome's enhanced spell check may send text-field contents to Google) and the password-manager
   opt-outs `data-1p-ignore`, `data-lpignore`, `data-bwignore`; each attribute gets its previous value back on hide.
 - **Never posted.** A locked input never carries a value: the submit and `formdata` handlers empty it (also for a
-  script's `new FormData(form)`), and **the server ignores a value submitted for a locked row unless its Replace box is
-  ticked** — a read-only input edited through the developer tools changes nothing.
+  script's `new FormData(form)`). **On the server, a value typed into a locked row without its Replace box refuses the
+  whole save** with the error "Tick “Replace the stored value” to change it." on that row (`reveal.replace_required`,
+  HTTP 422; audit L1): without JavaScript, with stale assets, with a host template lacking the lock script, or for a
+  row that became locked after the page was rendered, nothing is dropped silently under "Settings saved.". A value
+  sent together with the clear box deletes the secret, as everywhere.
 - **Replacing** needs an explicit action: tick **Replace the stored value** (`<field>:replace`, rendered under the row;
   `reveal.replace`). The input becomes an empty, editable password input with PasswordToggle's own eye; unticking locks
   it again and drops what was typed. A ticked box with a blank input keeps the stored secret. The "Remove the saved
@@ -442,9 +446,10 @@ nowo_instance_settings:
   polite status region announces "Stored value shown in the field." / "Stored value hidden."
   (`reveal.announce_shown` / `reveal.announce_hidden`) and never the value; unlike the `<output>` of the 1.15 / 1.16
   modes, a screen reader does not read the secret aloud unless the user moves into the field.
-- **Scope.** Revealable rows with a stored secret, for every editor of the section; the server rule (a value without
-  Replace is ignored) applies to everyone. Rows that are not revealable keep "type to replace". Without the option, or
-  without `reveal_on_toggle`, nothing changes: typing into a row overwrites its secret exactly as in 1.16. Without PasswordToggle there is no eye: the row is still locked
+- **Scope.** Every secret row with a stored secret (revealable or not), for every editor of the section; the server
+  rule (a value without Replace is refused) applies to everyone. Only revealable rows of users who may reveal get the
+  eye that shows the value; on the others PasswordToggle's eye is hidden while locked. Without the option, or without
+  `reveal_on_toggle`, nothing changes: typing into a row overwrites its secret exactly as in 1.16. Without PasswordToggle there is no eye: the row is still locked
   and its Reveal button reads the value into the `<output>`, as in 1.15.
 - **Firefox session restore.** Firefox saves form field values of open tabs to disk (sessionstore, written on a timer
   of about 15 seconds after a change). Its collector skips password inputs, inputs that were ever `type=password`

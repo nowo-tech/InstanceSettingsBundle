@@ -167,6 +167,7 @@ reveal:
   replace: "Gespeicherten Wert ersetzen"
   announce_shown: "Gespeicherter Wert im Feld angezeigt."
   announce_hidden: "Gespeicherter Wert ausgeblendet."
+  replace_required: "Aktivieren Sie „Gespeicherten Wert ersetzen“, um ihn zu ändern."
 secret_expiry:
   label: "Ablaufdatum"
   help: "Optional. Ein neu gespeichertes Geheimnis löscht dieses Datum, sofern Sie nicht gleichzeitig ein neues angeben."

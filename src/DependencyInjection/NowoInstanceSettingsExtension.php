@@ -625,6 +625,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         // 1.11 (rule 3): the DTO write counterpart, over the same repository.
         $container->setDefinition(RepositorySettingRowWriter::class, new Definition(RepositorySettingRowWriter::class, [
             new Reference(SettingValueRepositoryInterface::class),
+            // 1.17 (audit L3): a secret written or deleted here loses the date of the previous one.
+            $expiryStore,
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]));
         $container->setAlias(SettingRowWriterInterface::class, RepositorySettingRowWriter::class)->setPublic(true);
 

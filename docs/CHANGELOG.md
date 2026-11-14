@@ -64,13 +64,15 @@ Target 1.17.0 (Symfony Beacon request, owner decision D-20261114-09).
   - **Clock.** "Today" comes from `ClockInterface` in `expiring_secrets.timezone` (default the PHP default zone) on
     every call; nothing is memoized (FrankenPHP worker mode with kernel reset off).
   - **Export / import** carry the dates in clear under `secret_expiry` (envelope version 3, only when a date is
-    exported; other exports keep version 1 / 2). An imported date is applied with its secret (the sealed one of the file,
-    else the stored one) and skipped for a field left without a secret. **Fallback seeding**:
+    exported; other exports keep version 1 / 2). An imported date is applied only with its own secret, sealed in the
+    same file; any other date is skipped, never attached to the secret the target already stores. A secret written or
+    deleted through `SettingRowWriterInterface`, or seeded without a date, loses the date row of the previous secret.
+    Note: an instance with a stored date exports version 3, which 1.4 – 1.16 refuse as a whole. **Fallback seeding**:
     `SettingFallback::secret($field, $value, '2027-01-31')` seeds the date with the secret.
 - **Configuration** `expiring_secrets: {enabled, thresholds, warning, warning_days, timezone}`.
 - **Locked stored secrets: reveal in the input (`web_ui.reveal_in_input`, opt-in, default `false`).** Symfony Beacon
-  request, owner-approved design. With `reveal_on_toggle`, a revealable row holding a stored secret is **locked for every
-  editor** of the section (an editor who may not reveal gets the same read-only input, PasswordToggle's eye hidden, and
+  request, owner-approved design. With `reveal_on_toggle`, **every** secret row holding a stored secret (revealable or
+  not, owner decision D-I3) is **locked for every editor** of the section (an editor who may not reveal gets the same read-only input, PasswordToggle's eye hidden, and
   the script alone through the new `settings/_secret_lock.html.twig`): the input is read-only and, for a user who may
   reveal, the PasswordToggle eye shows the stored value in that same input
   (`type=text`) through the existing reveal call (endpoint, CSRF token, limiter, roles, audit, one call at a time), then
@@ -78,10 +80,11 @@ Target 1.17.0 (Symfony Beacon request, owner decision D-20261114-09).
   `autocomplete="off"`, `spellcheck="false"`, `autocapitalize="off"`, `autocorrect="off"`, `data-1p-ignore`,
   `data-lpignore`, `data-bwignore`, all restored on hide; the type switch drops the undo history. A new value needs the
   new **Replace the stored value** box (`<field>:replace`); unticking re-locks. The submit and `formdata` handlers
-  never post the revealed value, and the **server ignores a value submitted for a locked row without Replace** — only
-  with the option on: hosts without it keep the 1.16 overwrite-by-typing behaviour. A polite status region announces
-  "shown" / "hidden", never the value. Three new translation keys (`reveal.replace`, `reveal.announce_shown`,
-  `reveal.announce_hidden`) in the seven locales.
+  never post the revealed value, and **a value submitted for a locked row without Replace refuses the save with an
+  error on that row** (`reveal.replace_required`, 422; never dropped under "Settings saved.") — only with the option
+  on: hosts without it keep the 1.16 overwrite-by-typing behaviour. A polite status region announces
+  "shown" / "hidden", never the value. Four new translation keys (`reveal.replace`, `reveal.announce_shown`,
+  `reveal.announce_hidden`, `reveal.replace_required`) in the seven locales.
 
 ### Changed
 

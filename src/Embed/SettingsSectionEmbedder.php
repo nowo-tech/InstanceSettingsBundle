@@ -63,6 +63,7 @@ use function explode;
 use function http_build_query;
 use function implode;
 use function in_array;
+use function is_array;
 use function is_string;
 use function sprintf;
 use function str_starts_with;
@@ -90,6 +91,9 @@ final readonly class SettingsSectionEmbedder
 
     /** Translation key (bundle domain) of the notice naming an invalid secret typed into a hidden row (1.9, keep_typed). */
     public const HIDDEN_SECRET_INVALID_NOTICE = 'notice.hidden_secret_invalid';
+
+    /** Translation key (bundle domain) of the error of a value typed into a locked secret row without Replace (1.17). */
+    public const REPLACE_REQUIRED_ERROR = 'reveal.replace_required';
 
     /** Translation key (bundle domain) of the notice of an expiring secret within `warning_days` of its date (1.17). */
     public const SECRET_EXPIRING_NOTICE = 'secret_expiry.notice_expiring';
@@ -255,12 +259,12 @@ final readonly class SettingsSectionEmbedder
         // 1.15: the Reveal control, only for a user who may reveal (the plaintext itself never reaches the page).
         $reveal = $this->secretReveal($section);
 
-        // 1.17 (web_ui.reveal_in_input, owner decision): every revealable row holding a stored secret is locked, for
-        // every editor of the section — whether or not this user may reveal it.
+        // 1.17 (web_ui.reveal_in_input, owner decisions): every secret row holding a stored secret is locked — revealable
+        // or not (D-I3) — for every editor of the section, whether or not this user may reveal it.
         $locked = [];
         if ($this->revealOnToggle && $this->revealInInput) {
             foreach ($fields as $name => $field) {
-                if ($field->revealable && ($stored[$name] ?? false)) {
+                if ($field->secret && ($stored[$name] ?? false)) {
                     $locked[] = $name;
                 }
             }
@@ -294,7 +298,14 @@ final readonly class SettingsSectionEmbedder
         $groupParameter = $options->groupParameter ?? $this->groupParameter;
         $requestedGroup = $this->requestedGroup($request, $groups, $groupParameter);
 
-        if ($form->isSubmitted() && $form->isValid()) {
+        // 1.17 (audit L1): a value typed into a locked row without its Replace box (no JavaScript, stale assets, a host
+        // template without the lock script, a row locked after the page was rendered) refuses the save with an error on
+        // that row, instead of being dropped under "Settings saved.".
+        $refused = $form->isSubmitted() && $form->isValid() ? $this->typedIntoLockedRows($form, $fields, $locked) : [];
+        foreach ($refused as $name) {
+            $form->get($name)->addError(new FormError($this->trans(self::REPLACE_REQUIRED_ERROR)));
+        }
+        if ($refused === [] && $form->isSubmitted() && $form->isValid()) {
             try {
                 $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets, $expiryDates, $locked), SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
@@ -500,6 +511,37 @@ final readonly class SettingsSectionEmbedder
         }
 
         return $values;
+    }
+
+    /**
+     * Locked secret rows (1.17) that received a typed value without their Replace box and without the clear box (which
+     * wins and deletes, as everywhere). Rows hidden for the submitted provider are left out: their value is dropped by
+     * the form before validation anyway.
+     *
+     * @param FormInterface<mixed> $form
+     * @param array<string, SettingField> $fields
+     * @param list<string> $locked
+     *
+     * @return list<string>
+     */
+    private function typedIntoLockedRows(FormInterface $form, array $fields, array $locked): array
+    {
+        /** @var array<string, mixed> $data */
+        $data    = (array) $form->getData();
+        $refused = [];
+        foreach ($locked as $name) {
+            $replace = SettingsSectionType::replaceKey($name);
+            if (!$fields[$name]->isVisibleFor($data) || ($form->has($replace) && $form->get($replace)->getData() === true)) {
+                continue;
+            }
+            $submitted = $form->get($name)->getData();
+            $value     = is_array($submitted) ? $submitted[SecretFieldApplier::KEY_VALUE] ?? null : null;
+            if (is_string($value) && $value !== '' && ($submitted[SecretFieldApplier::KEY_CLEAR] ?? false) !== true) {
+                $refused[] = $name;
+            }
+        }
+
+        return $refused;
     }
 
     /**

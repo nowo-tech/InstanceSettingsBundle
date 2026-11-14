@@ -460,7 +460,7 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 - Stored in `instance_setting_value.secret_value`, an `#[Encrypted]` column: DoctrineEncryptBundle encrypts it on flush and decrypts it on load with its **default profile** (Halite by default). The bundle refuses to compile when `NowoDoctrineEncryptBundle` is not registered.
 - Key rotation and bulk encryption use the DoctrineEncrypt commands (`doctrine:encrypt:rotate-keys`, `doctrine:encrypt:status`); the settings table is covered like any `#[Encrypted]` entity.
 - The admin form never receives the secret: it only knows whether one is stored ("Saved: ••••. Leave blank to keep it."), a blank field keeps it, the "Remove the saved value" checkbox clears it.
-- A secret can be made **revealable** (1.15, owner decision of 2026-11-13): `SettingField::secret('client_secret', 'oauth.client_secret', revealable: true)` adds an explicit **Reveal** button to that row for a user holding `security.reveal_roles` (`ROLE_DEVELOPER` by default), which fetches the stored value from the reveal endpoint, one field per call, and audits it (`Event\SecretRevealedEvent`: field, actor, time — never the value). It is **off by default, per field**: turn it on for a credential an admin must read elsewhere, never for an encryption or signing key, and read the trade-off in [CONFIGURATION](CONFIGURATION.md#revealing-a-stored-secret-115) before you do. Every other secret stays write-only. With `web_ui.reveal_on_toggle` (1.16) the PasswordToggle eye runs the same reveal, and with `web_ui.reveal_in_input` (1.17) a stored revealable secret is **locked** for every editor: read-only, the eye shows it in the input itself, "Replace the stored value" is needed to type a new one, and the server ignores a value posted without it ([CONFIGURATION](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117)).
+- A secret can be made **revealable** (1.15, owner decision of 2026-11-13): `SettingField::secret('client_secret', 'oauth.client_secret', revealable: true)` adds an explicit **Reveal** button to that row for a user holding `security.reveal_roles` (`ROLE_DEVELOPER` by default), which fetches the stored value from the reveal endpoint, one field per call, and audits it (`Event\SecretRevealedEvent`: field, actor, time — never the value). It is **off by default, per field**: turn it on for a credential an admin must read elsewhere, never for an encryption or signing key, and read the trade-off in [CONFIGURATION](CONFIGURATION.md#revealing-a-stored-secret-115) before you do. Every other secret stays write-only. With `web_ui.reveal_on_toggle` (1.16) the PasswordToggle eye runs the same reveal, and with `web_ui.reveal_in_input` (1.17) every stored secret is **locked** for every editor: read-only, the eye shows it in the input itself, "Replace the stored value" is needed to type a new one, and the server refuses a value posted without it ([CONFIGURATION](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117)).
 - Exports contain secrets only on request and only **sealed** (`enc:v2:<base64>` of the DoctrineEncrypt ciphertext of the value bound to `<schema>|<section>.<field>`): an instance holding the same key imports them into the same field, any other instance refuses the file (`failed_unseal_secret`) and a value moved to another field is refused (`secret_context_mismatch`). Set `portability.sealed_secrets: false` to keep secrets on the instance.
 
 ### Expiring secrets (1.17)
@@ -531,7 +531,10 @@ worker or a second run the same day sends nothing twice, and a new date (a renew
 thresholds are crossed at once (the first run, a job that did not run for a while) only the smallest is announced. A
 listener that throws makes the command exit with code 1 and that reminder is retried on the next run. The event holds
 scalars only: `section`, `field`, `label` (translation key), `translationDomain`, `expiresOn` (`YYYY-MM-DD`),
-`threshold`, `daysLeft` (negative once expired), plus `key()` and `isExpired()`.
+`threshold`, `daysLeft` (negative once expired), plus `key()` and `isExpired()`. Delivery is at most once per
+threshold: the threshold is recorded before the event is dispatched, so a process killed in between (OOM, timeout)
+skips it (the next smaller threshold still fires); a listener that throws releases it for the next run, which then
+re-runs every listener of that event.
 
 The bundle sends nothing itself: the host turns the event into its own reminders. Symfony Beacon sends a bell
 notification and an e-mail:
@@ -568,8 +571,11 @@ final readonly class SecretExpiryReminder
 
 **Seeding, export and import.** A secret fallback can carry its date: `SettingFallback::secret('api_key', $value,
 '2027-01-31')` stores it with the seeded secret (insert-only, like the secret). Exports carry the dates in clear under
-`secret_expiry` (envelope version 3, only when a date is exported); an imported date is applied with its secret — the
-sealed one of the same file, else the one already stored — and skipped for a field left without a secret. The seed file
+`secret_expiry` (envelope version 3, only when a date is exported — which 1.4 – 1.16 then refuse as a whole, plain
+settings included); an imported date is applied **only with its own secret**, sealed in the same file, and skipped
+otherwise: it is never attached to the unrelated secret the target already stores (a production date on a staging
+key). A secret written or deleted through `SettingRowWriterInterface`, or seeded from a fallback without a date, loses
+the date row of the previous secret; set the new date with `save()` or `SecretExpiryStoreInterface::write()`. The seed file
 (`nowo:instance-settings:seed`) never holds secrets, so it carries no dates.
 
 ## Image fields

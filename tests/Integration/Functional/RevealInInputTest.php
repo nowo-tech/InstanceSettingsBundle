@@ -41,15 +41,26 @@ final class RevealInInputTest extends KernelTestCase
         self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-reveal="client_secret"][data-nowo-instance-settings-locked="client_secret"]'));
         self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-replace-for="client_secret"] input[type="checkbox"][name="settings_section[client_secret:replace]"]'));
         self::assertStringContainsString('Replace the stored value', $html);
-        self::assertCount(0, $crawler->filter('[name="settings_section[signing_key:replace]"]'), 'a write-only secret is not locked');
+        // Owner decision D-I3: a stored write-only (not revealable) secret is locked too, without a reveal control.
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-locked="signing_key"]'));
+        self::assertCount(1, $crawler->filter('[name="settings_section[signing_key:replace]"]'));
+        self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-reveal="signing_key"]'));
         self::assertStringNotContainsString(self::SECRET, $html);
 
-        // A tampered read-only input (a value typed through the devtools): ignored, the stored secret is kept.
+        // A value typed into the locked row without Replace (no JavaScript, stale assets, a tampered input) is refused
+        // with an error on that row (audit L1): never dropped silently under "Settings saved.", and nothing is saved.
         $client->submit($this->form($client), ['settings_section[client_secret][value]' => 'tampered-value', 'settings_section[client_id]' => 'client-1']);
-        self::assertSame(302, $client->getResponse()->getStatusCode());
+        self::assertSame(422, $client->getResponse()->getStatusCode());
+        $page = (string) $client->getResponse()->getContent();
+        self::assertStringContainsString('Tick “Replace the stored value” to change it.', $page);
+        self::assertMatchesRegularExpression('#<li id="settings_section_client_secret_error1">Tick “Replace the stored value” to change it\.</li>#', $page, 'the error is on the secret row');
+        self::assertStringNotContainsString('Settings saved.', $page);
+        self::assertStringNotContainsString('tampered-value', $page);
         $this->settings($kernel)->reset();
         self::assertSame(self::SECRET, $this->settings($kernel)->getSecret('oauth.client_secret'));
-        self::assertSame('client-1', $this->settings($kernel)->get('oauth.client_id'), 'the rest of the form is saved');
+        self::assertNull($this->settings($kernel)->get('oauth.client_id'), 'all-or-nothing: the rest of the form is not saved either');
+        $client->submit($this->form($client), ['settings_section[client_id]' => 'client-1']);
+        self::assertSame(302, $client->getResponse()->getStatusCode(), 'an untouched locked row saves the rest');
 
         // Replace ticked: the typed value replaces the secret.
         $form = $this->form($client);
@@ -72,7 +83,8 @@ final class RevealInInputTest extends KernelTestCase
         $this->settings($kernel)->reset();
         self::assertNull($this->settings($kernel)->getSecret('oauth.client_secret'));
         $crawler = $client->request('GET', '/admin/settings/sections/oauth');
-        self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-locked]'));
+        self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-locked="client_secret"]'));
+        self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-locked="signing_key"]'), 'the other stored secret stays locked (D-I3)');
         self::assertCount(0, $crawler->filter('[name="settings_section[client_secret:replace]"]'));
         $client->submit($this->form($client), ['settings_section[client_secret][value]' => 'typed-when-empty']);
         $this->settings($kernel)->reset();
@@ -110,9 +122,9 @@ final class RevealInInputTest extends KernelTestCase
         self::assertCount(1, $crawler->filter('script[data-nowo-instance-settings-reveal-script]'));
         self::assertStringNotContainsString(self::SECRET, (string) $client->getResponse()->getContent());
 
-        // A value posted without Replace is ignored for this editor too.
+        // A value posted without Replace is refused for this editor too.
         $client->submit($this->form($client), ['settings_section[client_secret][value]' => 'overwritten']);
-        self::assertSame(302, $client->getResponse()->getStatusCode());
+        self::assertSame(422, $client->getResponse()->getStatusCode());
         $this->settings($kernel)->reset();
         self::assertSame(self::SECRET, $this->settings($kernel)->getSecret('oauth.client_secret'));
 
@@ -129,6 +141,42 @@ final class RevealInInputTest extends KernelTestCase
         self::assertCount(0, $crawler->filter('script[data-nowo-instance-settings-reveal-script]'));
     }
 
+    public function testAStoredNonRevealableSecretIsLockedForEveryEditor(): void
+    {
+        // Owner decision D-I3: every stored secret field is locked while the option is on, revealable or not.
+        $kernel = $this->boot(self::IN_INPUT);
+        $this->settings($kernel)->save('oauth', ['signing_key' => 'sign-1']);
+        foreach (['developer', 'admin'] as $user) {
+            $client  = $this->client($kernel, $user);
+            $crawler = $client->request('GET', '/admin/settings/sections/oauth');
+            self::assertCount(1, $crawler->filter('[data-nowo-instance-settings-locked="signing_key"]'), $user);
+            self::assertCount(1, $crawler->filter('[name="settings_section[signing_key:replace]"]'), $user);
+            self::assertCount(1, $crawler->filter('script[data-nowo-instance-settings-reveal-script]'), $user);
+
+            $client->submit($this->form($client), ['settings_section[signing_key][value]' => 'tampered']);
+            self::assertSame(422, $client->getResponse()->getStatusCode(), $user);
+            self::assertStringContainsString('Tick “Replace the stored value” to change it.', (string) $client->getResponse()->getContent());
+            $this->settings($kernel)->reset();
+            self::assertSame('sign-1', $this->settings($kernel)->getSecret('oauth.signing_key'), $user);
+        }
+
+        $form = $this->form($client);
+        self::tick($form, 'settings_section[signing_key:replace]');
+        $client->submit($form, ['settings_section[signing_key][value]' => 'sign-2']);
+        self::assertSame(302, $client->getResponse()->getStatusCode());
+        $this->settings($kernel)->reset();
+        self::assertSame('sign-2', $this->settings($kernel)->getSecret('oauth.signing_key'));
+
+        // Without the option the same field is overwritten by typing, as in 1.16.
+        $plain = $this->boot(['web_ui' => ['reveal_on_toggle' => true]]);
+        $this->settings($plain)->save('oauth', ['signing_key' => 'sign-1']);
+        $client = $this->client($plain, 'admin');
+        $client->submit($this->form($client), ['settings_section[signing_key][value]' => 'sign-typed']);
+        self::assertSame(302, $client->getResponse()->getStatusCode());
+        $this->settings($plain)->reset();
+        self::assertSame('sign-typed', $this->settings($plain)->getSecret('oauth.signing_key'));
+    }
+
     public function testTheKillSwitchStillLocksTheRow(): void
     {
         $kernel = $this->boot(array_replace_recursive(self::IN_INPUT, ['security' => ['reveal_roles' => []]]));
@@ -139,6 +187,7 @@ final class RevealInInputTest extends KernelTestCase
         self::assertCount(0, $crawler->filter('[data-nowo-instance-settings-reveal-root]'));
 
         $client->submit($this->form($client), ['settings_section[client_secret][value]' => 'overwritten']);
+        self::assertSame(422, $client->getResponse()->getStatusCode());
         $this->settings($kernel)->reset();
         self::assertSame(self::SECRET, $this->settings($kernel)->getSecret('oauth.client_secret'));
     }

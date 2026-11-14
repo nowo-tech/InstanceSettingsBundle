@@ -96,9 +96,10 @@ To use them (Symfony Beacon request, owner decision D-20261114-09):
    loop over the unrendered children shows the row otherwise, after the subtabs).
 
 **Locked stored secrets (`web_ui.reveal_in_input`, opt-in).** Nothing changes unless you set it (with
-`reveal_on_toggle: true`; it is ignored otherwise). Then, for **every editor** (with or without the reveal role), a
-revealable row holding a stored secret is read-only and a new value needs the new "Replace the stored value" box: tell your admins, since typing over a
-stored secret no longer replaces it, and **the server ignores a value posted for such a row without the box** (API
+`reveal_on_toggle: true`; it is ignored otherwise). Then, for **every editor** (with or without the reveal role), every
+secret row holding a stored secret (revealable or not) is read-only and a new value needs the new "Replace the stored
+value" box: tell your admins, since typing over a
+stored secret no longer replaces it, and **the server refuses a save that types a value into such a row without the box** (an error on the row, 422) (API
 clients posting the admin form directly must send `settings_section[<field>:replace]=1`). Run `assets:install` so the
 updated `nowo-instance-settings-reveal.js` and stylesheets are served. A host template that overrides
 `settings/_secret_reveal.html.twig` must add the status element
@@ -110,7 +111,10 @@ field; one that overrides `settings/section.html.twig` must include `settings/_s
 What changes for everybody, flag or not:
 
 - `PortabilityEnvelope::assertValid()` accepts envelope version 3 (`secret_expiry`). Exports are version 3 only when
-  they carry a date, so 1.4 – 1.16 keep importing every export of an instance without expiring secrets.
+  they carry a date, so 1.4 – 1.16 keep importing every export of an instance without stored expiry dates; an export
+  of an instance with one (secrets included or not) is refused as a whole by 1.4 – 1.16.
+- `SettingRowWriterInterface::writeRows()` removes the expiry date of every secret row it writes or deletes (1.17,
+  only with `expiring_secrets.enabled`): set the date again with `SecretExpiryStoreInterface::write()` if you know it.
 - New optional trailing constructor arguments (`InstanceSettings`, `ConfigPortability`, `FallbackSeeder`,
   `SettingsSectionEmbedder`, `SettingsSectionRegistry`, `SettingField`, `SettingFallback`): code building them by hand
   keeps working. `SettingFallback::jsonSerialize()` adds `expiresOn` only when a date is set.

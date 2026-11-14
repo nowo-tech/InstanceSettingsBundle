@@ -147,6 +147,11 @@
 
     // 1.16: the PasswordToggle eye of this row, only when its root opted in (web_ui.reveal_on_toggle).
     function eyeOf(row) {
+        if (!row.hasAttribute('data-nowo-instance-settings-reveal')) {
+            // 1.17 (audit D-I1): a locked row without the reveal marker (not revealable, or no reveal for this user) never
+            // borrows another section's root: its PasswordToggle eye stays its own (hidden while locked).
+            return null;
+        }
         var element = rootOf(row);
         if (!element || element.getAttribute('data-on-toggle') !== 'true') {
             return null;

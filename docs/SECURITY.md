@@ -191,7 +191,10 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
   `turbo:before-cache`, submit), blanks it in every form data set (`formdata` event, so also `new FormData(form)`),
   and turns off autofill, password-manager capture, spell check (Chrome's enhanced spell check may send field contents
   to Google), autocapitalize and autocorrect while it is shown. The server is the last line: a value posted for a
-  locked row without its Replace box is ignored, for every editor (with or without the reveal role). Firefox session restore skips the field (password-typed input,
+  locked row without its Replace box refuses the save, for every editor (with or without the reveal role) and every
+  stored secret (revealable or not). Residual (audit I3): Chrome's password manager snapshots a form before the
+  `submit` event, so a submit while the value is shown may expose the text field to its save heuristics (not testable
+  headless); the `data-*ignore` opt-outs cover 1Password, LastPass and Bitwarden only. Firefox session restore skips the field (password-typed input,
   autocomplete off). Residual: browser extensions with page access can read the input while it is shown, as they can
   read the 1.15 `<output>`.
 

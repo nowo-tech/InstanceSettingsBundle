@@ -59,8 +59,8 @@ use function strtolower;
  *   portable fields only, value types and constraints, sealed secrets that decrypt with this instance key,
  *   credential-shaped keys refused in provider data, provider validation), then applied in one transaction.
  * - Expiring secrets (1.17, envelope version 3): `secret_expiry` carries the expiry dates of the exported expiring
- *   secrets that hold a secret, in clear (never the secret). On import a date is applied with its secret (a sealed one
- *   in the same file, else the stored one); a date for a field that ends up without a secret is skipped.
+ *   secrets that hold a secret, in clear (never the secret). On import a date is applied only with its own secret,
+ *   sealed in the same file (audit L2); any other date is skipped, never attached to the secret the target stores.
  * - Image fields (1.4, envelope version 2): `settings` carries the `isf:<sha256>` reference and, on request, `files`
  *   carries the stored bytes in base64. On import every file is strictly decoded, size-capped, checked against its
  *   declared hash and run through the whole upload pipeline (sniffing, limits, re-encoding) before anything is written.
@@ -288,6 +288,15 @@ final readonly class ConfigPortability
         if ($settings === [] && $secrets === [] && $providers === [] && $expiry === []) {
             throw new PortabilityException('empty_payload');
         }
+        // Audit L2: a date travels only with its own secret, imported in the same file; it is never attached to the
+        // secret the target already stores (another key), which keeps its own date.
+        foreach ($expiry as $section => $dates) {
+            foreach (array_keys($dates) as $key) {
+                if (!isset($secrets[$section][(string) SettingField::expiryField($key)])) {
+                    unset($expiry[$section][$key]);
+                }
+            }
+        }
 
         if ($dryRun) {
             $changes = [];
@@ -313,13 +322,7 @@ final readonly class ConfigPortability
                 $sections[$section] = ($sections[$section] ?? []) + $values;
             }
             foreach ($expiry as $section => $dates) {
-                foreach ($dates as $key => $date) {
-                    // A date travels with its secret: the imported one, else the stored one (1.17).
-                    $name = (string) SettingField::expiryField($key);
-                    if (isset($secrets[$section][$name]) || $this->settings->hasSecret($section . '.' . $name)) {
-                        $sections[$section][$key] = $date;
-                    }
-                }
+                $sections[$section] = ($sections[$section] ?? []) + $dates;
             }
             foreach ($sections as $section => $values) {
                 $changes[$section] = $this->settings->save($section, $values, SettingsChangedEvent::ORIGIN_IMPORT);

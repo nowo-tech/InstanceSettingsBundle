@@ -10,6 +10,7 @@ use LogicException;
 use Nowo\InstanceSettingsBundle\Command\CheckExpiringSecretsCommand;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Configuration;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
+use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecrets;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryChecker;
@@ -136,6 +137,12 @@ final class ExpiringSecretsApiTest extends TestCase
         self::assertSame(['providers.api_key'], array_keys($this->store->records));
         self::assertSame('2027-06-30', $this->dateIn($this->store, 'providers.api_key'));
 
+        // Audit L3: a secret seeded without a date clears a stale date row left by an earlier secret.
+        $this->store->write('providers', ['backup_key' => new DateTimeImmutable('2020-01-01')], new DateTimeImmutable());
+        $this->repository->rows = array_filter($this->repository->rows, static fn (SettingValue $row): bool => $row->getName() !== 'backup_key');
+        (new FallbackSeeder($registry, $this->repository, $settings, expiryStore: $this->store))->seed();
+        self::assertNull($this->dateIn($this->store, 'providers.backup_key'));
+
         // Insert-only: a second run neither re-seeds the secret nor rewrites its date.
         $settings->save('providers', ['api_key:expires_on' => '2028-01-01']);
         (new FallbackSeeder($registry, $this->repository, $settings, expiryStore: $this->store))->seed();
@@ -180,16 +187,19 @@ final class ExpiringSecretsApiTest extends TestCase
         self::assertContains('providers.api_key:expires_on', $result->changedKeys());
         self::assertSame('2027-01-31', $this->dateIn($targetStore, 'providers.api_key'));
 
-        // A date alone applies to the stored secret; null removes it.
-        $target->import(['schema' => 'nowo-instance-settings', 'version' => 3, 'secret_expiry' => ['providers' => ['api_key' => '2027-05-01']]]);
-        self::assertSame('2027-05-01', $this->dateIn($targetStore, 'providers.api_key'));
+        // Audit L2: a date travels only with its own secret. A date without the secret in the same file is never attached
+        // to the target's stored secret (another key), neither set nor removed; a dry run does not list it either.
+        $alone = ['schema' => 'nowo-instance-settings', 'version' => 3, 'secret_expiry' => ['providers' => ['api_key' => '2027-05-01']]];
+        self::assertSame([], $target->import($alone, true)->changedKeys());
+        self::assertSame([], $target->import($alone)->changedKeys());
+        self::assertSame('2027-01-31', $this->dateIn($targetStore, 'providers.api_key'));
         $target->import(['schema' => 'nowo-instance-settings', 'version' => 3, 'secret_expiry' => ['providers' => ['api_key' => null]]]);
-        self::assertSame([], $targetStore->records);
+        self::assertSame('2027-01-31', $this->dateIn($targetStore, 'providers.api_key'));
 
         // A date for a field that has no secret (none stored, none imported) is skipped, not refused.
         $skipped = $target->import(['schema' => 'nowo-instance-settings', 'version' => 3, 'secret_expiry' => ['providers' => ['backup_key' => '2027-05-01']]]);
         self::assertSame([], $skipped->changedKeys());
-        self::assertSame([], $targetStore->records);
+        self::assertSame(['providers.api_key'], array_keys($targetStore->records));
     }
 
     public function testImportRefusesMalformedDates(): void

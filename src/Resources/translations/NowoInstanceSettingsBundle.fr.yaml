@@ -167,6 +167,7 @@ reveal:
   replace: "Remplacer la valeur enregistrée"
   announce_shown: "Valeur enregistrée affichée dans le champ."
   announce_hidden: "Valeur enregistrée masquée."
+  replace_required: "Cochez « Remplacer la valeur enregistrée » pour la modifier."
 secret_expiry:
   label: "Date d’expiration"
   help: "Facultatif. Enregistrer un nouveau secret efface cette date, sauf si vous en indiquez une nouvelle en même temps."

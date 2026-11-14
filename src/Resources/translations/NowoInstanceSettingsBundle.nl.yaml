@@ -167,6 +167,7 @@ reveal:
   replace: "Opgeslagen waarde vervangen"
   announce_shown: "Opgeslagen waarde in het veld getoond."
   announce_hidden: "Opgeslagen waarde verborgen."
+  replace_required: "Vink “Opgeslagen waarde vervangen” aan om hem te wijzigen."
 secret_expiry:
   label: "Vervaldatum"
   help: "Optioneel. Een nieuw opgeslagen geheim wist deze datum, tenzij u tegelijk een nieuwe opgeeft."

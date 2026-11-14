@@ -25,8 +25,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
-use function array_flip;
-use function array_intersect_key;
 use function array_key_exists;
 use function array_keys;
 use function array_merge;
@@ -240,8 +238,14 @@ final readonly class FallbackSeeder
 
             if ($rows !== []) {
                 $this->repository->apply($rows, []);
-                // 1.17: the expiry date of a seeded secret, in the same transaction (only for the secrets written now).
-                $dates = array_intersect_key($expiry[$name] ?? [], array_flip($changedSecret));
+                // 1.17: the expiry date of a seeded secret, in the same transaction (only for the secrets written now); a
+                // secret seeded without one clears a stale date row of an earlier secret (audit L3).
+                $dates = [];
+                foreach ($changedSecret as $field) {
+                    if ($fields[$field]->expires) {
+                        $dates[$field] = $expiry[$name][$field] ?? null;
+                    }
+                }
                 if ($dates !== []) {
                     $this->expiryStore?->write($name, $dates, $now);
                 }

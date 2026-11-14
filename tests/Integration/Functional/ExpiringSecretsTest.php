@@ -18,6 +18,8 @@ use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecretSourceInterface;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\ExpiryEntity\SecretExpiry;
+use Nowo\InstanceSettingsBundle\Repository\SettingRowWriterInterface;
+use Nowo\InstanceSettingsBundle\Repository\StoredSettingRow;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\GroupedExpiringFixtureSection;
@@ -112,6 +114,29 @@ final class ExpiringSecretsTest extends KernelTestCase
 
         $entity = new SecretExpiry('providers', 'api_key', $date, $at);
         self::assertSame([null, 'providers', 'api_key', $date, $at, null, null], [$entity->getId(), $entity->getSection(), $entity->getName(), $entity->getExpiresOn(), $entity->getUpdatedAt(), $entity->getNotifiedThreshold(), $entity->getNotifiedAt()]);
+    }
+
+    public function testTheRowWriterClearsTheDateOfASecretItWritesOrDeletes(): void
+    {
+        $kernel   = $this->bootKernel(self::ENABLED, ['providers_section' => ExpiringFixtureSection::class]);
+        $settings = $this->settings($kernel);
+        $writer   = $this->container($kernel)->get(SettingRowWriterInterface::class);
+        self::assertInstanceOf(SettingRowWriterInterface::class, $writer);
+        $at = new DateTimeImmutable('2026-11-14 10:00:00');
+
+        // Audit L3: a secret rewritten or deleted around save() must not inherit the old secret's date.
+        $settings->save('providers', ['api_key' => self::SECRET, 'api_key:expires_on' => '2031-01-31', 'backup_key' => 'bk-1', 'backup_key:expires_on' => '2031-02-01', 'mode' => 'backup']);
+        $writer->writeRows([new StoredSettingRow('providers', 'api_key', null, true, 'sk-raw-new', $at), new StoredSettingRow('providers', 'mode', 'main', false, null, $at)]);
+        self::assertNull($this->dateOf($kernel, 'api_key'), 'a secret written raw has no known date');
+        self::assertSame('2031-02-01', $this->dateOf($kernel, 'backup_key'), 'other secrets keep theirs');
+
+        $writer->writeRows([], ['providers.backup_key']);
+        self::assertNull($this->dateOf($kernel, 'backup_key'), 'a deleted secret loses its date');
+        $settings->reset();
+        $writer->writeRows([new StoredSettingRow('providers', 'backup_key', null, true, 'bk-2', $at)]);
+        $source = $this->container($kernel)->get(ExpiringSecretSourceInterface::class);
+        self::assertInstanceOf(ExpiringSecretSourceInterface::class, $source);
+        self::assertSame([], $source->expiringWithin(10000, $this->today()), 'no stale date is reported for the new secrets');
     }
 
     public function testTheAdminPageShowsTheDateRowAndEscapedWarnings(): void

@@ -94,7 +94,19 @@ const STAND_IN = `document.querySelectorAll('[data-nowo-password-toggle]').forEa
 
 type Setup = { reveals: PwRequest[]; saves: PwRequest[] };
 
-async function open(page: Page, options: { status?: number; clock?: boolean; revealer?: boolean } = {}): Promise<Setup> {
+/** D-I1 / D-I3: a revealer page that also holds a locked, non-revealable secret row (no reveal marker). */
+const MIXED_ROW = `<div data-nowo-instance-settings-locked="signing_key">
+    <nowo-password-toggle data-nowo-password-toggle class="form-password-toggle">
+      <input type="password" id="signing" name="settings_section[signing_key][value]" autocomplete="new-password" placeholder="Saved: ••••">
+      <span role="button" tabindex="0" data-nowo-password-toggle-target="button" id="signing-eye" aria-label="Show password">eye</span>
+    </nowo-password-toggle>
+  </div>
+  <div data-nowo-instance-settings-replace-for="signing_key">
+    <label><input type="checkbox" name="settings_section[signing_key:replace]" value="1"> Replace the stored value</label>
+  </div>
+  <input type="text" name="settings_section[sender]" value="ACME">`;
+
+async function open(page: Page, options: { status?: number; clock?: boolean; revealer?: boolean; mixed?: boolean } = {}): Promise<Setup> {
   const script = await revealScript(page);
   if (options.clock) {
     await page.clock.install();
@@ -103,7 +115,9 @@ async function open(page: Page, options: { status?: number; clock?: boolean; rev
   await page.route(`${ORIGIN}/**`, async (route) => {
     const url = route.request().url();
     if (url === `${ORIGIN}/page`) {
-      return route.fulfill({ contentType: 'text/html', body: options.revealer === false ? NON_REVEALER_PAGE : PAGE });
+      const body = options.revealer === false ? NON_REVEALER_PAGE : PAGE;
+
+      return route.fulfill({ contentType: 'text/html', body: options.mixed ? body.replace('<input type="text" name="settings_section[sender]" value="ACME">', MIXED_ROW) : body });
     }
     if (url.endsWith('/toggle-stand-in.js')) {
       return route.fulfill({ contentType: 'text/javascript', body: STAND_IN });
@@ -150,8 +164,11 @@ async function attributes(page: Page): Promise<Record<string, string | null>> {
   }, MASKING);
 }
 
+/** The eye of the revealable row (a mixed page has another, lock-only eye). */
+const REVEAL_EYE = `[data-nowo-instance-settings-reveal] ${EYE}`;
+
 async function revealAndWait(page: Page): Promise<void> {
-  await page.locator(EYE).click();
+  await page.locator(REVEAL_EYE).click();
   await expect(page.locator(INPUT)).toHaveValue(SECRET);
 }
 
@@ -394,5 +411,30 @@ test.describe('Reveal in input (locked stored secret)', () => {
     await page.locator('#save').click();
     await expect.poll(() => setup.saves.length).toBe(1);
     expect(new URLSearchParams(setup.saves[0].postData() ?? '').get('settings_section[auth_token][value]')).toBe('');
+  });
+
+  test('a mixed page: the locked non-revealable row keeps its eye hidden and never reveals', async ({ page }) => {
+    const setup = await open(page, { mixed: true });
+    const signing = page.locator('#signing');
+    await expect(signing).toHaveAttribute('readonly', '');
+    await expect(page.locator('#signing-eye')).toBeHidden();
+    await expect(page.locator('#signing-eye')).toHaveAttribute('aria-label', 'Show password');
+
+    // The revealable row still reveals; the other row is untouched.
+    await revealAndWait(page);
+    await expect(signing).toHaveValue('');
+    expect(setup.reveals).toHaveLength(1);
+
+    // Replace unlocks the non-revealable row and gives PasswordToggle's eye back.
+    await page.locator('input[name="settings_section[signing_key:replace]"]').check();
+    await expect(signing).toBeEditable();
+    await expect(page.locator('#signing-eye')).toBeVisible();
+    await signing.fill('sign-new');
+    await page.locator('#save').click();
+    await expect.poll(() => setup.saves.length).toBe(1);
+    const body = new URLSearchParams(setup.saves[0].postData() ?? '');
+    expect(body.get('settings_section[signing_key][value]')).toBe('sign-new');
+    expect(body.get('settings_section[auth_token][value]')).toBe('');
+    expect(setup.reveals).toHaveLength(1);
   });
 });

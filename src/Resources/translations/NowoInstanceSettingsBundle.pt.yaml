@@ -167,6 +167,7 @@ reveal:
   replace: "Substituir o valor guardado"
   announce_shown: "Valor guardado mostrado no campo."
   announce_hidden: "Valor guardado oculto."
+  replace_required: "Marque “Substituir o valor guardado” para o alterar."
 secret_expiry:
   label: "Data de expiração"
   help: "Opcional. Guardar um novo segredo apaga esta data, a não ser que indique uma nova ao mesmo tempo."
