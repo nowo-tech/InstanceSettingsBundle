@@ -57,8 +57,9 @@ php bin/console assets:install   # new script bundles/nowoinstancesettings/js/no
   `security.test_roles` and replace the built-in rate limit with `security.test_rate_limiter`
   ([CONFIGURATION](CONFIGURATION.md#section-test-button-118)).
 - The last reports, running markers and built-in rate windows are rows of `instance_setting_value` under the reserved
-  sections `_section_test_report`, `_section_test_lock` and `_section_test_rate`. Tooling that reads the raw store
-  (`SettingRowReaderInterface::findAllRows()`) sees them; skip sections whose name starts with `_`.
+  sections `_section_test_report`, `_section_test_lock` and `_section_test_rate`. The settings reads,
+  `SettingRowReaderInterface::findAllRows()` and `SettingValueRepositoryInterface::findAll()` of the Doctrine repository
+  leave them out; tooling that queries the table directly should skip sections starting with `_section_test_`.
 - A custom `access_checker` is asked for the new `_test` area only when `security.test_roles` is set.
 - `area_roles._test` is now refused at compile time (use `security.test_roles`).
 - Host section templates: the reserved template variable `section_test` (null without a tester); include

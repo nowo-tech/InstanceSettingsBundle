@@ -363,10 +363,9 @@ final readonly class GoogleOAuthTester implements SettingsSectionTesterInterface
         }
 
         try {
-            $response = $this->http->request('POST', 'https://oauth2.googleapis.com/token', [
-                'body'         => ['grant_type' => 'authorization_code', 'code' => 'nowo-connection-test', 'redirect_uri' => 'https://example.invalid/', 'client_id' => $clientId, 'client_secret' => $secret],
-                'timeout'      => $context->timeBudgetSeconds(),  // the bundle cannot stop host code: honour the budget
-                'max_duration' => $context->timeBudgetSeconds(),
+            // A fixed provider host, never one read from an editable field; timeout / max_duration = the budget, no redirects.
+            $response = $this->http->request('POST', 'https://oauth2.googleapis.com/token', $context->httpOptions() + [
+                'body' => ['grant_type' => 'authorization_code', 'code' => 'nowo-connection-test', 'redirect_uri' => 'https://example.invalid/', 'client_id' => $clientId, 'client_secret' => $secret],
             ]);
             $status = $response->getStatusCode();
             $error  = $response->toArray(false)['error'] ?? null;  // Google's error code ("invalid_client"), never the body
@@ -414,14 +413,25 @@ calendar_oauth:
   **translation keys** (letters, digits, `_ . -`, no spaces) in the section's domain (or `domain`), parameters are up
   to 10 scalars (strings cut at 200 characters). A sentence instead of a key throws, and the bundle shows a failed
   check instead.
-- **Never a value.** Before the report is shown, stored or logged, the bundle compares every key and parameter with
-  every stored secret of the section (exact match, and any slice of 6 characters or more): a hit parameter becomes
-  `[redacted]`, a hit key turns the check into a generic "details hidden" check, and a warning names the section and
-  the number of hits. A tester that throws (anything, `Error` included) gives one failed check with a generic hint;
-  the exception class and its message — redacted the same way — are logged at `debug` only, never shown.
-- **Time budget**: `SettingsSectionTesterInterface::TIME_BUDGET_SECONDS` (10). Use it as the timeout of every network
-  call (`$context->timeBudgetSeconds()`); the bundle cannot interrupt PHP code, so it only logs a tester that ran over
-  (`warning`, section, group and seconds).
+- **Never a value — a best-effort guard, not a guarantee.** Before the report is shown, stored or logged, the bundle
+  compares every key and parameter, the translated label and hint, the summary line and the debug line of a throwing
+  tester with every stored secret **of the tested section**: the raw value, its common encodings (base64 and base64url
+  at any alignment, so a Basic `client:secret` header too; hex; URL and form encoding; JSON escaping; reversed), case
+  ignored, the whole value or any slice of 6 characters or more (a secret shorter than 6 characters only as the whole
+  text). A hit parameter becomes `[redacted]`, a hit key or text turns the check into a generic "details hidden"
+  check, and a warning names the section and the number of hits. It catches accidental echoes, not a determined tester,
+  and it does not know other sections' secrets, `.env` values or tokens fetched during the test. **Never put a
+  secret, a part of one or anything derived from one in a parameter**: use fixed codes, HTTP statuses and fixed host
+  names only. A tester that throws (anything, `Error` included) gives one failed check with a generic hint; the
+  exception class and its message — redacted the same way — are logged at `debug` only, never shown.
+- **Time budget**: `SettingsSectionTesterInterface::TIME_BUDGET_SECONDS` (10). The bundle cannot interrupt PHP code: a
+  tester waiting on the network holds its PHP / FrankenPHP worker until its own client gives up (`max_execution_time`
+  does not count that wait on Linux), and the bundle only logs a tester that ran over (`warning`, section, group and
+  seconds). Pass `$context->httpOptions()` (`timeout` and `max_duration` = the budget, `max_redirects` = 0) to every
+  request, or the budget to any other client.
+- **Fixed provider hosts.** Call the provider's own fixed endpoints only. Never send stored credentials to a host or
+  URL read from an editable field (or follow a redirect to one) without an allow-list: an editor of the section could
+  otherwise point it at their own server, save, and press Test.
 - **Stateless** (FrankenPHP worker mode with `kernel.reset` off): never keep a value, token or response in a
   property; the tester is a shared service.
 - **Endpoint** (owned by the bundle): `POST <path_prefix>/sections/<section>/test` with the section form's CSRF token
@@ -430,9 +440,10 @@ calendar_oauth:
   a tester for exactly that section and group (else 404), the CSRF token (else 403), the rate limit (429,
   `security.test_rate_limiter`, else 10 tests per actor per 10 minutes) and one test at a time per section and actor
   (409). The answer is the translated report (`no-store`); a refusal is `{"error": "rate_limited"|"busy", "message"}`.
-- **Last report**: status, time, actor (user identifier) and the redacted checks are stored per section / group in
-  the settings table under the reserved section `_section_test_report` (no new table, no migration) and shown under
-  the button. Exports and seeds never include them.
+- **Last report**: status, time, actor (user identifier, shown to everyone who may test the section) and the
+  redacted checks are stored per section / group in the settings table under the reserved section
+  `_section_test_report` (no new table, no migration) and shown under the button. Exports, seeds, the settings reads
+  and `SettingRowReaderInterface::findAllRows()` never include the `_section_test_*` rows.
 - **`Event\SettingsTestedEvent`** (`section`, `group`, `status`, `actor`, `testedAt`) is dispatched after every test,
   and an `info` line `Instance settings: section tested` is logged — names and status only.
 - **Page**: `settings/_section_test.html.twig` (reserved variable `section_test`, `Ui\SectionTestControls`) and

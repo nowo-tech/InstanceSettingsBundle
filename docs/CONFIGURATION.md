@@ -225,7 +225,7 @@ nowo_instance_settings:
 | `reveal_roles` | `[ROLE_DEVELOPER]` | **1.15.** Roles that may reveal a stored secret of a field declared `revealable: true`, asked **on top of** the section's own area (both are needed). They never fall back to `access_roles`, and `area_roles._reveal` is refused (compile error) so there is one place to look. An empty list refuses every reveal, which is how you turn the feature off for the whole instance. Ignored when `access_checker` is set: the custom checker decides the `_reveal` area (`InstanceSettingsAccessCheckerInterface::AREA_REVEAL`). |
 | `reveal_rate_limiter` | `null` | **1.15. Required as soon as any field declares `revealable: true`** (owner decision of 2026-11-13: a revealable secret is never served without a brake). Service id of a Symfony `RateLimiterFactory` (`framework.rate_limiter.<name>` registers `limiter.<name>`, needs `symfony/rate-limiter`) consuming one token per reveal, keyed by the SHA-256 of the actor's user identifier. Without it a revealable field fails closed when the section definitions load (router warm-up / `cache:warmup`, else the first request) with a message naming the field and this option. A host with **no** revealable field needs nothing: no limiter, no dependency, no change. |
 | `test_roles` | `null` | **1.18.** Roles that may run the **Test** button of a section (any of them), asked **on top of** the section's own area. `null`: whoever may open the section may test it. An empty list refuses every test. `area_roles._test` is refused (compile error). With a custom `access_checker`, the `_test` area (`InstanceSettingsAccessCheckerInterface::AREA_TEST`) is asked only when this is not `null`. See [Section Test button](#section-test-button-118). |
-| `test_rate_limiter` | `null` | **1.18.** Service id of a Symfony `RateLimiterFactory` consuming one token per section test, keyed by the salted SHA-256 of the actor (user identifier, else client IP). `null`: the built-in limit, 10 tests per actor per 10 minutes, kept in the settings table (no dependency). |
+| `test_rate_limiter` | `null` | **1.18.** Service id of a Symfony `RateLimiterFactory` consuming one token per section test, keyed by the salted SHA-256 of the actor (user identifier, else client IP). `null`: the built-in limit, 10 tests per actor per fixed 10-minute window (aligned on the clock), kept in the settings table (no dependency); every accepted test is its own row inserted under a unique key, so concurrent requests cannot exceed it. Set a limiter for another policy (sliding window, token bucket). |
 | `access_checker` | `null` | Service id implementing `InstanceSettingsAccessCheckerInterface` (`canAccess(?object $user, ?string $area): bool`; `$area` null = the UI itself). Replaces the role checker. |
 | `allow_unauthenticated` | `false` | **DEV / DEMO only.** Opens the UI without login; the container refuses it unless `kernel.debug` is true. |
 
@@ -486,13 +486,18 @@ framework:
   `nowo_instance_settings_section_<section>`) and `group` (optional). Answers `no-store`.
 - **Order of the checks**: the UI gate and the section area (plus `test_roles` when set) → a tester for exactly that
   section and group, names compared byte for byte (404) → CSRF (403) → rate limit (429 + `Retry-After`) → one test at
-  a time per section and actor (409; a marker older than 120 seconds is taken over).
-- **Time budget**: 10 seconds (`SettingsSectionTesterInterface::TIME_BUDGET_SECONDS`), documented for testers; a tester
-  that runs over is logged, not interrupted.
+  a time per section and actor (409). The running marker holds a random per-request token: a marker older than 120
+  seconds is taken over by exactly one request (conditional delete, then insert), and a request only ever removes
+  its own marker.
+- **Time budget**: 10 seconds (`SettingsSectionTesterInterface::TIME_BUDGET_SECONDS`), documented for testers
+  (`SectionTestContext::httpOptions()`); a tester that runs over is logged, not interrupted, and holds its worker
+  meanwhile.
 - **Stored state**: the last report per section / group, the running markers and the built-in rate windows are rows of
   `instance_setting_value` under the reserved sections `_section_test_report`, `_section_test_lock` and
   `_section_test_rate` (names are SHA-256 hashes; no user identifier in a name). **No new table, no migration.** No
-  registered section can use those names (section names start with a letter); exports and seeds never read them.
+  registered section can use those names (section names start with a letter); exports, seeds, the settings reads
+  (`InstanceSettings`) and `SettingRowReaderInterface::findAllRows()` never return them. Rate rows of ended windows
+  are removed on the next test.
 - **Logs** (names only, never a value): `info` "Instance settings: section tested" (section, group, status, actor,
   time) and "Instance settings: section test refused" (reason `rate_limited` / `busy`); `warning` "… report redacted"
   (leak guard hits) and "… ran over its time budget"; `debug` "… section tester threw" (exception class, redacted

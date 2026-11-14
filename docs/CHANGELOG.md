@@ -69,6 +69,17 @@ Target 1.18.0.
     `InstanceSettingsAccessCheckerInterface::AREA_TEST` (`_test`, refused in `area_roles`); 16 new translation keys
     (`test.*`) in the 7 locales.
 - Hosts without a tester see no change: no button, no script, no route, byte-identical pages.
+- Pre-tag audit PU (Lows fixed before 1.18.0):
+  - PU-L1: the leak guard also checks the translated label, hint and summary and the debug line of a throwing tester,
+    ignores case and looks for base64 / base64url (any alignment, Basic headers included), hex, URL / form encoding,
+    JSON escaping and the reversed value. Documented as best effort, for the section's own secrets only.
+  - PU-L2: the built-in rate window is one row per accepted test under a unique key: concurrent requests can no longer
+    exceed the limit, and a lost insert is never counted as accepted. Rows of ended windows are pruned.
+  - PU-L3: the running marker holds a per-request token; a stale marker is taken over by one request only, and a
+    request never removes another request's marker.
+  - PU-L4 / L5: `SectionTestContext::httpOptions()` (timeout and max duration = the budget, no redirects); USAGE says
+    testers call fixed provider hosts only and that only the section's own secrets are guarded.
+  - PU-L6: the `_section_test_*` rows are left out of the settings reads and `findAllRows()`.
 
 ## [1.17.0] - 2026-11-14
 
