@@ -21,6 +21,7 @@ use Nowo\InstanceSettingsBundle\Brand\BrandTwigExtension;
 use Nowo\InstanceSettingsBundle\Brand\DefaultAsset;
 use Nowo\InstanceSettingsBundle\Brand\InstanceBrandAssetReader;
 use Nowo\InstanceSettingsBundle\Brand\InstanceBrandProvider;
+use Nowo\InstanceSettingsBundle\Command\CheckExpiringSecretsCommand;
 use Nowo\InstanceSettingsBundle\Command\ExportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\ImportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
@@ -37,6 +38,11 @@ use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\EventListener\WorkerBoundaryResetListener;
+use Nowo\InstanceSettingsBundle\Expiry\DoctrineSecretExpiryStore;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecrets;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecretSourceInterface;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryChecker;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
@@ -132,6 +138,15 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     /** Parameter set by prepend() with `doctrine.entity_manager` and the files enabled (1.11): the file entity too. */
     public const DEDICATED_FILES_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_files_mapping';
 
+    /** Doctrine mapping name of the opt-in expiry entity (1.17, `expiring_secrets.enabled: true`). */
+    public const EXPIRY_MAPPING = 'NowoInstanceSettingsExpiry';
+
+    /** Parameter set by prepend() (1.17): whether the expiry entity mapping was prepended. */
+    public const EXPIRY_MAPPED_PARAMETER = 'nowo_instance_settings.expiring_secrets.mapped';
+
+    /** Parameter set by prepend() with `doctrine.entity_manager` and the expiring secrets enabled (1.17). */
+    public const DEDICATED_EXPIRY_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_expiry_mapping';
+
     /**
      * @param bool|null $brandContracts whether nowo-tech/brand-contracts is installed (null = detect; tests)
      * @param bool|null $uiKitErrorIllustrations whether UiKit's error illustration SPI (2.47) is installed (null = detect; tests)
@@ -172,6 +187,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $filesMapped = self::filesEnabled($rawConfigs);
             // load() compares with this: a flag another extension prepends after this one fails with a clear message.
             $container->setParameter(self::FILES_MAPPED_PARAMETER, $filesMapped);
+            // 1.17: the expiry table, opt-in the same way (hosts without expiring secrets keep the 1.16 schema).
+            $expiryMapped = self::rawSwitch($rawConfigs, 'expiring_secrets');
+            $container->setParameter(self::EXPIRY_MAPPED_PARAMETER, $expiryMapped);
             // 1.11 (rule 6): with doctrine.entity_manager the bundle maps its entities on that manager only, through
             // DoctrineOrmMappingsPass + EntityManagerMappingPass (registered by the bundle class); nothing is
             // prepended to the default manager.
@@ -179,6 +197,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                 $container->setParameter(self::DEDICATED_MAPPING_PARAMETER, true);
                 if ($filesMapped) {
                     $container->setParameter(self::DEDICATED_FILES_MAPPING_PARAMETER, true);
+                }
+                if ($expiryMapped) {
+                    $container->setParameter(self::DEDICATED_EXPIRY_MAPPING_PARAMETER, true);
                 }
                 $this->prependFormKitProfile($container);
 
@@ -190,6 +211,15 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'dir'       => __DIR__ . '/../FileEntity',
                     'prefix'    => 'Nowo\InstanceSettingsBundle\FileEntity',
                     'alias'     => 'NowoInstanceSettingsFiles',
+                    'is_bundle' => false,
+                ];
+            }
+            if ($expiryMapped) {
+                $mappings[self::EXPIRY_MAPPING] = [
+                    'type'      => 'attribute',
+                    'dir'       => __DIR__ . '/../ExpiryEntity',
+                    'prefix'    => 'Nowo\InstanceSettingsBundle\ExpiryEntity',
+                    'alias'     => 'NowoInstanceSettingsExpiry',
                     'is_bundle' => false,
                 ];
             }
@@ -207,7 +237,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -244,12 +274,16 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->assertFilesMapped($container, $filesEnabled);
         $this->assertLocalPath($container, $config['files']['directory'], 'files.directory');
         $this->assertLocalPath($container, $config['seed']['base_dir'], 'seed.base_dir');
-        $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed'], self::revealNeedsRateLimiter($config));
+        // 1.17: expiring secrets (opt-in, mapped in prepend() like the files).
+        $expiry = $config['expiring_secrets'];
+        $this->assertExpiryMapped($container, $expiry['enabled']);
+        $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed'], self::revealNeedsRateLimiter($config), $expiry['enabled']);
+        $this->registerExpiry($container, $expiry);
         if ($filesEnabled && $config['files']['store'] === 'filesystem') {
             $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
         }
         $this->registerFiles($container, $config['doctrine'], $filesEnabled, $config['files'] + ['public_dir' => $config['brand']['public_dir']]);
-        $this->registerPortability($container, $portability, $filesEnabled);
+        $this->registerPortability($container, $portability, $filesEnabled, $expiry['enabled']);
         // The access checker / guard also serve kits (their own actions, CLI) when the admin UI is off.
         $this->registerAccess($container, $config['security']);
         $this->registerWebUi($container, $config);
@@ -407,6 +441,59 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
+     * 1.17: the expiry table is mapped in prepend() from the raw configs (like the files, audit IO-I10); a flag another
+     * extension prepends after this one would register the store without its entity.
+     */
+    private function assertExpiryMapped(ContainerBuilder $container, bool $enabled): void
+    {
+        if ($enabled && $container->hasParameter(self::EXPIRY_MAPPED_PARAMETER) && $container->getParameter(self::EXPIRY_MAPPED_PARAMETER) === false) {
+            throw new LogicException('NowoInstanceSettingsBundle: expiring_secrets.enabled was set by a configuration prepended after this bundle, so the expiry table is not mapped. Set it in the host configuration (config/packages/nowo_instance_settings.yaml).');
+        }
+    }
+
+    /**
+     * Expiring secrets (1.17): the store, the read port, the checker and its command, only with
+     * `expiring_secrets.enabled: true` (the expiry table is mapped only then).
+     *
+     * @param array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null} $expiry
+     */
+    private function registerExpiry(ContainerBuilder $container, array $expiry): void
+    {
+        $container->setParameter('nowo_instance_settings.expiring_secrets.enabled', $expiry['enabled']);
+        if (!$expiry['enabled']) {
+            return;
+        }
+
+        $container->setDefinition(DoctrineSecretExpiryStore::class, new Definition(DoctrineSecretExpiryStore::class, [
+            new Reference(SettingsEntityManager::class),
+        ]));
+        $container->setAlias(SecretExpiryStoreInterface::class, DoctrineSecretExpiryStore::class)->setPublic(true);
+
+        $container->setDefinition(ExpiringSecrets::class, (new Definition(ExpiringSecrets::class, [
+            new Reference(SettingsSectionRegistry::class),
+            new Reference(SecretExpiryStoreInterface::class),
+            new Reference(InstanceSettingsInterface::class),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            $expiry['timezone'],
+            $expiry['warning'] ? $expiry['warning_days'] : null,
+        ]))->setPublic(true));
+        $container->setAlias(ExpiringSecretSourceInterface::class, ExpiringSecrets::class)->setPublic(true);
+
+        $container->setDefinition(SecretExpiryChecker::class, (new Definition(SecretExpiryChecker::class, [
+            new Reference(ExpiringSecrets::class),
+            new Reference(SecretExpiryStoreInterface::class),
+            $expiry['thresholds'],
+            new Reference('event_dispatcher', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->setPublic(true));
+
+        $container->setDefinition(CheckExpiringSecretsCommand::class, (new Definition(CheckExpiringSecretsCommand::class, [
+            new Reference(SecretExpiryChecker::class),
+        ]))->addTag('console.command', ['command' => CheckExpiringSecretsCommand::NAME]));
+    }
+
+    /**
      * Default FormKit profile of the bundle forms: bundle translation domain, no auto help / placeholder keys, no
      * framework classes (the UiKit settings scaffold theme paints the fields through its slots, REQ-UI-003).
      *
@@ -477,15 +564,18 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      * @param array{table_prefix: string, entity_manager: string|null} $doctrine
      * @param array{file: string|null, base_dir: string} $seed
      * @param bool $revealNeedsRateLimiter 1.15: a revealable secret field fails closed without a reveal rate limiter
+     * @param bool $expiryEnabled 1.17 `expiring_secrets.enabled`
      */
-    private function registerStore(ContainerBuilder $container, array $doctrine, bool $filesEnabled, array $seed, bool $revealNeedsRateLimiter = false): void
+    private function registerStore(ContainerBuilder $container, array $doctrine, bool $filesEnabled, array $seed, bool $revealNeedsRateLimiter = false, bool $expiryEnabled = false): void
     {
         $container->setDefinition(SettingsSectionRegistry::class, new Definition(SettingsSectionRegistry::class, [
             new TaggedIteratorArgument(NowoInstanceSettingsBundle::SECTION_TAG),
             null,
             $filesEnabled,
             $revealNeedsRateLimiter,
+            $expiryEnabled,
         ]));
+        $expiryStore = $expiryEnabled ? new Reference(SecretExpiryStoreInterface::class) : null;
 
         // 1.11 (rule 6): the bundle's private entity manager on the connection of the manager that maps the entities;
         // shared by the repository and the database file store. Never flushes or resets an application manager.
@@ -549,6 +639,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $filesEnabled ? new Reference(SettingFileStoreInterface::class) : null,
             new Reference(ImageProcessor::class),
             new Reference(SettingFileUrls::class),
+            $expiryStore,
         ]))->addTag('kernel.reset', ['method' => 'reset']));
         $container->setAlias(InstanceSettingsInterface::class, InstanceSettings::class)->setPublic(true);
 
@@ -584,6 +675,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(TransactionStateGuard::class),
             new Reference(AfterCommitEventDispatcher::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            $expiryStore,
         ]))->setPublic(true));
 
         $container->setDefinition(SeedFromFallbacksCommand::class, (new Definition(SeedFromFallbacksCommand::class, [
@@ -676,7 +768,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     /**
      * @param array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int} $portability
      */
-    private function registerPortability(ContainerBuilder $container, array $portability, bool $filesEnabled): void
+    private function registerPortability(ContainerBuilder $container, array $portability, bool $filesEnabled, bool $expiryEnabled = false): void
     {
         $container->setDefinition(DoctrineEncryptSecretSealer::class, new Definition(DoctrineEncryptSecretSealer::class, [
             new Reference(EncryptUtil::class),
@@ -701,6 +793,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $filesEnabled ? new Reference(SettingFileStoreInterface::class) : null,
             $portability['max_file_bytes'],
             new Reference(ImageProcessor::class),
+            $expiryEnabled ? new Reference(SecretExpiryStoreInterface::class) : null,
         ]))->setPublic(true));
 
         $container->setDefinition(ExportSettingsCommand::class, (new Definition(ExportSettingsCommand::class, [
@@ -772,7 +865,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}} $config
+     * @param array{web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}} $config
      */
     private function registerWebUi(ContainerBuilder $container, array $config): void
     {
@@ -880,6 +973,10 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // 1.16: the PasswordToggle eye of a revealable row reveals the stored secret (opt-in).
             $webUi['reveal_on_toggle'] ?? false,
             $webUi['reveal_toggle_only'] ?? false,
+            // 1.17: the expiry date rows and warnings of expiring secrets.
+            $container->hasDefinition(ExpiringSecrets::class) ? new Reference(ExpiringSecrets::class) : null,
+            // 1.17: stored revealable secrets locked, the eye reveals into the input (needs reveal_on_toggle).
+            $webUi['reveal_in_input'] ?? false,
         ]))->setPublic(true));
 
         // REQ-SF-004 rule 7: not autoconfigured (no `routing.controller` tag from #[Route]); the routes come only from
@@ -1086,6 +1183,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             'portability.sealed_secrets'     => $config['portability']['sealed_secrets'] ?? null,
             'files.enabled'                  => $config['files']['enabled'] ?? null,
             'brand.enabled'                  => $config['brand']['enabled'] ?? null,
+            'expiring_secrets.enabled'       => $config['expiring_secrets']['enabled'] ?? null,
         ];
         foreach ($switches as $path => $value) {
             if (!is_bool($value)) {

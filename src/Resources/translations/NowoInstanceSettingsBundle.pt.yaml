@@ -164,3 +164,13 @@ reveal:
   not_stored: Não existe nenhum segredo guardado neste campo.
   toggle_show: Mostrar o valor guardado
   toggle_hide: Ocultar o valor guardado
+  replace: "Substituir o valor guardado"
+  announce_shown: "Valor guardado mostrado no campo."
+  announce_hidden: "Valor guardado oculto."
+secret_expiry:
+  label: "Data de expiração"
+  help: "Opcional. Guardar um novo segredo apaga esta data, a não ser que indique uma nova ao mesmo tempo."
+  warning_expiring: "Expira em %date% (dentro de %days% dia(s)). Substitua o segredo e atualize esta data."
+  warning_expired: "Expirou em %date% (há %days% dia(s)). Substitua o segredo e atualize esta data."
+  notice_expiring: "“%field%” expira em %date% (dentro de %days% dia(s))."
+  notice_expired: "“%field%” expirou em %date% (há %days% dia(s))."

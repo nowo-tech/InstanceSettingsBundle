@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Section;
 
+use DateTimeImmutable;
 use InvalidArgumentException;
 use JsonSerializable;
 use LogicException;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use SensitiveParameter;
 
@@ -30,15 +32,21 @@ final readonly class SettingFallback implements JsonSerializable
      * @param string $field field name of the section ({@see SettingField::NAME_PATTERN})
      * @param bool|float|int|string|null $value bootstrap value (null or '' = no fallback)
      * @param bool $secret whether the value is a secret (must match the field: a secret is never stored in clear)
+     * @param string|null $expiresOn 1.17: expiry date `YYYY-MM-DD` of a secret fallback, seeded with the secret into a
+     *                               field declaring `expires: true` (ignored for any other field)
      */
     public function __construct(
         public string $field,
         #[SensitiveParameter]
         bool|float|int|string|null $value,
         public bool $secret = false,
+        public ?string $expiresOn = null,
     ) {
         if (preg_match(SettingField::NAME_PATTERN, $field) !== 1) {
             throw new InvalidArgumentException(sprintf('Invalid setting fallback field name "%s".', $field));
+        }
+        if ($expiresOn !== null && (!$secret || !ExpiryDate::fromStrict($expiresOn) instanceof DateTimeImmutable)) {
+            throw new InvalidArgumentException(sprintf('Setting fallback "%s": an expiry date is a YYYY-MM-DD date of a secret fallback.', $field));
         }
         $this->value = new FallbackValue($value);
     }
@@ -80,11 +88,12 @@ final readonly class SettingFallback implements JsonSerializable
     }
 
     /**
-     * Secret fallback (API key, token, DSN): stored encrypted, never printed.
+     * Secret fallback (API key, token, DSN): stored encrypted, never printed. With `$expiresOn` (1.17, `YYYY-MM-DD`) the
+     * seeder also stores its expiry date when the field declares `expires: true`.
      */
-    public static function secret(string $field, #[SensitiveParameter] ?string $value): self
+    public static function secret(string $field, #[SensitiveParameter] ?string $value, ?string $expiresOn = null): self
     {
-        return new self($field, $value, true);
+        return new self($field, $value, true, $expiresOn);
     }
 
     /**
@@ -98,6 +107,6 @@ final readonly class SettingFallback implements JsonSerializable
             'field'  => $this->field,
             'value'  => $this->secret && $this->value() !== null ? '***' : $this->value(),
             'secret' => $this->secret,
-        ];
+        ] + ($this->expiresOn === null ? [] : ['expiresOn' => $this->expiresOn]);
     }
 }

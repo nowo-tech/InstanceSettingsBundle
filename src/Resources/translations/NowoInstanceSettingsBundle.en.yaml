@@ -164,3 +164,13 @@ reveal:
   not_stored: No secret is stored for this field.
   toggle_show: Reveal stored value
   toggle_hide: Hide stored value
+  replace: "Replace the stored value"
+  announce_shown: "Stored value shown in the field."
+  announce_hidden: "Stored value hidden."
+secret_expiry:
+  label: "Expiry date"
+  help: "Optional. Saving a new secret clears this date unless you set a new one with it."
+  warning_expiring: "Expires on %date% (in %days% day(s)). Replace the secret and update this date."
+  warning_expired: "Expired on %date% (%days% day(s) ago). Replace the secret and update this date."
+  notice_expiring: "“%field%” expires on %date% (in %days% day(s))."
+  notice_expired: "“%field%” expired on %date% (%days% day(s) ago)."

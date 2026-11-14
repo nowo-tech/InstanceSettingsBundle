@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Embed;
 
+use DateTimeImmutable;
+use DateTimeInterface;
 use LogicException;
 use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecrets;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Form\SettingImageCrop;
 use Nowo\InstanceSettingsBundle\Form\SettingImageType;
@@ -52,11 +56,13 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
 
+use function abs;
 use function array_keys;
 use function array_push;
 use function explode;
 use function http_build_query;
 use function implode;
+use function in_array;
 use function is_string;
 use function sprintf;
 use function str_starts_with;
@@ -85,6 +91,12 @@ final readonly class SettingsSectionEmbedder
     /** Translation key (bundle domain) of the notice naming an invalid secret typed into a hidden row (1.9, keep_typed). */
     public const HIDDEN_SECRET_INVALID_NOTICE = 'notice.hidden_secret_invalid';
 
+    /** Translation key (bundle domain) of the notice of an expiring secret within `warning_days` of its date (1.17). */
+    public const SECRET_EXPIRING_NOTICE = 'secret_expiry.notice_expiring';
+
+    /** Translation key (bundle domain) of the notice of an expired secret (1.17). */
+    public const SECRET_EXPIRED_NOTICE = 'secret_expiry.notice_expired';
+
     /** Token id prefix of the section forms (one id per section; shared by the bundle page and the embed). */
     public const CSRF_TOKEN_PREFIX = 'nowo_instance_settings_section_';
 
@@ -101,6 +113,10 @@ final readonly class SettingsSectionEmbedder
      * @param bool $revealOnToggle `web_ui.reveal_on_toggle` (1.16): the PasswordToggle eye of a revealable row reveals
      *                             the stored secret (same endpoint and checks as the Reveal button)
      * @param bool $revealToggleOnly `web_ui.reveal_toggle_only` (1.16): with the eye, no separate Reveal / Copy / Hide buttons
+     * @param bool $revealInInput `web_ui.reveal_in_input` (1.17, with `reveal_on_toggle`): a revealable row holding a
+     *                            stored secret is locked; a value typed into it is saved only with its Replace box
+     * @param ExpiringSecrets|null $expiringSecrets 1.17: stored expiry dates and warnings of the expiring secrets (null =
+     *                                              the date rows start empty and no warning is shown)
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -121,6 +137,8 @@ final readonly class SettingsSectionEmbedder
         private ?SecretRevealer $revealer = null,
         private bool $revealOnToggle = false,
         private bool $revealToggleOnly = false,
+        private ?ExpiringSecrets $expiringSecrets = null,
+        private bool $revealInInput = false,
     ) {
     }
 
@@ -236,6 +254,24 @@ final readonly class SettingsSectionEmbedder
         // 1.15: the Reveal control, only for a user who may reveal (the plaintext itself never reaches the page).
         $reveal = $this->secretReveal($section);
 
+        // 1.17 (web_ui.reveal_in_input): the revealable rows holding a stored secret are locked for this user.
+        $locked = [];
+        if ($reveal instanceof SecretReveal && $reveal->inInput) {
+            foreach (array_keys($reveal->urls) as $name) {
+                if ($stored[$name] ?? false) {
+                    $locked[] = $name;
+                }
+            }
+        }
+
+        // 1.17: the stored expiry dates and the warnings of the expiring secrets (no query for other sections).
+        $expiryDates    = [];
+        $expiryWarnings = [];
+        if ($this->expiringSecrets instanceof ExpiringSecrets && $this->hasExpiringSecrets($fields)) {
+            $expiryDates    = $this->expiringSecrets->datesOf($section);
+            $expiryWarnings = $this->expiringSecrets->warnings($section);
+        }
+
         $form = $this->formFactory->create(SettingsSectionType::class, $data, [
             'section'            => $definition,
             'fields'             => $fields,
@@ -245,6 +281,10 @@ final readonly class SettingsSectionEmbedder
             'csrf_token_id'      => self::CSRF_TOKEN_PREFIX . $section,
             'hidden_secrets'     => $hiddenSecrets,
             'revealable_secrets' => $reveal instanceof SecretReveal ? array_keys($reveal->urls) : [],
+            // 1.17: expiry date rows of the expiring secrets.
+            'secret_expiry_dates'    => $expiryDates,
+            'secret_expiry_warnings' => $expiryWarnings,
+            'locked_secrets'         => $locked,
         ]);
         $form->handleRequest($request);
         // 1.14: the field groups as subtabs (one form: hidden panels still submit their fields); [] = stacked.
@@ -254,7 +294,7 @@ final readonly class SettingsSectionEmbedder
 
         if ($form->isSubmitted() && $form->isValid()) {
             try {
-                $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets), SettingsChangedEvent::ORIGIN_FORM);
+                $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets, $expiryDates, $locked), SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
 
                 // 1.14: back to the open subtab (a known group code only, never a raw request value).
@@ -279,6 +319,15 @@ final readonly class SettingsSectionEmbedder
         if ($this->hiddenSecretsNotice && $hiddenSecrets === HiddenSecrets::Drop && $this->hasHiddenSecrets($fields)) {
             // 1.9 (Beacon spec 222): say that a secret typed for a provider that is not selected is not saved.
             $notices[] = new Label(self::HIDDEN_SECRETS_NOTICE, NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
+        }
+        foreach ($expiryWarnings as $name => $warning) {
+            // 1.17: one warning per expiring secret within the window or expired; the label is a translated parameter,
+            // escaped with the notice when the page renders it.
+            $notices[] = new Label($warning->isExpired() ? self::SECRET_EXPIRED_NOTICE : self::SECRET_EXPIRING_NOTICE, NowoInstanceSettingsBundle::TRANSLATION_DOMAIN, [
+                '%field%' => $this->trans($fields[$name]->labelKey(), [], $definition->getTranslationDomain()),
+                '%date%'  => $warning->expiresOnString(),
+                '%days%'  => abs($warning->daysLeft),
+            ]);
         }
         if ($form->isSubmitted() && $hiddenSecrets === HiddenSecrets::KeepTyped) {
             // 1.9 (audit KB-I-L1): an invalid secret typed into a hidden row refuses the save with an error the user
@@ -341,7 +390,7 @@ final readonly class SettingsSectionEmbedder
             $urls[$field] = $this->urlGenerator->generate(InstanceSettingsRoutes::REVEAL, ['section' => $section, 'field' => $field]);
         }
 
-        return new SecretReveal($section, $urls, $this->revealOnToggle, $this->revealOnToggle && $this->revealToggleOnly);
+        return new SecretReveal($section, $urls, $this->revealOnToggle, $this->revealOnToggle && $this->revealToggleOnly, $this->revealOnToggle && $this->revealInInput);
     }
 
     /**
@@ -378,12 +427,21 @@ final readonly class SettingsSectionEmbedder
      * for a hidden secret whose "clear" box was checked (with {@see HiddenSecrets::KeepTyped}, 1.9: a hidden secret is
      * handled as a visible one: a typed value is written too, blank keeps).
      *
+     * 1.17: the expiry date of an expiring secret (`<field>:expires_on`) is passed only when the user changed it, so a
+     * new secret typed with the date left as it was clears the date (the save rule), and an untouched date is never
+     * rewritten.
+     *
      * @param FormInterface<mixed> $form
      * @param array<string, SettingField> $fields
+     *                                            1.17 (web_ui.reveal_in_input): a locked row (`$locked`) keeps its stored secret whatever value was submitted for it
+     *                                            (a read-only input edited in the browser changes nothing), unless its Replace box is ticked; its clear box still
+     *                                            deletes it.
+     * @param array<string, DateTimeImmutable> $expiryDates stored expiry dates (field => date)
+     * @param list<string> $locked locked secret rows (field names)
      *
      * @return array<string, mixed>
      */
-    private function submittedValues(FormInterface $form, array $fields, HiddenSecrets $hiddenSecrets): array
+    private function submittedValues(FormInterface $form, array $fields, HiddenSecrets $hiddenSecrets, array $expiryDates = [], array $locked = []): array
     {
         /** @var array<string, mixed> $data */
         $data   = (array) $form->getData();
@@ -419,12 +477,41 @@ final readonly class SettingsSectionEmbedder
 
                 continue;
             }
-            SecretFieldApplier::applyData($form->get($name)->getData(), static function (?string $secret) use (&$values, $name): void {
-                $values[$name] = $secret;
+            $replace = SettingsSectionType::replaceKey($name);
+            $typed   = !in_array($name, $locked, true) || ($form->has($replace) && $form->get($replace)->getData() === true);
+            SecretFieldApplier::applyData($form->get($name)->getData(), static function (?string $secret) use (&$values, $name, $typed): void {
+                if ($secret === null || $typed) {
+                    $values[$name] = $secret;
+                }
             });
+            $key = SettingField::expiryKey($name);
+            if ($field->expires && $form->has($key)) {
+                $date   = $form->get($key)->getData();
+                $date   = $date instanceof DateTimeInterface ? ExpiryDate::of($date) : null;
+                $stored = $expiryDates[$name] ?? null;
+                if (($date instanceof DateTimeImmutable ? ExpiryDate::format($date) : null) !== ($stored === null ? null : ExpiryDate::format($stored))) {
+                    $values[$key] = $date;
+                }
+            }
         }
 
         return $values;
+    }
+
+    /**
+     * Whether a section declares an expiring secret (1.17).
+     *
+     * @param array<string, SettingField> $fields
+     */
+    private function hasExpiringSecrets(array $fields): bool
+    {
+        foreach ($fields as $field) {
+            if ($field->expires) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

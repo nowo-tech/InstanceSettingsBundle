@@ -10,6 +10,7 @@
 - [security](#security)
   - [Revealing a stored secret (1.15)](#revealing-a-stored-secret-115)
   - [Revealing from the password eye (1.16)](#revealing-from-the-password-eye-116)
+  - [Locked stored secrets: reveal in the input (1.17)](#locked-stored-secrets-reveal-in-the-input-117)
 - [portability](#portability)
 - [files](#files)
   - [Filesystem store](#filesystem-store)
@@ -21,6 +22,7 @@
   - [Host-side importer API](#host-side-importer-api)
 - [brand](#brand)
   - [Error page illustrations (1.13)](#error-page-illustrations-113)
+- [Expiring secrets (1.17)](#expiring-secrets-117)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
 - [Profiles](#profiles)
@@ -51,6 +53,7 @@ nowo_instance_settings:
         navigation_hidden: []          # 1.16: section names left out of the tab bar and the first-section redirect (presentation only)
         reveal_on_toggle: false        # 1.16: the PasswordToggle eye of a revealable secret row reveals the stored secret
         reveal_toggle_only: false      # 1.16: with reveal_on_toggle, no separate Reveal / Copy / Hide buttons on rows with the eye
+        reveal_in_input: false         # 1.17: with reveal_on_toggle, a stored revealable secret is locked; the eye shows it in the input
     security:
         access_roles: [ROLE_ADMIN]     # any of them opens the UI; must not be empty (unless access_checker / allow_unauthenticated)
         area_roles: {}                 # section name or _portability => non-empty role list replacing access_roles ("_reveal" is refused)
@@ -93,9 +96,15 @@ nowo_instance_settings:
         error_illustrations:           # 1.13: UiKit error page illustrations from uploaded extra images (files.store: filesystem)
             base: null                 # extra image id used for every status without its own error_<N> upload (e.g. mascot)
             per_code: true             # use the uploaded extra images error_<N> (400 … 599) for their status
+    expiring_secrets:                  # 1.17: expiry dates of the secret fields declaring expires: true
+        enabled: false                 # opt-in: maps instance_setting_secret_expiry, the store, the read port and the command
+        thresholds: [30, 7, 1, 0]      # days before the date at which SecretExpiryThresholdReachedEvent is dispatched, once each
+        warning: true                  # warn on the section page and next to the field
+        warning_days: 30               # … from this many days before the date (and once expired)
+        timezone: null                 # zone of "today" (null = the PHP default zone)
 ```
 
-Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled` and `brand.enabled` must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
+Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled`, `brand.enabled` and `expiring_secrets.enabled` (1.17) must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
 
 ## doctrine
 
@@ -121,6 +130,7 @@ Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_
 | `navigation_hidden` | `[]` | 1.16: section names left out of the bundle page's tab bar and of the "first section" redirect. Presentation only — see [Section icons and hidden sections](#section-icons-and-hidden-sections-116). |
 | `reveal_on_toggle` | `false` | 1.16: on a revealable secret row, the PasswordToggle eye of the "new value" input reveals the stored secret (same endpoint and checks as the Reveal button) instead of unmasking what was typed. See [Revealing from the password eye](#revealing-from-the-password-eye-116). |
 | `reveal_toggle_only` | `false` | 1.16: with `reveal_on_toggle`, rows that have the eye drop the separate Reveal / Copy / Hide buttons (rows without an eye keep them). Ignored without `reveal_on_toggle`. |
+| `reveal_in_input` | `false` | 1.17: with `reveal_on_toggle`, a revealable row holding a stored secret is **locked**: read-only input, the eye shows the stored value in that input and hides it again, a new value needs "Replace the stored value", and the server ignores a value submitted for the row without it. Ignored without `reveal_on_toggle`. See [below](#locked-stored-secrets-reveal-in-the-input-117). |
 
 ### Layout and CSS stack (UiKit)
 
@@ -394,6 +404,51 @@ nowo_instance_settings:
 - Without JavaScript nothing reveals. Without PasswordToggle there is no eye: the Reveal / Copy / Hide buttons stay,
   whatever `reveal_toggle_only` says. The page script is the existing `nowo-instance-settings-reveal.js` (no inline
   script; strict CSP safe).
+
+### Locked stored secrets: reveal in the input (1.17)
+
+Symfony Beacon request (owner-approved design: a stored secret is **locked**). With both options on, a revealable
+secret row that holds a stored secret behaves as one field, for a user who may reveal:
+
+```yaml
+nowo_instance_settings:
+    web_ui:
+        reveal_on_toggle: true
+        reveal_in_input: true       # ignored without reveal_on_toggle
+```
+
+- **Locked.** The input is read-only and keeps the "Saved: ••••" placeholder; nothing can be typed. The PasswordToggle
+  eye switches that same input between `type=password` (empty) and `type=text` holding the stored value, fetched through
+  the existing reveal call (endpoint, CSRF token, `reveal_rate_limiter`, roles, audit, one call at a time). The row's
+  Reveal / Copy / Hide buttons stay hidden and its `<output>` is used for error messages only.
+- **Hidden again** on the second click, after the 60-second auto-hide, when the page is hidden, on `pagehide`, on
+  `turbo:before-cache` and on every submit: `type=password`, value emptied. Switching the type gives the input a new
+  editor, so Ctrl+Z cannot bring the value back (tested in Chromium and Firefox).
+- **While shown**, the input carries `autocomplete="off"`, `spellcheck="false"`, `autocapitalize="off"`,
+  `autocorrect="off"` (Chrome's enhanced spell check may send text-field contents to Google) and the password-manager
+  opt-outs `data-1p-ignore`, `data-lpignore`, `data-bwignore`; each attribute gets its previous value back on hide.
+- **Never posted.** A locked input never carries a value: the submit and `formdata` handlers empty it (also for a
+  script's `new FormData(form)`), and **the server ignores a value submitted for a locked row unless its Replace box is
+  ticked** — a read-only input edited through the developer tools changes nothing.
+- **Replacing** needs an explicit action: tick **Replace the stored value** (`<field>:replace`, rendered under the row;
+  `reveal.replace`). The input becomes an empty, editable password input with PasswordToggle's own eye; unticking locks
+  it again and drops what was typed. A ticked box with a blank input keeps the stored secret. The "Remove the saved
+  value" box still deletes it; once nothing is stored the row is a normal input again. The clear box is not reused for
+  Replace: DoctrineEncrypt's applier deletes the secret whenever it is ticked, whatever was typed.
+- **Accessibility.** The eye keeps `aria-pressed` and the `reveal.toggle_show` / `reveal.toggle_hide` labels. A
+  polite status region announces "Stored value shown in the field." / "Stored value hidden."
+  (`reveal.announce_shown` / `reveal.announce_hidden`) and never the value; unlike the `<output>` of the 1.15 / 1.16
+  modes, a screen reader does not read the secret aloud unless the user moves into the field.
+- **Scope.** Only revealable rows with a stored secret, only for users who may reveal (the others get no reveal markup
+  and keep typing to overwrite, as before). Without the option, or without `reveal_on_toggle`, nothing changes: typing
+  into a row overwrites its secret exactly as in 1.16. Without PasswordToggle there is no eye: the row is still locked
+  and its Reveal button reads the value into the `<output>`, as in 1.15.
+- **Firefox session restore.** Firefox saves form field values of open tabs to disk (sessionstore, written on a timer
+  of about 15 seconds after a change). Its collector skips password inputs, inputs that were ever `type=password`
+  (`HasBeenTypePassword()`) and inputs whose autocomplete is off (`nsContentUtils::IsAutocompleteEnabled()`), all
+  three of which hold for the shown value, so the 60-second auto-hide was kept. The check was made against the Firefox
+  source (`toolkit/components/sessionstore/SessionStoreUtils.cpp`), not against a saved profile; other browsers'
+  session restore was not checked.
 
 ## portability
 
@@ -804,6 +859,23 @@ registered (the images live in the database, and an error page must not need it)
 The brand images are always public (served anonymously by the file route): keep the `PUBLIC_ACCESS` line of
 [files](#files). Access to the two sections follows `security.area_roles.brand` / `.appearance` (default: the UI roles).
 
+## Expiring secrets (1.17)
+
+Opt-in expiry dates for the secret fields that declare `SettingField::secret(..., expires: true)` (Beacon request,
+owner decision D-20261114-09). With the default `enabled: false` nothing is mapped or registered and a section
+declaring `expires: true` fails closed when the definitions load. See [USAGE](USAGE.md#expiring-secrets-117).
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Maps the `instance_setting_secret_expiry` table (mapping `NowoInstanceSettingsExpiry`, on `doctrine.entity_manager` when set) and registers `Expiry\SecretExpiryStoreInterface` (`DoctrineSecretExpiryStore`), `Expiry\ExpiringSecretSourceInterface` (`ExpiringSecrets`), `Expiry\SecretExpiryChecker` and `nowo:instance-settings:check-expiring-secrets`. Literal boolean only, read in the bundle's prepend step like `files.enabled`: a value prepended later fails the build. Add the migration ([UPGRADING](UPGRADING.md#unreleased)). |
+| `thresholds` | `[30, 7, 1, 0]` | Days before the date (0 … 3650, distinct, at least one). The command dispatches `Event\SecretExpiryThresholdReachedEvent` once per threshold per date; `0` = the day itself and every day after (expired). When several are crossed at once (first run, a job that did not run) one event is dispatched, for the smallest. |
+| `warning` | `true` | The section page warns (a `flash_warning` notice above the form and the help text of the date row) while a date is within `warning_days` or passed. `false`: no warning; dates and events are unchanged. |
+| `warning_days` | `30` | 0 … 3650. `0`: only on the day and once expired. |
+| `timezone` | `null` | Zone of "today" for the thresholds and the warning (any PHP identifier, e.g. `Europe/Madrid`). Null: the PHP default zone. "Today" is read from the `clock` service (`Psr\Clock\ClockInterface`) on every call. |
+
+Schedule the command daily (cron or Symfony Scheduler), e.g. `0 8 * * * php bin/console nowo:instance-settings:check-expiring-secrets`.
+Running it more often is harmless: an announced threshold is stored next to the date. `--dry-run` lists what is due.
+
 ## FormKit profile
 
 The forms are FormKit types bound to the profile **`nowo_form_kit.profiles.instance_settings`** (REQ-TWIG-005 rule 11), prepended by the bundle with: translation domain `NowoInstanceSettingsBundle`, `auto_help: false`, `auto_placeholder: false`, no framework classes (the UiKit settings scaffold theme paints the fields). Define the profile yourself to change it; the bundle then prepends nothing:
@@ -845,7 +917,8 @@ REQ-CFG-001 does not apply: the bundle has one configuration tree. Variants are 
 
 ## Container parameters
 
-`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`, `.files.enabled` (effective: true with `brand.enabled` too), `.files.path_prefix`, `.files.orphan_retention`, `.files.mapped` (set by prepend: whether the file entity was mapped), `.brand.enabled` (1.5).
+`nowo_instance_settings.doctrine.table_prefix`, `.web_ui.enabled`, `.web_ui.path_prefix`, `.web_ui.layout_template`, `.web_ui.templates`, `.security.allow_unauthenticated`, `.portability.schema`, `.files.enabled` (effective: true with `brand.enabled` too), `.files.path_prefix`, `.files.orphan_retention`, `.files.mapped` (set by prepend: whether the file entity was mapped), `.brand.enabled` (1.5), `.expiring_secrets.enabled`
+and `.expiring_secrets.mapped` (1.17).
 
 ## Seeding from fallbacks
 
@@ -874,6 +947,8 @@ The container refuses to compile when:
 - `files.path_prefix` overlaps `web_ui.path_prefix`;
 - `files.enabled` is true and `ext-gd` lacks PNG, JPEG or WebP support;
 - `files.enabled` or `brand.enabled` was prepended after this bundle, so the file entity is not mapped (1.5, audit IO-I10);
+- `expiring_secrets.enabled` was prepended after this bundle, so the expiry entity is not mapped (1.17);
+- `expiring_secrets.thresholds` is empty or repeats a value, or `expiring_secrets.timezone` is not a zone (1.17);
 - `brand.enabled` is true and the host defines its own `BrandProviderInterface` service or alias (two brands, 1.5,
   audit IU-I2);
 - `brand.enabled` is true without `nowo-tech/brand-contracts`, without `brand.defaults.name`, or with a default asset
@@ -884,4 +959,5 @@ The container refuses to compile when:
 When the section definitions load (router warm-up, first request), a section declaring an image field throws a
 `LogicException` without `files.enabled: true` (the file table is not mapped) or without `ext-gd` with PNG, JPEG and
 WebP support (checked again for a container compiled on another machine): images are never stored without the
-re-encode step.
+re-encode step. Since 1.17, a section declaring `expires: true` throws a `LogicException` without
+`expiring_secrets.enabled: true` (the expiry table is not mapped).

@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Ui;
 use InvalidArgumentException;
 use Nowo\InstanceSettingsBundle\Embed\SectionEmbedOptions;
 use Nowo\InstanceSettingsBundle\Section\SectionGroups;
+use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsGroup;
 use Nowo\UiKitBundle\View\Label;
 use Symfony\Component\Form\FormView;
@@ -66,9 +67,11 @@ final readonly class SectionGroupTabs
         foreach ($groups as $group) {
             $count = 0;
             foreach ($group->fields as $name) {
-                $child = $form->children[$name] ?? null;
-                if ($child instanceof FormView && ($child->vars['valid'] ?? true) === false) {
-                    ++$count;
+                // 1.17: the expiry date row of an expiring secret belongs to the secret's group.
+                foreach ([$form->children[$name] ?? null, $form->children[SettingField::expiryKey($name)] ?? null] as $child) {
+                    if ($child instanceof FormView && ($child->vars['valid'] ?? true) === false) {
+                        ++$count;
+                    }
                 }
             }
             $errors[$group->code] = $count;

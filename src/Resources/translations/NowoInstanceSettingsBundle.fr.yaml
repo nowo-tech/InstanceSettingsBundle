@@ -164,3 +164,13 @@ reveal:
   not_stored: Aucun secret enregistré pour ce champ.
   toggle_show: Afficher la valeur enregistrée
   toggle_hide: Masquer la valeur enregistrée
+  replace: "Remplacer la valeur enregistrée"
+  announce_shown: "Valeur enregistrée affichée dans le champ."
+  announce_hidden: "Valeur enregistrée masquée."
+secret_expiry:
+  label: "Date d’expiration"
+  help: "Facultatif. Enregistrer un nouveau secret efface cette date, sauf si vous en indiquez une nouvelle en même temps."
+  warning_expiring: "Expire le %date% (dans %days% jour(s)). Remplacez le secret et mettez cette date à jour."
+  warning_expired: "A expiré le %date% (il y a %days% jour(s)). Remplacez le secret et mettez cette date à jour."
+  notice_expiring: "« %field% » expire le %date% (dans %days% jour(s))."
+  notice_expired: "« %field% » a expiré le %date% (il y a %days% jour(s))."

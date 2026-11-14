@@ -34,6 +34,70 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.17.0 (Symfony Beacon request, owner decision D-20261114-09).
+
+### Added
+
+- **Expiring secrets (opt-in).** `SettingField::secret(..., expires: true)` gives a secret field a companion expiry
+  date (date only), stored next to it in the new opt-in table `instance_setting_secret_expiry` and mapped only with
+  `nowo_instance_settings.expiring_secrets.enabled: true` (off by default: no schema change, and fields without
+  `expires` behave exactly as in 1.16).
+  - **Save rule.** Saving a **new secret** clears its date, or replaces it with the date given in the same save
+    (`'<field>:expires_on' => '2027-01-31'` in `InstanceSettingsInterface::save()`; the admin form passes the date only
+    when the user changed it). Removing the secret removes the date. A date alone updates it while a secret is stored
+    (refused with a violation otherwise). A date-only change dispatches no `SettingsChangedEvent`; `save()` returns
+    `<field>:expires_on` among the changed keys.
+  - **Admin UI.** A date row (`<field>:expires_on`, `DateType` single text, UTC on both sides) right after the secret
+    row, prefilled with the stored date, in the secret's subtab with `web_ui.section_layout: tabs`, hidden with its
+    secret for provider-dependent fields. Within `expiring_secrets.warning_days` (default 30) of the date, or once
+    expired, a warning above the section form and as the help text of the date row; every text is translated and
+    escaped (seven locales, keys `secret_expiry.*`).
+  - **Read port** `Expiry\ExpiringSecretSourceInterface::expiringWithin(int $days, DateTimeImmutable $today)` →
+    `list<Expiry\ExpiringSecret>` (section, field, label key, translation domain, date, days left; never the secret).
+  - **Threshold event** `Event\SecretExpiryThresholdReachedEvent` (scalars only) dispatched by
+    `nowo:instance-settings:check-expiring-secrets` once per threshold per expiry date (`expiring_secrets.thresholds`,
+    default `[30, 7, 1, 0]`). The last announced threshold is stored next to the date and claimed with one conditional
+    UPDATE, so restarts, workers and concurrent runs never announce it twice; a new date resets it; a failing listener
+    releases the claim (retried on the next run, exit code 1). Several thresholds crossed at once announce the smallest.
+  - **Store port** `Expiry\SecretExpiryStoreInterface` (`SecretExpiryRecord` VO) with the DBAL implementation
+    `DoctrineSecretExpiryStore` on the bundle's private entity manager (standard and DDD hosts, `doctrine.table_prefix`).
+  - **Clock.** "Today" comes from `ClockInterface` in `expiring_secrets.timezone` (default the PHP default zone) on
+    every call; nothing is memoized (FrankenPHP worker mode with kernel reset off).
+  - **Export / import** carry the dates in clear under `secret_expiry` (envelope version 3, only when a date is
+    exported; other exports keep version 1 / 2). An imported date is applied with its secret (the sealed one of the file,
+    else the stored one) and skipped for a field left without a secret. **Fallback seeding**:
+    `SettingFallback::secret($field, $value, '2027-01-31')` seeds the date with the secret.
+- **Configuration** `expiring_secrets: {enabled, thresholds, warning, warning_days, timezone}`.
+- **Locked stored secrets: reveal in the input (`web_ui.reveal_in_input`, opt-in, default `false`).** Symfony Beacon
+  request, owner-approved design. With `reveal_on_toggle`, a revealable row holding a stored secret is **locked** for a
+  user who may reveal: the input is read-only and the PasswordToggle eye shows the stored value in that same input
+  (`type=text`) through the existing reveal call (endpoint, CSRF token, limiter, roles, audit, one call at a time), then
+  hides it again (second click, 60-second auto-hide, hidden page, `pagehide`, `turbo:before-cache`, submit). While shown:
+  `autocomplete="off"`, `spellcheck="false"`, `autocapitalize="off"`, `autocorrect="off"`, `data-1p-ignore`,
+  `data-lpignore`, `data-bwignore`, all restored on hide; the type switch drops the undo history. A new value needs the
+  new **Replace the stored value** box (`<field>:replace`); unticking re-locks. The submit and `formdata` handlers
+  never post the revealed value, and the **server ignores a value submitted for a locked row without Replace** — only
+  with the option on: hosts without it keep the 1.16 overwrite-by-typing behaviour. A polite status region announces
+  "shown" / "hidden", never the value. Three new translation keys (`reveal.replace`, `reveal.announce_shown`,
+  `reveal.announce_hidden`) in the seven locales.
+
+### Changed
+
+- `PortabilityEnvelope::assertValid()` accepts versions 1 to 3 (`VERSION_WITH_SECRET_EXPIRY`); `KEYS` lists
+  `secret_expiry`. `PortabilityEnvelope::VERSION` stays 2.
+- Optional trailing constructor arguments: `InstanceSettings` (`expiryStore`), `ConfigPortability` (`expiryStore`),
+  `FallbackSeeder` (`expiryStore`), `SettingsSectionEmbedder` (`expiringSecrets`, `revealInInput`), `SecretReveal`
+  (`inInput`), `SettingsSectionRegistry`
+  (`expiryEnabled`), `SettingField` (`expires`), `SettingFallback` (`expiresOn`). Code building them by hand keeps
+  working.
+
+### Documentation
+
+- USAGE ([Expiring secrets](USAGE.md#expiring-secrets-117)) with the Beacon-style reminder listener, CONFIGURATION
+  ([`expiring_secrets`](CONFIGURATION.md#expiring-secrets-117), [locked stored secrets](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117),
+  including the Firefox session restore check), UPGRADING (DDL for MySQL, MariaDB, PostgreSQL and
+  SQLite).
+
 ## [1.16.1] - 2026-11-14
 
 Target 1.16.1.

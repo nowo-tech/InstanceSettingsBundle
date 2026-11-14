@@ -19,6 +19,7 @@
 - [Reading settings](#reading-settings)
 - [Writing settings from code](#writing-settings-from-code)
 - [Secrets](#secrets)
+  - [Expiring secrets (1.17)](#expiring-secrets-117)
 - [Image fields](#image-fields)
   - [Crop step (1.8)](#crop-step-18)
   - [Image input box and cards (1.12)](#image-input-box-and-cards-112)
@@ -459,8 +460,117 @@ For **secret** fields: a non-empty string replaces the secret, `null` or `''` re
 - Stored in `instance_setting_value.secret_value`, an `#[Encrypted]` column: DoctrineEncryptBundle encrypts it on flush and decrypts it on load with its **default profile** (Halite by default). The bundle refuses to compile when `NowoDoctrineEncryptBundle` is not registered.
 - Key rotation and bulk encryption use the DoctrineEncrypt commands (`doctrine:encrypt:rotate-keys`, `doctrine:encrypt:status`); the settings table is covered like any `#[Encrypted]` entity.
 - The admin form never receives the secret: it only knows whether one is stored ("Saved: ••••. Leave blank to keep it."), a blank field keeps it, the "Remove the saved value" checkbox clears it.
-- A secret can be made **revealable** (1.15, owner decision of 2026-11-13): `SettingField::secret('client_secret', 'oauth.client_secret', revealable: true)` adds an explicit **Reveal** button to that row for a user holding `security.reveal_roles` (`ROLE_DEVELOPER` by default), which fetches the stored value from the reveal endpoint, one field per call, and audits it (`Event\SecretRevealedEvent`: field, actor, time — never the value). It is **off by default, per field**: turn it on for a credential an admin must read elsewhere, never for an encryption or signing key, and read the trade-off in [CONFIGURATION](CONFIGURATION.md#revealing-a-stored-secret-115) before you do. Every other secret stays write-only.
+- A secret can be made **revealable** (1.15, owner decision of 2026-11-13): `SettingField::secret('client_secret', 'oauth.client_secret', revealable: true)` adds an explicit **Reveal** button to that row for a user holding `security.reveal_roles` (`ROLE_DEVELOPER` by default), which fetches the stored value from the reveal endpoint, one field per call, and audits it (`Event\SecretRevealedEvent`: field, actor, time — never the value). It is **off by default, per field**: turn it on for a credential an admin must read elsewhere, never for an encryption or signing key, and read the trade-off in [CONFIGURATION](CONFIGURATION.md#revealing-a-stored-secret-115) before you do. Every other secret stays write-only. With `web_ui.reveal_on_toggle` (1.16) the PasswordToggle eye runs the same reveal, and with `web_ui.reveal_in_input` (1.17) a stored revealable secret is **locked**: read-only, the eye shows it in the input itself, "Replace the stored value" is needed to type a new one, and the server ignores a value posted without it ([CONFIGURATION](CONFIGURATION.md#locked-stored-secrets-reveal-in-the-input-117)).
 - Exports contain secrets only on request and only **sealed** (`enc:v2:<base64>` of the DoctrineEncrypt ciphertext of the value bound to `<schema>|<section>.<field>`): an instance holding the same key imports them into the same field, any other instance refuses the file (`failed_unseal_secret`) and a value moved to another field is refused (`secret_context_mismatch`). Set `portability.sealed_secrets: false` to keep secrets on the instance.
+
+### Expiring secrets (1.17)
+
+An API key, a certificate password or an OAuth client secret that expires on a known day can carry its **expiry date**
+(Symfony Beacon request, owner decision D-20261114-09). Opt-in, per field, and off by default:
+
+```yaml
+# config/packages/nowo_instance_settings.yaml
+nowo_instance_settings:
+    expiring_secrets:
+        enabled: true            # maps instance_setting_secret_expiry: add the migration (UPGRADING)
+        # thresholds: [30, 7, 1, 0]
+        # warning_days: 30
+        # timezone: Europe/Madrid
+```
+
+```php
+yield SettingField::secret('api_key', 'sms.api_key', expires: true);
+yield SettingField::secret('client_secret', 'oauth.client_secret', revealable: true, expires: true);
+```
+
+**What the admin sees.** A date row ("Expiry date", date only) right after the secret row, prefilled with the stored
+date. From `warning_days` before the date, and once it has passed, a warning above the section form ("“API key” expires
+on 2027-01-31 (in 12 day(s)).") and as the help text of the date row; the row carries
+`data-nowo-instance-settings-expiry="expiring|expired"` for host styling. Labels are translated and escaped like every
+other text of the page. The date is not a secret: it is shown, exported and logged as a date; the secret itself keeps
+every 1.15 – 1.16 rule (never rendered back, reveal only through the audited endpoint, `reveal_on_toggle`, Turbo cache
+clearing), and never goes into the date row, the warning, the read port, the events or the logs.
+
+**The save rule** (explicit, also for `save()` from code and imports):
+
+| Save | Stored date afterwards |
+| --- | --- |
+| a **new secret**, no date given | **cleared** (the old date belonged to the old secret) |
+| a **new secret** with a date | the given date |
+| the secret **removed** | removed |
+| the secret kept, a date given | the given date (`null` / `''` removes it); refused with a violation when no secret is stored |
+| the same secret again | unchanged |
+
+In the admin form a date counts as "given" only when the user changed it: rotate a key and leave the date as it was,
+and the date is cleared; type the new date together with the new key to keep a date. From code, pass the date under
+the companion key `<field>:expires_on` (`SettingField::expiryKey('api_key')`), as a `YYYY-MM-DD` string or a
+`DateTimeInterface` (its own calendar date):
+
+```php
+$settings->save('sms', ['api_key' => $newKey, 'api_key:expires_on' => '2027-01-31']);
+$settings->save('sms', ['api_key:expires_on' => '2027-06-30']);   // renew the date of the stored key
+```
+
+`save()` returns `api_key:expires_on` among the changed keys; a date-only change dispatches no `SettingsChangedEvent`
+(the secret did not change).
+
+**Reading the dates** — the read port `Expiry\ExpiringSecretSourceInterface` (framework-free):
+
+```php
+/** @return list<ExpiringSecret> section, field, label, translationDomain, expiresOn, daysLeft; never the secret */
+$due = $source->expiringWithin(30, new DateTimeImmutable('today', new DateTimeZone('Europe/Madrid')));
+```
+
+It lists the declared expiring fields that hold a secret and a date due within the window (expired ones included),
+soonest first. `$today` counts by its calendar date in its own zone.
+
+**Reminders.** Schedule `nowo:instance-settings:check-expiring-secrets` daily. For every expiring secret it dispatches
+`Event\SecretExpiryThresholdReachedEvent` once per threshold (`expiring_secrets.thresholds`, default 30, 7, 1 and 0
+days before the date) per expiry date: the last announced threshold is stored next to the date, so a restart, another
+worker or a second run the same day sends nothing twice, and a new date (a renewed key) starts over. When several
+thresholds are crossed at once (the first run, a job that did not run for a while) only the smallest is announced. A
+listener that throws makes the command exit with code 1 and that reminder is retried on the next run. The event holds
+scalars only: `section`, `field`, `label` (translation key), `translationDomain`, `expiresOn` (`YYYY-MM-DD`),
+`threshold`, `daysLeft` (negative once expired), plus `key()` and `isExpired()`.
+
+The bundle sends nothing itself: the host turns the event into its own reminders. Symfony Beacon sends a bell
+notification and an e-mail:
+
+```php
+use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
+use Symfony\Component\EventDispatcher\Attribute\AsEventListener;
+
+#[AsEventListener]
+final readonly class SecretExpiryReminder
+{
+    public function __construct(
+        private TranslatorInterface $translator,
+        private BellNotifier $bell,         // the host's own services
+        private ReminderMailer $mailer,
+        private AdminRecipients $admins,
+    ) {
+    }
+
+    public function __invoke(SecretExpiryThresholdReachedEvent $event): void
+    {
+        $field   = $this->translator->trans($event->label, [], $event->translationDomain);
+        $subject = $event->isExpired()
+            ? sprintf('%s expired on %s', $field, $event->expiresOn)
+            : sprintf('%s expires on %s (in %d day(s))', $field, $event->expiresOn, $event->daysLeft);
+
+        foreach ($this->admins->forSettings($event->section) as $admin) {
+            $this->bell->notify($admin, $subject, ['route' => 'nowo_instance_settings_section', 'section' => $event->section]);
+            $this->mailer->send($admin, $subject);   // escape $field in an HTML body: a label is host text
+        }
+    }
+}
+```
+
+**Seeding, export and import.** A secret fallback can carry its date: `SettingFallback::secret('api_key', $value,
+'2027-01-31')` stores it with the seeded secret (insert-only, like the secret). Exports carry the dates in clear under
+`secret_expiry` (envelope version 3, only when a date is exported); an imported date is applied with its secret — the
+sealed one of the same file, else the one already stored — and skipped for a field left without a secret. The seed file
+(`nowo:instance-settings:seed`) never holds secrets, so it carries no dates.
 
 ## Image fields
 
@@ -900,6 +1010,9 @@ only); a dry run never writes and is not checked.
 }
 ```
 
+- **Version 3 (1.17).** An export that carries the expiry date of an expiring secret is version 3 and adds
+  `"secret_expiry": {"<section>": {"<field>": "2027-01-31"}}` (dates in clear, never the secret); 1.4 – 1.16 refuse it
+  (`unsupported_version`). Other exports keep the version below.
 - **Version.** An export that contains no image field is still version 1 (any 1.x imports it). With image fields it is
   version 2: `settings` carries each image field's `isf:<sha256>` reference (or `null`) and, when asked (UI checkbox,
   checked by default; CLI `--include-files`), `files` carries the stored bytes in base64. 1.4 imports both versions; a
@@ -1056,11 +1169,12 @@ Section and field labels use each section's own domain. The secret widget copy (
 
 ## Doctrine schema and migrations
 
-The bundle maps one entity, two with `files.enabled: true` (the mappings are prepended to `doctrine.orm.mappings`
+The bundle maps one entity, plus one with `files.enabled: true` and one with `expiring_secrets.enabled: true` (1.17) (the mappings are prepended to `doctrine.orm.mappings`
 automatically; with `doctrine.entity_manager` set they are mapped on that manager only, since 1.11):
 
 - `Nowo\InstanceSettingsBundle\Entity\SettingValue` → table `<prefix>instance_setting_value` (`id`, `section`, `name`, `value` JSON, `secret_value` TEXT, `updated_at`, unique `(section, name)`).
 - `Nowo\InstanceSettingsBundle\FileEntity\SettingFile` (1.4, image fields, only with `files.enabled: true`; mapping `NowoInstanceSettingsFiles`) → table `<prefix>instance_setting_file` (`id`, `section`, `name`, `sha256` CHAR(64), `variant`, `mime_type`, `width`, `height`, `byte_size`, `content` BLOB / BYTEA, `created_at`, `orphaned_at`, unique `(section, name, sha256, variant)`, index `orphaned_at`). Not mapped (no table, no migration diff) unless `files.enabled: true`; see [UPGRADING](UPGRADING.md#to-160) for the DDL.
+- `Nowo\InstanceSettingsBundle\ExpiryEntity\SecretExpiry` (1.17, only with `expiring_secrets.enabled: true`; mapping `NowoInstanceSettingsExpiry`) → table `<prefix>instance_setting_secret_expiry` (`id`, `section`, `name`, `expires_on` DATE, `notified_threshold`, `notified_at`, `updated_at`, unique `(section, name)`). See [UPGRADING](UPGRADING.md#unreleased) for the DDL.
 
 Create and apply the schema with Doctrine Migrations in the application:
 
@@ -1168,6 +1282,8 @@ event): use it for migrations and restores; application code keeps using `Instan
 | `Section\SectionFallbackProviderInterface` | bootstrap values for DB-only seeding | implement on the section |
 | `Brand\BrandFallbackProviderInterface` | seed `brand` / `appearance` from a legacy source | `brand.fallback_provider: <service id>` |
 | `File\SettingFileStoreInterface` | another backend for image files | alias it in your services |
+| `Expiry\SecretExpiryStoreInterface` (1.17) | another store for the expiry dates | alias it in your services |
+| `Expiry\ExpiringSecretSourceInterface` (1.17) | read port: expiring secrets due within a window | inject it (implemented by `ExpiringSecrets`) |
 
 With the brand bridge enabled, consume brand data through `Nowo\Brand\Contract\BrandProviderInterface` rather than the
 `brand.*` keys.

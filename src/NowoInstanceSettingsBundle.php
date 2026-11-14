@@ -74,6 +74,12 @@ final class NowoInstanceSettingsBundle extends Bundle
             [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
             NowoInstanceSettingsExtension::DEDICATED_FILES_MAPPING_PARAMETER,
         ));
+        $container->addCompilerPass(DoctrineOrmMappingsPass::createAttributeMappingDriver(
+            [EntityManagerMappingPass::EXPIRY_ENTITY_NAMESPACE],
+            [__DIR__ . '/ExpiryEntity'],
+            [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
+            NowoInstanceSettingsExtension::DEDICATED_EXPIRY_MAPPING_PARAMETER,
+        ));
         $container->addCompilerPass(new EntityManagerMappingPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -10);
     }
 

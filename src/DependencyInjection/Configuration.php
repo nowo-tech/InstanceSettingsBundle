@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\DependencyInjection;
 
 use Closure;
+use DateTimeZone;
 use Nowo\InstanceSettingsBundle\Brand\BrandSection;
 use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
@@ -23,9 +24,12 @@ use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use function array_diff;
 use function array_key_exists;
 use function array_keys;
+use function array_unique;
 use function array_values;
+use function count;
 use function get_debug_type;
 use function implode;
+use function in_array;
 use function is_array;
 use function is_string;
 use function mb_strlen;
@@ -183,6 +187,10 @@ final class Configuration implements ConfigurationInterface
                         ->end()
                         ->booleanNode('reveal_toggle_only')
                             ->info('1.16: with reveal_on_toggle, hide the separate Reveal / Copy / Hide buttons on rows that have the eye (rows without it keep them). Default false.')
+                            ->defaultFalse()
+                        ->end()
+                        ->booleanNode('reveal_in_input')
+                            ->info('1.17: with reveal_on_toggle, a revealable secret row holding a stored secret is LOCKED: its input is read-only, the eye shows the stored value in that same input (type=text, autofill / spellcheck off) and hides it again, and a new value can only be typed after ticking "Replace the stored value". The server then ignores a value submitted for that row without the Replace box. Ignored without reveal_on_toggle. Default false: the rows behave as in 1.16.')
                             ->defaultFalse()
                         ->end()
                     ->end()
@@ -350,9 +358,57 @@ final class Configuration implements ConfigurationInterface
                     ->end()
                 ->end()
                 ->append($this->brandNode())
+                ->append($this->expiringSecretsNode())
             ->end();
 
         return $treeBuilder;
+    }
+
+    /**
+     * `expiring_secrets` (1.17, Beacon D-20261114-09): the opt-in expiry dates of the secret fields declaring
+     * `expires: true`, their thresholds and the page warning.
+     */
+    private function expiringSecretsNode(): ArrayNodeDefinition
+    {
+        $node = (new TreeBuilder('expiring_secrets'))->getRootNode();
+        $node
+            ->info('Expiring secrets (1.17): an expiry date next to the secret fields declaring expires: true, threshold events and a page warning.')
+            ->addDefaultsIfNotSet()
+            ->children()
+                ->booleanNode('enabled')
+                    ->info('Maps the expiry table (instance_setting_secret_expiry) and registers the store, the read port and nowo:instance-settings:check-expiring-secrets. Off by default: no schema change. A section declaring expires: true without it fails at boot. Literal boolean only.')
+                    ->defaultFalse()
+                ->end()
+                ->arrayNode('thresholds')
+                    ->info('Days before the expiry date at which nowo:instance-settings:check-expiring-secrets dispatches SecretExpiryThresholdReachedEvent, once per threshold and date (0 = the day itself and after).')
+                    ->integerPrototype()->min(0)->max(3650)->end()
+                    ->defaultValue([30, 7, 1, 0])
+                    ->validate()
+                        ->ifTrue(static fn (array $v): bool => $v === [] || count($v) !== count(array_unique($v)))
+                        ->thenInvalid('nowo_instance_settings.expiring_secrets.thresholds must be a non-empty list of distinct day counts, got %s.')
+                    ->end()
+                ->end()
+                ->booleanNode('warning')
+                    ->info('The settings page warns on the section and next to an expiring secret within warning_days of its date, or expired.')
+                    ->defaultTrue()
+                ->end()
+                ->integerNode('warning_days')
+                    ->info('Days before the date from which the page warns (0 = only on the day and once expired).')
+                    ->defaultValue(30)
+                    ->min(0)
+                    ->max(3650)
+                ->end()
+                ->scalarNode('timezone')
+                    ->info('Zone of "today" for the thresholds and the warning (e.g. "Europe/Madrid"). Null: the PHP default zone.')
+                    ->defaultNull()
+                    ->validate()
+                        ->ifTrue(static fn (mixed $v): bool => $v !== null && (!is_string($v) || !in_array($v, DateTimeZone::listIdentifiers(DateTimeZone::ALL_WITH_BC), true)))
+                        ->thenInvalid('nowo_instance_settings.expiring_secrets.timezone must be a timezone identifier such as "Europe/Madrid", got %s.')
+                    ->end()
+                ->end()
+            ->end();
+
+        return $node;
     }
 
     /**

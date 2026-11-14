@@ -10,6 +10,8 @@ use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Section\SectionFallbackProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
@@ -23,6 +25,8 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
+use function array_flip;
+use function array_intersect_key;
 use function array_key_exists;
 use function array_keys;
 use function array_merge;
@@ -58,6 +62,7 @@ final readonly class FallbackSeeder
      * @param TransactionStateGuard|null $transactionGuard refuses to write on a phantom DBAL transaction (MySQL DDL)
      * @param EventDispatcherInterface|null $dispatcher receives one {@see SettingsChangedEvent} per seeded section, after the commit
      * @param ClockInterface|null $clock `updated_at` of the inserted rows
+     * @param SecretExpiryStoreInterface|null $expiryStore 1.17: stores the expiry date a secret fallback carries
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -68,6 +73,7 @@ final readonly class FallbackSeeder
         private ?TransactionStateGuard $transactionGuard = null,
         private ?EventDispatcherInterface $dispatcher = null,
         private ?ClockInterface $clock = null,
+        private ?SecretExpiryStoreInterface $expiryStore = null,
     ) {
     }
 
@@ -148,16 +154,20 @@ final readonly class FallbackSeeder
         $examined = [];
         $skipped  = [];
         $plans    = [];
+        $expiry   = [];
         foreach ($names as $name) {
             $section = $this->registry->get($name);
             if (!$section instanceof SectionFallbackProviderInterface) {
                 continue;
             }
-            $examined[]                = $name;
-            [$values, $sectionSkipped] = $this->plan($name, $section);
-            $skipped                   = array_merge($skipped, $sectionSkipped);
+            $examined[]                        = $name;
+            [$values, $sectionSkipped, $dates] = $this->plan($name, $section);
+            $skipped                           = array_merge($skipped, $sectionSkipped);
             if ($values !== []) {
                 $plans[$name] = $values;
+            }
+            if ($dates !== []) {
+                $expiry[$name] = $dates;
             }
         }
 
@@ -178,7 +188,7 @@ final readonly class FallbackSeeder
         }
 
         /** @var array{0: list<string>, 1: list<string>, 2: array<string, string>, 3: list<SettingsChangedEvent>} $written */
-        $written                            = $plans === [] ? [[], [], [], []] : $this->repository->transactional(fn (): array => $this->insertMissing($plans));
+        $written                            = $plans === [] ? [[], [], [], []] : $this->repository->transactional(fn (): array => $this->insertMissing($plans, $expiry));
         [$seeded, $secrets, $lost, $events] = $written;
 
         return [new SeedReport($examined, $seeded, array_merge($skipped, $lost), $secrets, false), $events];
@@ -188,10 +198,11 @@ final readonly class FallbackSeeder
      * Inserts the planned values whose row is still missing (re-checked inside the transaction); never updates a row.
      *
      * @param array<string, array<string, bool|float|int|string>> $plans section => field => value
+     * @param array<string, array<string, DateTimeImmutable>> $expiry 1.17: section => field => expiry date of a seeded secret
      *
      * @return array{0: list<string>, 1: list<string>, 2: array<string, string>, 3: list<SettingsChangedEvent>}
      */
-    private function insertMissing(array $plans): array
+    private function insertMissing(array $plans, array $expiry = []): array
     {
         $now     = $this->clock?->now() ?? new DateTimeImmutable();
         $seeded  = [];
@@ -229,6 +240,11 @@ final readonly class FallbackSeeder
 
             if ($rows !== []) {
                 $this->repository->apply($rows, []);
+                // 1.17: the expiry date of a seeded secret, in the same transaction (only for the secrets written now).
+                $dates = array_intersect_key($expiry[$name] ?? [], array_flip($changedSecret));
+                if ($dates !== []) {
+                    $this->expiryStore?->write($name, $dates, $now);
+                }
                 $events[] = new SettingsChangedEvent($name, $changed, $changedSecret, SettingsChangedEvent::ORIGIN_SEED);
             }
         }
@@ -237,9 +253,10 @@ final readonly class FallbackSeeder
     }
 
     /**
-     * Values to write for one section (field => normalized value) and the skipped keys with their reason.
+     * Values to write for one section (field => normalized value), the skipped keys with their reason and the expiry
+     * dates of the planned secrets of fields declaring `expires: true` (1.17).
      *
-     * @return array{0: array<string, bool|float|int|string>, 1: array<string, string>}
+     * @return array{0: array<string, bool|float|int|string>, 1: array<string, string>, 2: array<string, DateTimeImmutable>}
      */
     private function plan(string $name, SectionFallbackProviderInterface $section): array
     {
@@ -252,6 +269,7 @@ final readonly class FallbackSeeder
         $values  = [];
         $skipped = [];
         $seen    = [];
+        $dates   = [];
         $context = null;
         foreach ($section->getFallbacks() as $fallback) {
             $key    = $name . '.' . $fallback->field;
@@ -265,6 +283,10 @@ final readonly class FallbackSeeder
                     $reason = SeedFileSeeder::SKIP_DEFAULT;
                 } else {
                     $values[$fallback->field] = $clean;
+                    $date                     = $fallback->expiresOn === null || !$fields[$fallback->field]->expires ? null : ExpiryDate::fromStrict($fallback->expiresOn);
+                    if ($date instanceof DateTimeImmutable) {
+                        $dates[$fallback->field] = $date;
+                    }
                 }
             }
             $seen[] = $fallback->field;
@@ -273,7 +295,7 @@ final readonly class FallbackSeeder
             }
         }
 
-        return [$values, $skipped];
+        return [$values, $skipped, $dates];
     }
 
     /**

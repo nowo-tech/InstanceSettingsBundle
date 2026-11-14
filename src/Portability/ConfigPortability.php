@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Portability;
 
+use DateTimeImmutable;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
+use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
 use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
@@ -55,6 +58,9 @@ use function strtolower;
  * - Import: all-or-nothing. The whole payload is validated first (schema, version, known sections / fields,
  *   portable fields only, value types and constraints, sealed secrets that decrypt with this instance key,
  *   credential-shaped keys refused in provider data, provider validation), then applied in one transaction.
+ * - Expiring secrets (1.17, envelope version 3): `secret_expiry` carries the expiry dates of the exported expiring
+ *   secrets that hold a secret, in clear (never the secret). On import a date is applied with its secret (a sealed one
+ *   in the same file, else the stored one); a date for a field that ends up without a secret is skipped.
  * - Image fields (1.4, envelope version 2): `settings` carries the `isf:<sha256>` reference and, on request, `files`
  *   carries the stored bytes in base64. On import every file is strictly decoded, size-capped, checked against its
  *   declared hash and run through the whole upload pipeline (sniffing, limits, re-encoding) before anything is written.
@@ -86,6 +92,7 @@ final readonly class ConfigPortability
      * @param SettingFileStoreInterface|null $fileStore image field files (1.4)
      * @param int $maxFileBytes `portability.max_file_bytes`: decoded bytes of all the files of one envelope
      * @param ImageProcessor $images upload pipeline re-run on imported files
+     * @param SecretExpiryStoreInterface|null $expiryStore expiry dates of the expiring secrets (1.17)
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -101,6 +108,7 @@ final readonly class ConfigPortability
         private ?SettingFileStoreInterface $fileStore = null,
         private int $maxFileBytes = self::DEFAULT_MAX_FILE_BYTES,
         private ImageProcessor $images = new ImageProcessor(),
+        private ?SecretExpiryStoreInterface $expiryStore = null,
     ) {
     }
 
@@ -165,6 +173,7 @@ final readonly class ConfigPortability
         $settings  = [];
         $secrets   = [];
         $files     = [];
+        $expiry    = [];
         $hasImages = false;
         $fileBytes = 0;
         foreach ($this->registry->names() as $section) {
@@ -196,6 +205,10 @@ final readonly class ConfigPortability
 
                     continue;
                 }
+                $date = $field->expires ? $this->expiryDate($section, $name) : null;
+                if ($date !== null) {
+                    $expiry[$section][$name] = $date;
+                }
                 if (!$includeSecrets || !$this->sealer instanceof SecretSealerInterface) {
                     continue;
                 }
@@ -206,8 +219,16 @@ final readonly class ConfigPortability
             }
         }
 
-        $payload             = PortabilityEnvelope::header($this->schema, $this->clock?->now() ?? (new NativeClock())->now(), $hasImages ? PortabilityEnvelope::VERSION : PortabilityEnvelope::VERSION_WITHOUT_FILES);
+        $version = match (true) {
+            $expiry !== [] => PortabilityEnvelope::VERSION_WITH_SECRET_EXPIRY,
+            $hasImages     => PortabilityEnvelope::VERSION,
+            default        => PortabilityEnvelope::VERSION_WITHOUT_FILES,
+        };
+        $payload             = PortabilityEnvelope::header($this->schema, $this->clock?->now() ?? (new NativeClock())->now(), $version);
         $payload['settings'] = $settings;
+        if ($expiry !== []) {
+            $payload['secret_expiry'] = $expiry;
+        }
         if ($hasImages && $includeFiles) {
             $payload['files'] = $files;
         }
@@ -262,14 +283,15 @@ final readonly class ConfigPortability
         }
         $secrets   = $this->validateSecrets($payload['secrets'] ?? null);
         $providers = $this->validateProviders($payload['providers'] ?? []);
+        $expiry    = $this->validateSecretExpiry($payload['secret_expiry'] ?? []);
 
-        if ($settings === [] && $secrets === [] && $providers === []) {
+        if ($settings === [] && $secrets === [] && $providers === [] && $expiry === []) {
             throw new PortabilityException('empty_payload');
         }
 
         if ($dryRun) {
             $changes = [];
-            foreach ([$settings, $secrets] as $group) {
+            foreach ([$settings, $secrets, $expiry] as $group) {
                 foreach ($group as $section => $values) {
                     foreach ($values as $name => $value) {
                         $changes[$section][] = $name;
@@ -284,11 +306,20 @@ final readonly class ConfigPortability
         }
 
         // @igor-ignore - The closure runs synchronously inside the transaction and is not stored by the repository.
-        $changes = FileStoreTransaction::run($this->repository, $this->fileStore, function () use ($settings, $secrets, $providers): array {
+        $changes = FileStoreTransaction::run($this->repository, $this->fileStore, function () use ($settings, $secrets, $providers, $expiry): array {
             $changes  = [];
             $sections = $settings;
             foreach ($secrets as $section => $values) {
                 $sections[$section] = ($sections[$section] ?? []) + $values;
+            }
+            foreach ($expiry as $section => $dates) {
+                foreach ($dates as $key => $date) {
+                    // A date travels with its secret: the imported one, else the stored one (1.17).
+                    $name = (string) SettingField::expiryField($key);
+                    if (isset($secrets[$section][$name]) || $this->settings->hasSecret($section . '.' . $name)) {
+                        $sections[$section][$key] = $date;
+                    }
+                }
             }
             foreach ($sections as $section => $values) {
                 $changes[$section] = $this->settings->save($section, $values, SettingsChangedEvent::ORIGIN_IMPORT);
@@ -320,7 +351,7 @@ final readonly class ConfigPortability
     private function assertAllowedSections(array $payload, array $allowed): void
     {
         $secrets = $payload['secrets'] ?? null;
-        foreach ([$payload['settings'] ?? null, is_array($secrets) ? $secrets['values'] ?? null : null, $payload['providers'] ?? null] as $block) {
+        foreach ([$payload['settings'] ?? null, is_array($secrets) ? $secrets['values'] ?? null : null, $payload['providers'] ?? null, $payload['secret_expiry'] ?? null] as $block) {
             foreach (is_array($block) ? array_keys($block) : [] as $name) {
                 if (!in_array((string) $name, $allowed, true)) {
                     throw new PortabilityException('forbidden_section:' . $name);
@@ -522,6 +553,56 @@ final readonly class ConfigPortability
                     throw new PortabilityException('invalid_value:' . $key);
                 }
                 $valid[$section][$field->name] = $plain;
+            }
+        }
+
+        return $valid;
+    }
+
+    /**
+     * Stored date (`YYYY-MM-DD`) of an expiring secret that holds a secret, or null (1.17).
+     */
+    private function expiryDate(string $section, string $name): ?string
+    {
+        $record = $this->expiryStore?->findBySection($section)[$name] ?? null;
+
+        return $record !== null && $this->settings->hasSecret($section . '.' . $name) ? ExpiryDate::format($record->expiresOn) : null;
+    }
+
+    /**
+     * `secret_expiry` (1.17): section => field => `YYYY-MM-DD` or null, for portable expiring secret fields only.
+     *
+     * @return array<string, array<string, string|null>> section => `<field>:expires_on` => date or null
+     */
+    private function validateSecretExpiry(mixed $expiry): array
+    {
+        if (!is_array($expiry)) {
+            throw new PortabilityException('invalid_secret_expiry');
+        }
+
+        $valid = [];
+        foreach ($expiry as $section => $dates) {
+            $section = (string) $section;
+            if (!$this->registry->has($section)) {
+                throw new PortabilityException('unknown_section:' . $section);
+            }
+            if (!is_array($dates)) {
+                throw new PortabilityException('invalid_section:' . $section);
+            }
+            $fields = $this->registry->fields($section);
+            foreach ($dates as $name => $date) {
+                $key   = $section . '.' . $name;
+                $field = $fields[(string) $name] ?? null;
+                if ($field === null || !$field->expires) {
+                    throw new PortabilityException('unknown_key:' . $key . SettingField::EXPIRY_KEY_SUFFIX);
+                }
+                if (!$field->portable) {
+                    throw new PortabilityException('not_portable:' . $key . SettingField::EXPIRY_KEY_SUFFIX);
+                }
+                if ($date !== null && (!is_string($date) || !ExpiryDate::fromStrict($date) instanceof DateTimeImmutable)) {
+                    throw new PortabilityException('invalid_value:' . $key . SettingField::EXPIRY_KEY_SUFFIX);
+                }
+                $valid[$section][SettingField::expiryKey($field->name)] = $date;
             }
         }
 

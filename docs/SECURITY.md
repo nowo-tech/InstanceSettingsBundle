@@ -179,6 +179,22 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
   (`unsupported_encryptor`): use Halite or Defuse.
 - Fixtures and the demo use obvious placeholders (`REDACTED-TEST`, `REDACTED-DEMO`).
 
+- **Expiring secrets (1.17).** The expiry date is not a secret: it is stored in clear in
+  `instance_setting_secret_expiry`, shown in the admin form, exported in clear (`secret_expiry`) and logged. The secret
+  value never reaches the date store, the read port (`ExpiringSecret`), the threshold event, the command output, the
+  warnings or the logs (a failing reminder listener is logged by exception class only, never its message). The date
+  row is a plain date input; the reveal endpoint, `reveal_on_toggle` and the Turbo / `pagehide` clearing of revealed
+  values are unchanged. Field labels in the warnings are translated and escaped by Twig.
+
+- **Locked stored secrets (1.17, `web_ui.reveal_in_input`).** The stored value is shown in the input itself, so it
+  is a form control while shown: the script hides it on every exit path (second click, 60 s, hidden page, `pagehide`,
+  `turbo:before-cache`, submit), blanks it in every form data set (`formdata` event, so also `new FormData(form)`),
+  and turns off autofill, password-manager capture, spell check (Chrome's enhanced spell check may send field contents
+  to Google), autocapitalize and autocorrect while it is shown. The server is the last line: a value posted for a
+  locked row without its Replace box is ignored. Firefox session restore skips the field (password-typed input,
+  autocomplete off). Residual: browser extensions with page access can read the input while it is shown, as they can
+  read the 1.15 `<output>`.
+
 ## Logging
 
 - `info` "Instance settings saved." with section, changed **field names** and origin; for image fields also `files`

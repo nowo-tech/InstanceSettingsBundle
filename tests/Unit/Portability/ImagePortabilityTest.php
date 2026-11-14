@@ -118,7 +118,7 @@ final class ImagePortabilityTest extends TestCase
         self::assertSame(['brand.name'], $result->changedKeys());
 
         $this->assertRefused('unknown_key:files', ['schema' => 'nowo-instance-settings', 'version' => 1, 'settings' => ['brand' => ['name' => 'B']], 'files' => []]);
-        $this->assertRefused('unsupported_version', ['schema' => 'nowo-instance-settings', 'version' => 3, 'settings' => []]);
+        $this->assertRefused('unsupported_version', ['schema' => 'nowo-instance-settings', 'version' => 4, 'settings' => []]);
     }
 
     /**
