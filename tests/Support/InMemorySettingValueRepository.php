@@ -71,7 +71,7 @@ final class InMemorySettingValueRepository implements SettingValueRepositoryInte
         }
     }
 
-    public function storedSecretStates(string $section): array
+    public function storedSecretStates(string $section, bool $forUpdate = false): array
     {
         $states = [];
         foreach ($this->rows as $id => $row) {

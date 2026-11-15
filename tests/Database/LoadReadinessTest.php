@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Database;
 
 use DateTimeImmutable;
+use Nowo\InstanceSettingsBundle\Exception\SettingsConflictException;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowWriterInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
@@ -12,6 +13,7 @@ use Nowo\InstanceSettingsBundle\Repository\StoredSettingRow;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
+use Nowo\InstanceSettingsBundle\Settings\SectionSnapshot;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SeedFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
@@ -170,6 +172,37 @@ final class LoadReadinessTest extends DatabaseTestCase
 
         self::assertSame(409, $client->getResponse()->getStatusCode());
         self::assertFalse($this->connection($kernel)->fetchOne('SELECT expires_on FROM instance_setting_secret_expiry WHERE section = ? AND name = ?', ['providers', 'api_key']), 'the rotated secret has no date');
+    }
+
+    /**
+     * R4 (audit QQ-D-M-1) — inside a REPEATABLE READ transaction of the host that read the table before another editor
+     * rotated the secret, the stored secret is still read as last committed: the stale save is refused (409).
+     */
+    public function testASecretRotatedAfterTheHostTransactionReadTheTableIsAConflict(): void
+    {
+        $kernel = $this->boot();
+        $peer   = $this->boot();
+        $this->settings($kernel)->save('mailer', ['dsn' => 'smtp://first']);
+        $base = $this->settings($kernel)->snapshot('mailer');
+        self::assertInstanceOf(SectionSnapshot::class, $base);
+        $this->settings($kernel)->reset();
+
+        $outcome = $this->connection($kernel)->transactional(function ($connection) use ($kernel, $peer, $base): string {
+            // The host reads the table: its REPEATABLE READ snapshot starts here.
+            $connection->fetchAllAssociative('SELECT id, secret_value FROM instance_setting_value');
+            $this->settings($peer)->save('mailer', ['dsn' => 'smtp://rotated']);
+            try {
+                $this->settings($kernel)->saveSince('mailer', ['dsn' => 'smtp://mine'], $base);
+            } catch (SettingsConflictException) {
+                return 'conflict';
+            }
+
+            return 'saved';
+        });
+
+        self::assertSame('conflict', $outcome, 'the rotation by the other editor is never overwritten without a 409');
+        $this->settings($peer)->reset();
+        self::assertSame('smtp://rotated', $this->settings($peer)->getSecret('mailer.dsn'));
     }
 
     /**

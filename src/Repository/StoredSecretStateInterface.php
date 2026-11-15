@@ -17,9 +17,10 @@ interface StoredSecretStateInterface
 {
     /**
      * The stored (encrypted) form of each secret row of one section, keyed by field name; the section name is re-checked
-     * byte for byte.
+     * byte for byte. With `$forUpdate` (inside a unit of work, under the section lock) it is a locking read: the latest
+     * committed rows, never an older snapshot of the transaction (audit QQ-D-M-1).
      *
      * @return array<string, string>
      */
-    public function storedSecretStates(string $section): array;
+    public function storedSecretStates(string $section, bool $forUpdate = false): array;
 }

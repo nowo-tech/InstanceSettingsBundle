@@ -82,6 +82,12 @@ Target 1.19.0 (Beacon spec 239: load readiness). See [HIGH-LOAD.md](HIGH-LOAD.md
   prefix no longer applies a LIMIT before that check (audit QQ-I-3).
 - `FileStoreTransactionConnection::exec()` returns an int on DBAL 3 and 4.
 
+### Known issues
+
+- Without DoctrineEncrypt (or with a custom repository without `StoredSecretStateInterface`), a secret rotated by another
+  editor in the same second as the page load is not detected as a conflict: the fallback fingerprint is the row id and
+  `updated_at` (second precision). See HIGH-LOAD.md (audit QQ-D-L-1).
+
 ### Changed
 
 - A transient storage failure around `save()` (and every other write) is now a `Nowo\TransactionContract\TransientStorageFailure`

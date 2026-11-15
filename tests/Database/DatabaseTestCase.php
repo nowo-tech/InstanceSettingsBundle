@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Database;
 
+use Composer\InstalledVersions;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
@@ -29,6 +30,7 @@ use function getenv;
 use function is_string;
 use function json_decode;
 use function preg_replace;
+use function str_starts_with;
 
 /**
  * Kernels on one real database (1.19, Beacon spec 239): `IS_TEST_DATABASE_URL` (MySQL / MariaDB / PostgreSQL), skipped
@@ -94,6 +96,10 @@ abstract class DatabaseTestCase extends TestCase
         $first           = $this->kernels === [];
         $this->kernels[] = $kernel;
         $kernel->boot();
+        if (str_starts_with((string) InstalledVersions::getVersion('doctrine/dbal'), '3.')) {
+            // DBAL 3: nested units on savepoints, as HIGH-LOAD.md asks of a host that calls the store inside its own transactions.
+            $this->connection($kernel)->setNestTransactionsWithSavepoints(true);
+        }
         if ($first) {
             $doctrine = $kernel->getContainer()->get('doctrine');
             self::assertInstanceOf(ManagerRegistry::class, $doctrine);

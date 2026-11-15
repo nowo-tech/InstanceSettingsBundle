@@ -352,12 +352,11 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
             throw new InvalidSettingValueException($section, $violations);
         }
 
-        $now   = $this->clock?->now() ?? (new NativeClock())->now();
         $store = $imageValues === [] ? null : $this->fileStore;
 
         try {
             // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored by the repository.
-            $written = FileStoreTransaction::run($this->repository, $store, fn (): ?array => $this->writeLocked($section, $fields, $values, $normalized, $imageValues, $required, $expiryInput, $base, $now));
+            $written = FileStoreTransaction::run($this->repository, $store, fn (): ?array => $this->writeLocked($section, $fields, $values, $normalized, $imageValues, $required, $expiryInput, $base));
         } finally {
             // The memo may hold rows changed in memory by the unit (written or rolled back): read again next time.
             $this->reset();
@@ -406,12 +405,14 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
      *
      * @return array{0: list<string>, 1: list<string>, 2: array<string, array{old: string|null, new: string|null}>, 3: array<string, ProcessedImage|null>, 4: array<string, DateTimeImmutable|null>}|null
      */
-    private function writeLocked(string $section, array $fields, array $values, array $normalized, array $imageValues, array $required, array $expiryInput, ?SectionSnapshot $base, DateTimeImmutable $now): ?array
+    private function writeLocked(string $section, array $fields, array $values, array $normalized, array $imageValues, array $required, array $expiryInput, ?SectionSnapshot $base): ?array
     {
         $existing = [];
         foreach (SectionLock::rowsOf($this->repository, $section) as $row) {
             $existing[$row->getName()] = $row;
         }
+        // Audit QQ-D-L-1: the write time is taken once the lock is held, so `updated_at` follows the commit order.
+        $now     = $this->clock?->now() ?? (new NativeClock())->now();
         $current = $this->effectiveValues($fields, $existing);
         if ($base instanceof SectionSnapshot) {
             [$normalized, $imageValues, $expiryInput, $required] = $this->merge($section, $fields, $values, $normalized, $imageValues, $expiryInput, $required, $base, $existing);
@@ -542,7 +543,7 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
     private function merge(string $section, array $fields, array $values, array $normalized, array $imageValues, array $expiryInput, array $required, SectionSnapshot $base, array $existing): array
     {
         $dates     = $expiryInput !== [] && $this->expiryStore instanceof SecretExpiryStoreInterface ? $this->expiryStore->findBySection($section) : [];
-        $now       = $this->fingerprints($section, $fields, $existing, $dates);
+        $now       = $this->fingerprints($section, $fields, $existing, $dates, true);
         $conflicts = [];
         foreach ($normalized as $name => $value) {
             $was = $base->fingerprint($name);
@@ -606,13 +607,16 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
      * @param array<string, SettingField> $fields
      * @param array<string, SettingValue> $rows stored rows by field name
      * @param array<string, SecretExpiryRecord> $dates stored expiry dates by field name
+     * @param bool $locked inside the unit, under the section lock: the stored secrets are read with a locking read
      *
      * @return array<string, string>
      */
-    private function fingerprints(string $section, array $fields, array $rows, array $dates): array
+    private function fingerprints(string $section, array $fields, array $rows, array $dates, bool $locked = false): array
     {
         $fingerprints = [];
-        $states       = $this->repository instanceof StoredSecretStateInterface ? $this->repository->storedSecretStates($section) : [];
+        // Audit QQ-D-M-1: under the lock, the stored secrets are read with a locking read (the latest committed ones, also
+        // inside a REPEATABLE READ transaction of the host that read the table before).
+        $states = $this->repository instanceof StoredSecretStateInterface ? $this->repository->storedSecretStates($section, $locked) : [];
         foreach ($fields as $name => $field) {
             $row = $rows[$name] ?? null;
             if ($field->secret) {

@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Repository;
 use DateTimeImmutable;
 use Doctrine\DBAL\LockMode;
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\ORM\Query;
 use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
@@ -110,18 +111,22 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
 
     /**
      * The stored (encrypted) secret column of each secret row of a section (1.19, audit QQ-L-1): read with DBAL, never
-     * decrypted.
+     * decrypted. With `$forUpdate` a locking read on MySQL / MariaDB / PostgreSQL (audit QQ-D-M-1; SQLite locks the
+     * database for a writing transaction).
      */
-    public function storedSecretStates(string $section): array
+    public function storedSecretStates(string $section, bool $forUpdate = false): array
     {
         $entityManager = $this->entityManager->get();
         $metadata      = $entityManager->getClassMetadata(SettingValue::class);
-        $rows          = $entityManager->getConnection()->fetchAllAssociative(sprintf(
-            'SELECT %1$s AS section, %2$s AS name, %3$s AS secret FROM %4$s WHERE %1$s = ? AND %3$s IS NOT NULL',
+        $connection    = $entityManager->getConnection();
+        $platform      = $connection->getDatabasePlatform();
+        $rows          = $connection->fetchAllAssociative(sprintf(
+            'SELECT %1$s AS section, %2$s AS name, %3$s AS secret FROM %4$s WHERE %1$s = ? AND %3$s IS NOT NULL%5$s',
             $metadata->getColumnName('section'),
             $metadata->getColumnName('name'),
             $metadata->getColumnName('secretValue'),
             $metadata->getTableName(),
+            $forUpdate && ($platform instanceof AbstractMySQLPlatform || $platform instanceof PostgreSQLPlatform) ? ' FOR UPDATE' : '',
         ), [$section]);
         $states = [];
         foreach (array_filter($rows, static fn (array $row): bool => (string) $row['section'] === $section) as $row) {

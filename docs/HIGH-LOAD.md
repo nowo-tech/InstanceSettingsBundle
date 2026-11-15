@@ -82,7 +82,12 @@ The section form carries the section as its editor opened it, in the hidden `_ba
 per expiry date (HMAC-SHA-256 keyed with `%kernel.secret%`, 16 hex characters; never a value). A secret is
 fingerprinted from its **stored (encrypted) form**, which changes on every write, never from its plaintext: the token
 cannot confirm a guessed secret, even to an editor without the reveal permission who knows `kernel.secret` (audit
-QQ-L-1). Without a key (`InstanceSettings` built with `snapshotKey: ''`) no token is rendered. Under the section's write
+QQ-L-1); under the section lock it is read with a locking read, so a secret rotated by another editor is seen also
+inside a REPEATABLE READ transaction of yours (QQ-D-M-1). Without a key (`InstanceSettings` built with `snapshotKey: ''`)
+no token is rendered. **Known issue:** without DoctrineEncrypt (or with a repository of your own that does not implement
+`StoredSecretStateInterface`) a secret is fingerprinted by its row id and `updated_at`, which the database keeps to the
+second: a rotation by another editor within the same second as the page load is not detected (the 1.18 behaviour for
+that one second; audit QQ-D-L-1). `updated_at` is taken once the section lock is held, so it follows the commit order. Under the section's write
 lock each submitted field is compared with that snapshot and with the stored row:
 
 | Since the page was opened, the field was… | …and this editor | Result |
