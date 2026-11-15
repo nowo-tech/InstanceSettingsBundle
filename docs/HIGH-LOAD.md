@@ -180,5 +180,5 @@ The CI job "Load readiness" runs it on MySQL 8.4 and PostgreSQL 16, with DBAL 4 
 
 ```bash
 IS_TEST_DATABASE_URL='mysql://root@127.0.0.1:3306/is_test?serverVersion=8.4.0&charset=utf8mb4' \
-  vendor/bin/phpunit --fail-on-skipped tests/Database
+  vendor/bin/phpunit --no-coverage --fail-on-skipped tests/Database
 ```

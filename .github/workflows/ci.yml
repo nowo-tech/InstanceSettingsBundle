@@ -147,8 +147,8 @@ jobs:
           IS_TEST_DATABASE_URL: ${{ matrix.database == 'MySQL 8.4' && 'mysql://root@127.0.0.1:3306/is_test?serverVersion=8.4.0&charset=utf8mb4' || 'postgresql://postgres@127.0.0.1:5432/is_test?serverVersion=16&charset=utf8' }}
         run: |
           composer show doctrine/dbal | grep -E '^versions'
-          vendor/bin/phpunit --fail-on-skipped tests/Database
-          vendor/bin/phpunit --fail-on-skipped tests/Integration/Functional/LoadReadinessMemoTest.php tests/Integration/Functional/SectionFormConcurrencyTest.php
+          vendor/bin/phpunit --no-coverage --fail-on-skipped tests/Database
+          vendor/bin/phpunit --no-coverage --fail-on-skipped tests/Integration/Functional/LoadReadinessMemoTest.php tests/Integration/Functional/SectionFormConcurrencyTest.php
 
   code-style:
     name: Code Style
