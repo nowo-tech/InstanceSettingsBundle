@@ -12,6 +12,7 @@ use Symfony\Component\Clock\NativeClock;
 
 use function count;
 use function explode;
+use function hash_equals;
 use function sprintf;
 
 /**
@@ -36,10 +37,12 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
     /**
      * Removes the expiry dates of the secret rows written and of the rows deleted (1.17, audit L3): a raw write cannot
      * know the date of the new secret. Set it again with {@see SecretExpiryStoreInterface::write()} when it is known.
+     * 1.18.1 (audit D1-I1): a secret rewritten byte for byte (a restore of identical rows) keeps its date.
      *
      * @param array<string, array{save?: array<string, StoredSettingRow>, remove?: array<string, true>}> $plans
+     * @param array<string, array<string, true>> $unchanged secret rows rewritten with the stored value (section => names)
      */
-    private function forgetDates(array $plans): void
+    private function forgetDates(array $plans, array $unchanged): void
     {
         if (!$this->expiryStore instanceof SecretExpiryStoreInterface) {
             return;
@@ -47,12 +50,15 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
         foreach ($plans as $section => $plan) {
             $dates = [];
             foreach ($plan['save'] ?? [] as $name => $row) {
-                if ($row->isSecret) {
+                if ($row->isSecret && !isset($unchanged[$section][$name])) {
                     $dates[$name] = null;
                 }
             }
             foreach ($plan['remove'] ?? [] as $name => $unused) {
-                $dates[$name] = null;
+                // A row both saved and removed is saved (see writeRows()): its own rule above applies.
+                if (!isset($plan['save'][$name])) {
+                    $dates[$name] = null;
+                }
             }
             $this->expiryStore->write($section, $dates, ($this->clock ?? new NativeClock())->now());
         }
@@ -83,15 +89,20 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
 
         // @igor-ignore - The closure runs synchronously inside the transaction and is not stored.
         $this->repository->transactional(function () use ($plans): void {
-            $entities = [];
-            $deleted  = [];
+            $entities  = [];
+            $deleted   = [];
+            $unchanged = [];
             foreach ($plans as $section => $plan) {
                 $existing = [];
                 foreach ($this->repository->findBySection($section) as $entity) {
                     $existing[$entity->getName()] = $entity;
                 }
                 foreach ($plan['save'] ?? [] as $name => $row) {
-                    $entity     = $existing[$name] ?? new SettingValue($section, $name, $row->updatedAt);
+                    $entity = $existing[$name] ?? new SettingValue($section, $name, $row->updatedAt);
+                    $stored = $entity->getSecret();
+                    if ($row->isSecret && $stored !== null && hash_equals($stored, (string) $row->secret())) {
+                        $unchanged[$section][$name] = true;
+                    }
                     $entities[] = $row->isSecret ? $entity->storeSecret((string) $row->secret(), $row->updatedAt) : $entity->storeValue($row->value, $row->updatedAt);
                 }
                 foreach ($plan['remove'] ?? [] as $name => $unused) {
@@ -101,7 +112,7 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
                 }
             }
             $this->repository->apply($entities, $deleted);
-            $this->forgetDates($plans);
+            $this->forgetDates($plans, $unchanged);
         });
     }
 }
