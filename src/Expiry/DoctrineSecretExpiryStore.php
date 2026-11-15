@@ -9,6 +9,8 @@ use DateTimeInterface;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\RetryableException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\DBAL\Types\Types;
 use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
@@ -28,7 +30,7 @@ use function sprintf;
  * (with `doctrine.table_prefix`). The "last announced threshold" is moved with one conditional UPDATE, atomic on every
  * supported platform (MySQL, MariaDB, PostgreSQL, SQLite).
  */
-final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInterface
+final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInterface, LockingSecretExpiryStoreInterface
 {
     /**
      * @param SettingsEntityManager $entityManager the bundle's private manager (shared with the setting repository)
@@ -51,9 +53,26 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
      */
     public function findBySection(string $section): array
     {
+        return $this->bySection($section, false);
+    }
+
+    /**
+     * Stored dates of one section, keyed by field name, with a locking read on MySQL / MariaDB / PostgreSQL (1.19.1, audit
+     * QQ-D2-L-1; SQLite locks the database for a writing transaction).
+     */
+    public function findBySectionForUpdate(string $section): array
+    {
+        return $this->bySection($section, true);
+    }
+
+    /**
+     * @return array<string, SecretExpiryRecord>
+     */
+    private function bySection(string $section, bool $forUpdate): array
+    {
         $records = [];
         // 1.19 (audit QQ-I-3): the exact section only (a folding collation matches look-alikes).
-        foreach (array_filter($this->select(' WHERE section = ?', [$section]), static fn (SecretExpiryRecord $record): bool => $record->section === $section) as $record) {
+        foreach (array_filter($this->select(' WHERE section = ?', [$section], $forUpdate), static fn (SecretExpiryRecord $record): bool => $record->section === $section) as $record) {
             $records[$record->field] = $record;
         }
 
@@ -61,7 +80,8 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
     }
 
     /**
-     * Sets or removes dates of one section; a new date forgets the announced thresholds.
+     * Sets or removes dates of one section; a new date forgets the announced thresholds. The stored dates are read with
+     * a locking read (1.19.1).
      */
     public function write(string $section, array $dates, DateTimeImmutable $at): void
     {
@@ -69,7 +89,9 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
             return;
         }
         [$connection, $table] = $this->target();
-        $stored               = $this->findBySection($section);
+        // 1.19.1 (audit QQ-D3-L-1): a locking read, so a date another editor added after the caller's REPEATABLE READ
+        // snapshot is seen (and removed with its secret) instead of staying on a rotated secret. Also for the raw row writes.
+        $stored = $this->bySection($section, true);
         foreach ($dates as $field => $date) {
             $current = $stored[$field] ?? null;
             if ($date === null) {
@@ -168,16 +190,18 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
 
     /**
      * @param list<string> $parameters
+     * @param bool $forUpdate a locking read on MySQL / MariaDB / PostgreSQL
      *
      * @return list<SecretExpiryRecord>
      */
-    private function select(string $where, array $parameters): array
+    private function select(string $where, array $parameters, bool $forUpdate = false): array
     {
         [$connection, $table] = $this->target();
         $type                 = Type::getType(Types::DATE_IMMUTABLE);
         $platform             = $connection->getDatabasePlatform();
         $records              = [];
-        foreach ($connection->fetchAllAssociative(sprintf('SELECT section, name, expires_on, notified_threshold FROM %s%s ORDER BY section ASC, name ASC', $table, $where), $parameters) as $row) {
+        $lock                 = $forUpdate && ($platform instanceof AbstractMySQLPlatform || $platform instanceof PostgreSQLPlatform) ? ' FOR UPDATE' : '';
+        foreach ($connection->fetchAllAssociative(sprintf('SELECT section, name, expires_on, notified_threshold FROM %s%s ORDER BY section ASC, name ASC%s', $table, $where, $lock), $parameters) as $row) {
             // A NOT NULL column: always a date.
             $date      = $type->convertToPHPValue($row['expires_on'], $platform);
             $threshold = $row['notified_threshold'];

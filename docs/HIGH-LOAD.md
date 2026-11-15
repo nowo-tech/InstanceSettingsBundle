@@ -58,9 +58,11 @@ with it.
 
 ## One section, one writer at a time
 
-Every writer of a section takes the section's **write lock** inside its unit of work, then reads the section's rows
-again with a locking read (`SELECT … FOR UPDATE`), so it decides on what the writer before it committed, never on an
-older snapshot (also inside a REPEATABLE READ transaction of yours that read the section earlier):
+Every writer of a section takes the section's **write lock** inside its unit of work, then reads the section's rows,
+stored secrets and expiry dates again with a locking read (`SELECT … FOR UPDATE`), so it decides on what the writer
+before it committed, never on an older snapshot (also inside a REPEATABLE READ transaction of yours that read the
+section earlier; the expiry dates since 1.19.1, both when a save compares them and when the store decides to update or
+delete a date, e.g. the date of a secret being rotated):
 
 - the lock is a sentinel row of the settings table under the reserved section `_section_lock` (row name = the section
   name), created and locked in one statement: `INSERT … ON DUPLICATE KEY UPDATE id = id` on MySQL / MariaDB,
@@ -178,14 +180,18 @@ re-checks the section (and field) name with `===`, and no read applies a LIMIT b
 
 ## Database settings
 
-- MySQL / MariaDB: InnoDB, **READ COMMITTED recommended**. Under REPEATABLE READ (the MySQL default) the locking re-read
-  of a section takes gap locks, so writers of neighbouring sections (adjacent in the `(section, name)` key) can wait for
-  each other; no deadlock was reproduced, but the waits add latency under load (audit QQ-I-1).
+- MySQL / MariaDB: InnoDB, **READ COMMITTED recommended**. Under REPEATABLE READ (the MySQL default) the locking re-reads
+  take next-key (gap) locks: a save of a section waits for the writer of the section that follows it alphabetically in
+  the `(section, name)` key until that writer commits. No deadlock was reproduced, but under load the saves of
+  unrelated sections queue behind each other (audit QQ-I-1). READ COMMITTED takes no gap locks.
   `innodb_lock_wait_timeout` bounds how long a save waits for the section lock (the default 50 s is long for HTTP;
   5–10 s is a better fit, the client gets a 503).
 - PostgreSQL: READ COMMITTED (the default). Set `lock_timeout` for the same reason.
-- DBAL 3 (3.8.2 or later) and DBAL 4 are supported. On DBAL 3 enable savepoints
-  (`doctrine.dbal.use_savepoints: true`) when the store is called inside your transactions.
+- DBAL 3 (3.8.2 or later) and DBAL 4 are supported. On DBAL 3 **enable savepoints** (`doctrine.dbal.use_savepoints:
+  true`) when the store is called inside your transactions. Without them a nested unit is not a savepoint: a save
+  refused inside your transaction (409 conflict, 422 validation, 503 transient failure) marks your transaction
+  rollback-only, and your commit then fails, so your own work in that transaction is lost too. With savepoints only the
+  refused save is rolled back. DBAL 4 always nests with savepoints.
 
 ## Tests
 

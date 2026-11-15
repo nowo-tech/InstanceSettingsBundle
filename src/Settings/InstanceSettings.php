@@ -14,6 +14,7 @@ use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
 use Nowo\InstanceSettingsBundle\Exception\SettingsConflictException;
 use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
+use Nowo\InstanceSettingsBundle\Expiry\LockingSecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryRecord;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
@@ -542,7 +543,7 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
      */
     private function merge(string $section, array $fields, array $values, array $normalized, array $imageValues, array $expiryInput, array $required, SectionSnapshot $base, array $existing): array
     {
-        $dates     = $expiryInput !== [] && $this->expiryStore instanceof SecretExpiryStoreInterface ? $this->expiryStore->findBySection($section) : [];
+        $dates     = $expiryInput !== [] && $this->expiryStore instanceof SecretExpiryStoreInterface ? $this->lockedDates($this->expiryStore, $section) : [];
         $now       = $this->fingerprints($section, $fields, $existing, $dates, true);
         $conflicts = [];
         foreach ($normalized as $name => $value) {
@@ -768,7 +769,7 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
     private function expiryChanges(string $section, array $fields, array $input, array $normalized, array $existing, array $changed): array
     {
         $store      = $this->expiryStore ?? throw new LogicException(sprintf('Instance settings section "%s" declares an expiring secret: the store needs a SecretExpiryStoreInterface (nowo_instance_settings.expiring_secrets.enabled: true).', $section));
-        $stored     = $store->findBySection($section);
+        $stored     = $this->lockedDates($store, $section);
         $changes    = [];
         $violations = [];
         foreach ($fields as $name => $field) {
@@ -799,6 +800,17 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
         }
 
         return $changes;
+    }
+
+    /**
+     * The expiry dates of a section inside the unit of work, under the section lock: a locking read when the store supports
+     * it (1.19.1, audit QQ-D2-L-1: the dates as last committed, also inside a REPEATABLE READ transaction of the host).
+     *
+     * @return array<string, SecretExpiryRecord>
+     */
+    private function lockedDates(SecretExpiryStoreInterface $store, string $section): array
+    {
+        return $store instanceof LockingSecretExpiryStoreInterface ? $store->findBySectionForUpdate($section) : $store->findBySection($section);
     }
 
     /**
