@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 
+use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
+
+use function array_column;
 
 /**
  * 1.19 (Beacon spec 239): what a rolled-back transaction leaves behind. Both tests fail on 1.18.1.
@@ -65,5 +68,26 @@ final class LoadReadinessMemoTest extends KernelTestCase
             }
         }
         self::assertSame(['page_size'], $saved, 'no audit line for the rolled-back save');
+    }
+
+    /** Audit QQ-L-2: the import's audit line follows the commit too. */
+    public function testTheImportAuditLineFollowsTheCommitOnly(): void
+    {
+        $kernel      = $this->bootKernel(services: ['logger' => RecordingLogger::class]);
+        $connection  = $this->connection($kernel);
+        $portability = $this->container($kernel)->get(ConfigPortability::class);
+        self::assertInstanceOf(ConfigPortability::class, $portability);
+        $logger = $this->container($kernel)->get('logger');
+        self::assertInstanceOf(RecordingLogger::class, $logger);
+        $payload             = $portability->export(['general']);
+        $payload['settings'] = ['general' => ['site_name' => 'Imported']];
+
+        $connection->beginTransaction();
+        $portability->import($payload);
+        $connection->rollBack();
+        self::assertNotContains('Instance configuration imported.', array_column($logger->records, 'message'), 'not for a rolled-back import');
+
+        $portability->import($payload);
+        self::assertContains('Instance configuration imported.', array_column($logger->records, 'message'));
     }
 }

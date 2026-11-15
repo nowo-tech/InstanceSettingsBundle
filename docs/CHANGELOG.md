@@ -50,7 +50,8 @@ Target 1.19.0 (Beacon spec 239: load readiness). See [HIGH-LOAD.md](HIGH-LOAD.md
 - Section form snapshot: the hidden `_base` field (`SectionSnapshot`), `SnapshotSettingsWriterInterface::snapshot()` /
   `saveSince()` on `InstanceSettings`, `SettingsConflictException`. A field another editor saved meanwhile is kept when
   this editor left it as shown; a field both changed answers 409 with an error on the field (new translation key
-  `flash.conflict` in the 7 locales).
+  `flash.conflict` in the 7 locales). Secrets are fingerprinted from their stored (encrypted) form, never their plaintext
+  (`StoredSecretStateInterface`, audit QQ-L-1); no token without a fingerprint key.
 - `StorageFailureListener`: on the bundle's routes a transient failure answers 503 with `Retry-After`, a conflict 409
   (JSON on the reveal and test endpoints), walking the previous-exception chain, without SQL or secrets.
 - `KeyCollationListener`: new schemas give the `section` / `name` columns of the bundle tables a binary NO PAD collation
@@ -68,16 +69,24 @@ Target 1.19.0 (Beacon spec 239: load readiness). See [HIGH-LOAD.md](HIGH-LOAD.md
   violation (HTTP 500).
 - R3: a section form reverted a field another editor saved after the page was loaded (lost update).
 - R4: a secret stored by another editor between a form's checks and its write was overwritten (or failed with a 500).
-- R5: an expiry date typed for the secret shown was attached to the secret another editor rotated meanwhile.
+- R5: an expiry date typed for the secret shown was attached to the secret another editor rotated meanwhile, also when
+  the secret had no date or the rotation kept the same date (audit QQ-M-1); a date left as shown after such a rotation
+  keeps the other editor's state instead of answering 409 (QQ-L-3).
 - R6: a save that failed left its values in the request memo (served for the rest of the request or worker unit).
 - R7: a deadlock or lock wait on a bundle route answered 500 (now 503 + Retry-After).
 - R10: a value read inside a transaction (or savepoint) that rolled back was served from the memo afterwards (in a
   worker with kernel reset off, until the end of the command or message).
-- R11: the audit line `Instance settings saved.` was written for a save that a host transaction then rolled back.
+- R11: the audit lines `Instance settings saved.` and `Instance configuration imported.` were written for a write that a
+  host transaction then rolled back (QQ-L-2).
+- The expiry date, file and section test stores re-check the section and field names with `===`; the file lookup by hash
+  prefix no longer applies a LIMIT before that check (audit QQ-I-3).
 - `FileStoreTransactionConnection::exec()` returns an int on DBAL 3 and 4.
 
 ### Changed
 
+- A transient storage failure around `save()` (and every other write) is now a `Nowo\TransactionContract\TransientStorageFailure`
+  whose previous exception is the DBAL one (`DeadlockException`, `LockWaitTimeoutException`, …): catch it, or walk
+  `getPrevious()` (audit QQ-I-2).
 - Every save is one unit of work (also a save without image or expiry date), under the section lock.
 - Imports, seeds and raw row writes lock their sections in ascending name order before writing.
 - Image rows of the database store and section test rows are flushed by the bundle's runner.

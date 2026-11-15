@@ -154,6 +154,25 @@ final class LoadReadinessTest extends DatabaseTestCase
     }
 
     /**
+     * R5 (audit QQ-M-1) — the secret had no date; another editor rotated it; a date typed for the secret shown is
+     * refused (409) instead of landing on the rotated secret.
+     */
+    public function testTheFormRefusesADateForASecretRotatedWithoutDate(): void
+    {
+        $kernel = $this->boot(self::EXPIRING, ['providers_section' => ExpiringFixtureSection::class]);
+        $peer   = $this->boot(self::EXPIRING, ['providers_section' => ExpiringFixtureSection::class]);
+        $this->settings($kernel)->save('providers', ['api_key' => 'sk-first']);
+        $client = $this->client($kernel);
+        $form   = $client->request('GET', '/admin/settings/sections/providers')->filter('form[name="settings_section"]')->form();
+
+        $this->settings($peer)->save('providers', ['api_key' => 'sk-rotated']);
+        $client->submit($form, ['settings_section[api_key:expires_on]' => '2032-06-30']);
+
+        self::assertSame(409, $client->getResponse()->getStatusCode());
+        self::assertFalse($this->connection($kernel)->fetchOne('SELECT expires_on FROM instance_setting_secret_expiry WHERE section = ? AND name = ?', ['providers', 'api_key']), 'the rotated secret has no date');
+    }
+
+    /**
      * R6 — a save that fails (here a lock wait) must not leave its values in the request memo: 1.18.1 changed the
      * memoised rows in place and kept serving the unsaved value for the rest of the request (or worker unit).
      */

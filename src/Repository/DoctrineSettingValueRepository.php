@@ -39,7 +39,7 @@ use function sprintf;
  * {@see self::lockSection()} ({@see SectionLock}). Every read re-checks the section name byte for byte (a folding
  * collation of an existing table can match a look-alike).
  */
-final class DoctrineSettingValueRepository implements SettingValueRepositoryInterface, SectionLockingRepositoryInterface
+final class DoctrineSettingValueRepository implements SettingValueRepositoryInterface, SectionLockingRepositoryInterface, StoredSecretStateInterface
 {
     private readonly SettingsEntityManager $entityManager;
 
@@ -106,6 +106,29 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
             ->getResult();
 
         return $this->exactly($rows, $section);
+    }
+
+    /**
+     * The stored (encrypted) secret column of each secret row of a section (1.19, audit QQ-L-1): read with DBAL, never
+     * decrypted.
+     */
+    public function storedSecretStates(string $section): array
+    {
+        $entityManager = $this->entityManager->get();
+        $metadata      = $entityManager->getClassMetadata(SettingValue::class);
+        $rows          = $entityManager->getConnection()->fetchAllAssociative(sprintf(
+            'SELECT %1$s AS section, %2$s AS name, %3$s AS secret FROM %4$s WHERE %1$s = ? AND %3$s IS NOT NULL',
+            $metadata->getColumnName('section'),
+            $metadata->getColumnName('name'),
+            $metadata->getColumnName('secretValue'),
+            $metadata->getTableName(),
+        ), [$section]);
+        $states = [];
+        foreach (array_filter($rows, static fn (array $row): bool => (string) $row['section'] === $section) as $row) {
+            $states[(string) $row['name']] = (string) $row['secret'];
+        }
+
+        return $states;
     }
 
     /**

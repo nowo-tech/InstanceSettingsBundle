@@ -24,11 +24,12 @@ use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
 interface SnapshotSettingsWriterInterface
 {
     /**
-     * The section as stored now (the token of its form).
+     * The section as stored now (the token of its form); null when no fingerprint key is configured (no token is
+     * rendered then, and the form saves like {@see InstanceSettingsInterface::save()}).
      *
      * @throws UnknownSettingException
      */
-    public function snapshot(string $section): SectionSnapshot;
+    public function snapshot(string $section): ?SectionSnapshot;
 
     /**
      * Saves like {@see InstanceSettingsInterface::save()}, merged with the changes saved since `$base` (see above).

@@ -79,8 +79,11 @@ your own (`SettingValueRepositoryInterface`) keeps the 1.18 behaviour unless it 
 ## Section forms keep what another editor saved
 
 The section form carries the section as its editor opened it, in the hidden `_base` field: one fingerprint per field and
-per expiry date (HMAC-SHA-256 keyed with `%kernel.secret%`, 16 hex characters; never a value, never a guessable hash of
-a secret). Under the section's write lock each submitted field is compared with that snapshot and with the stored row:
+per expiry date (HMAC-SHA-256 keyed with `%kernel.secret%`, 16 hex characters; never a value). A secret is
+fingerprinted from its **stored (encrypted) form**, which changes on every write, never from its plaintext: the token
+cannot confirm a guessed secret, even to an editor without the reveal permission who knows `kernel.secret` (audit
+QQ-L-1). Without a key (`InstanceSettings` built with `snapshotKey: ''`) no token is rendered. Under the section's write
+lock each submitted field is compared with that snapshot and with the stored row:
 
 | Since the page was opened, the field was… | …and this editor | Result |
 | --- | --- | --- |
@@ -88,6 +91,8 @@ a secret). Under the section's write lock each submitted field is compared with 
 | changed by another editor | left it as shown | **the other editor's value stays** (1.18 reverted it) |
 | changed by another editor | set it to the same value | nothing to do |
 | changed by another editor | changed it too, or acted on a secret, an image or an expiry date replaced meanwhile | **409**, an error on each such field, nothing saved |
+| an expiry date, whose secret another editor replaced | typed a date (for the secret shown) | **409** (the date never lands on the new secret) |
+| an expiry date cleared or changed by another editor (a rotation) | left it as shown | the other editor's state stays |
 
 A host template that does not render `_base` (or a host route that posts without it) saves as before 1.19, with the
 section lock. In PHP the same merge is `SnapshotSettingsWriterInterface::snapshot()` / `saveSince()`
@@ -97,8 +102,10 @@ section lock. In PHP the same merge is `SnapshotSettingsWriterInterface::snapsho
 
 - `SettingsChangedEvent` is dispatched after the outermost commit of the bundle's connection, outside the driver commit,
   and dropped when the transaction or the savepoint that held it rolls back (since 1.10 / 1.11.1).
-- 1.19: the audit line `Instance settings saved.` (saves, imports, seeds) follows the same rule: it is never written for
-  a save your transaction then rolled back.
+- 1.19: the audit lines `Instance settings saved.` (saves, imports, seeds) and `Instance configuration imported.` follow
+  the same rule: they are never written for a write your transaction then rolled back. This relies on the bundle's own
+  `AfterCommitEventDispatcher` service: if you decorate it, the decorator must forward `afterCommit()`, or the lines are
+  written at once as before 1.19 (events are not affected: they go through `dispatch()`).
 - A replayed unit (`runRetrying()`) dispatches and logs once: a rolled-back attempt held nothing.
 - A listener that fails after the commit is logged (class names only) and does not stop the other events.
 - Image files of the filesystem store are written after the outermost commit and discarded on rollback (since 1.7).
@@ -160,14 +167,17 @@ are conditional claims (1.17).
 
 The `section` and `name` columns of the settings, expiry and file tables are keys. New schemas give them the binary NO
 PAD collation on MySQL / MariaDB (`utf8mb4_0900_bin`, MariaDB `utf8mb4_nopad_bin`, MySQL 5.7 `utf8mb4_bin` with a logged
-warning); PostgreSQL and SQLite compare exactly. Every read re-checks the section name with `===`, and no read applies a
-LIMIT before that check. Existing tables keep their collation until the optional `ALTER TABLE` of
+warning); PostgreSQL and SQLite compare exactly. Every read of the settings, expiry date, file and section test rows
+re-checks the section (and field) name with `===`, and no read applies a LIMIT before that check. Existing tables keep their collation until the optional `ALTER TABLE` of
 [UPGRADING](UPGRADING.md#optional-exact-collation-of-the-key-columns).
 
 ## Database settings
 
-- MySQL / MariaDB: InnoDB, REPEATABLE READ or READ COMMITTED. `innodb_lock_wait_timeout` bounds how long a save waits for
-  the section lock (the default 50 s is long for HTTP; 5–10 s is a better fit, the client gets a 503).
+- MySQL / MariaDB: InnoDB, **READ COMMITTED recommended**. Under REPEATABLE READ (the MySQL default) the locking re-read
+  of a section takes gap locks, so writers of neighbouring sections (adjacent in the `(section, name)` key) can wait for
+  each other; no deadlock was reproduced, but the waits add latency under load (audit QQ-I-1).
+  `innodb_lock_wait_timeout` bounds how long a save waits for the section lock (the default 50 s is long for HTTP;
+  5–10 s is a better fit, the client gets a 503).
 - PostgreSQL: READ COMMITTED (the default). Set `lock_timeout` for the same reason.
 - DBAL 3 (3.8.2 or later) and DBAL 4 are supported. On DBAL 3 enable savepoints
   (`doctrine.dbal.use_savepoints: true`) when the store is called inside your transactions.

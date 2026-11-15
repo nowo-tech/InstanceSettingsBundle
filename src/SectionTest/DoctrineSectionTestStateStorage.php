@@ -13,6 +13,7 @@ use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 use Throwable;
 
+use function array_filter;
 use function is_string;
 use function sprintf;
 
@@ -55,7 +56,8 @@ final readonly class DoctrineSectionTestStateStorage implements SectionTestState
             ->setHint(Query::HINT_REFRESH, true)
             ->getResult();
         $rows = [];
-        foreach ($entities as $entity) {
+        // 1.19 (audit QQ-I-3): the exact reserved section only.
+        foreach (array_filter($entities, static fn (SettingValue $entity): bool => $entity->getSection() === $section) as $entity) {
             $rows[] = $this->view($entity);
         }
         // @igor-ignore - Clears the bundle's own private unit of work after the read (rule 6), never an application manager.

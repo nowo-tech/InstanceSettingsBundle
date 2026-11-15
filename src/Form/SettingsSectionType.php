@@ -78,10 +78,10 @@ final class SettingsSectionType extends AbstractType
     /** Placeholder handed to {@see SecretType} as `current_value` when a secret is stored (only its presence counts). */
     private const STORED_SECRET_MARKER = 'stored';
 
-    /** Row class of an image field (1.12): one card per image field, laid out two per line by the bundle stylesheet. */
     /** 1.19: hidden child carrying the {@see SectionSnapshot} token of the section as the editor opened it. */
     public const BASE_FIELD = '_base';
 
+    /** Row class of an image field (1.12): one card per image field, laid out two per line by the bundle stylesheet. */
     public const IMAGE_CARD_CLASS = 'nowo-instance-settings-image-card';
 
     /** Row attribute carrying the form group of a field (1.5, {@see SettingField::withGroup()}). */

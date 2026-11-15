@@ -11,10 +11,13 @@ use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
 use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 
+use function array_filter;
 use function array_flip;
+use function array_values;
 use function count;
 use function is_resource;
 use function sprintf;
+use function str_starts_with;
 use function stream_get_contents;
 use function strlen;
 
@@ -60,8 +63,10 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
         $rows = $this->entityManager()
             ->createQuery(sprintf('SELECT %s FROM %s f WHERE f.section = :section AND f.name = :name AND f.variant = :variant AND f.sha256 LIKE :prefix', self::COLUMNS, SettingFile::class))
             ->setParameters(['section' => $section, 'name' => $field, 'variant' => $variant, 'prefix' => $hashPrefix . '%'])
-            ->setMaxResults(2)
             ->getArrayResult();
+        // 1.19 (audit QQ-I-3): the exact section, field and prefix first (a folding collation matches look-alikes), then the
+        // ambiguity check; no LIMIT before it.
+        $rows = array_values(array_filter($rows, static fn (array $row): bool => self::exact($row, $section, $field) && str_starts_with((string) $row['sha256'], $hashPrefix)));
 
         return count($rows) === 1 ? $this->record($rows[0]) : null;
     }
@@ -78,7 +83,8 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
             ->getArrayResult();
 
         $records = [];
-        foreach ($rows as $row) {
+        // 1.19 (audit QQ-I-3): the exact section, field and hash only.
+        foreach (array_filter($rows, static fn (array $row): bool => self::exact($row, $section, $field) && (string) $row['sha256'] === $sha256) as $row) {
             $record                    = $this->record($row);
             $records[$record->variant] = $record;
         }
@@ -232,5 +238,15 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
     private function entityManager(): EntityManagerInterface
     {
         return $this->entityManager->get();
+    }
+
+    /**
+     * Whether a row's section and field are exactly the given ones (byte for byte).
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function exact(array $row, string $section, string $field): bool
+    {
+        return (string) $row['section'] === $section && (string) $row['name'] === $field;
     }
 }

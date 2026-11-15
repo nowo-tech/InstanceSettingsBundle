@@ -834,6 +834,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $portability['max_file_bytes'],
             new Reference(ImageProcessor::class),
             $expiryEnabled ? new Reference(SecretExpiryStoreInterface::class) : null,
+            // 1.19 (audit QQ-L-2): the import's audit line follows the outermost commit.
+            new Reference(AfterCommitEventDispatcher::class),
         ]))->setPublic(true));
 
         $container->setDefinition(ExportSettingsCommand::class, (new Definition(ExportSettingsCommand::class, [

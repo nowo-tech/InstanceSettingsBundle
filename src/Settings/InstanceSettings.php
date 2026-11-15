@@ -26,6 +26,7 @@ use Nowo\InstanceSettingsBundle\File\SettingFileUrls;
 use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
+use Nowo\InstanceSettingsBundle\Repository\StoredSecretStateInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
@@ -276,10 +277,14 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
     /**
      * The section as stored now, as its form shows it (1.19).
      */
-    public function snapshot(string $section): SectionSnapshot
+    public function snapshot(string $section): ?SectionSnapshot
     {
         $fields = $this->registry->fields($section);
-        $dates  = $this->hasExpiringFields($fields) && $this->expiryStore instanceof SecretExpiryStoreInterface ? $this->expiryStore->findBySection($section) : [];
+        if ($this->snapshotKey === '') {
+            // Audit QQ-L-1: no token without a key (an unkeyed fingerprint could be recomputed by anyone).
+            return null;
+        }
+        $dates = $this->hasExpiringFields($fields) && $this->expiryStore instanceof SecretExpiryStoreInterface ? $this->expiryStore->findBySection($section) : [];
 
         return new SectionSnapshot($section, $this->fingerprints($section, $fields, $this->rows()[$section] ?? [], $dates));
     }
@@ -572,7 +577,19 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
         foreach ($expiryInput as $name => $date) {
             $key = SettingField::expiryKey($name);
             $was = $base->fingerprint($key);
-            if ($was !== null && $was !== ($now[$key] ?? null)) {
+            if ($was === null) {
+                continue;
+            }
+            $dateMoved   = $was !== ($now[$key] ?? null);
+            $secretMoved = ($base->fingerprint($name) ?? $now[$name]) !== $now[$name];
+            if ($dateMoved && $this->hash($section, $key, $date === null ? '' : ExpiryDate::format($date)) === $was) {
+                // Audit QQ-L-3: the date was left as shown and changed meanwhile (a rotation cleared it): theirs stays.
+                unset($expiryInput[$name]);
+
+                continue;
+            }
+            if ($dateMoved || $secretMoved) {
+                // Audit QQ-M-1: a date typed for the secret shown never lands on a secret replaced meanwhile.
                 $conflicts[] = $key;
             }
         }
@@ -595,10 +612,11 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
     private function fingerprints(string $section, array $fields, array $rows, array $dates): array
     {
         $fingerprints = [];
+        $states       = $this->repository instanceof StoredSecretStateInterface ? $this->repository->storedSecretStates($section) : [];
         foreach ($fields as $name => $field) {
             $row = $rows[$name] ?? null;
             if ($field->secret) {
-                $fingerprints[$name] = $this->hash($section, $name, $row === null ? '' : 's:' . $row->getSecret());
+                $fingerprints[$name] = $this->hash($section, $name, $this->secretState($row, $states[$name] ?? null));
                 if ($field->expires) {
                     $date                                         = $dates[$name] ?? null;
                     $fingerprints[SettingField::expiryKey($name)] = $this->hash($section, SettingField::expiryKey($name), $date === null ? '' : ExpiryDate::format($date->expiresOn));
@@ -617,6 +635,23 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
         }
 
         return $fingerprints;
+    }
+
+    /**
+     * What a secret's fingerprint is made of (audit QQ-L-1): never its plaintext. The stored (encrypted) form when the
+     * repository gives it and it differs from the plaintext (a new ciphertext on every write), else the row's id and
+     * time; '' without a row.
+     */
+    private function secretState(?SettingValue $row, ?string $stored): string
+    {
+        if (!$row instanceof SettingValue) {
+            return '';
+        }
+        if ($stored !== null && $stored !== $row->getSecretValue()) {
+            return 'c:' . $stored;
+        }
+
+        return 'r:' . $row->getId() . ':' . $row->getUpdatedAt()->format('U.u');
     }
 
     /**

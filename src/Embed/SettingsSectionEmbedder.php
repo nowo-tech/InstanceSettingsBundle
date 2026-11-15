@@ -311,7 +311,7 @@ final readonly class SettingsSectionEmbedder
             'secret_expiry_warnings' => $expiryWarnings,
             'locked_secrets'         => $locked,
             // 1.19: the section as this editor sees it (a save keeps what another editor saved meanwhile).
-            'base_token' => $this->settings instanceof SnapshotSettingsWriterInterface ? $this->settings->snapshot($section)->token() : null,
+            'base_token' => $this->settings instanceof SnapshotSettingsWriterInterface ? $this->settings->snapshot($section)?->token() : null,
         ]);
         $form->handleRequest($request);
         // 1.14: the field groups as subtabs (one form: hidden panels still submit their fields); [] = stacked.

@@ -15,6 +15,7 @@ use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\ExpiryEntity\SecretExpiry;
 
+use function array_filter;
 use function is_numeric;
 use function sprintf;
 
@@ -51,7 +52,8 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
     public function findBySection(string $section): array
     {
         $records = [];
-        foreach ($this->select(' WHERE section = ?', [$section]) as $record) {
+        // 1.19 (audit QQ-I-3): the exact section only (a folding collation matches look-alikes).
+        foreach (array_filter($this->select(' WHERE section = ?', [$section]), static fn (SecretExpiryRecord $record): bool => $record->section === $section) as $record) {
             $records[$record->field] = $record;
         }
 
