@@ -500,7 +500,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         if (!$enabled) {
             return;
         }
-        interface_exists(RuntimeValueSourceInterface::class) || throw new LogicException('NowoInstanceSettingsBundle: runtime_setting.enabled needs nowo-tech/runtime-setting-contract (composer require nowo-tech/runtime-setting-contract).');
+        self::assertRuntimeSettingContract(interface_exists(RuntimeValueSourceInterface::class));
         if ($container->hasParameter(self::RUNTIME_MAPPED_PARAMETER) && $container->getParameter(self::RUNTIME_MAPPED_PARAMETER) === false) {
             throw new LogicException('NowoInstanceSettingsBundle: runtime_setting.enabled was set by a configuration prepended after this bundle, so the runtime-setting tables are not mapped. Set it in the host configuration (config/packages/nowo_instance_settings.yaml).');
         }
@@ -522,6 +522,18 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]));
+    }
+
+    /**
+     * 1.20: `runtime_setting.enabled` needs nowo-tech/runtime-setting-contract (a `suggest` of the bundle).
+     *
+     * @internal
+     */
+    public static function assertRuntimeSettingContract(bool $installed): void
+    {
+        if (!$installed) {
+            throw new LogicException('NowoInstanceSettingsBundle: runtime_setting.enabled needs nowo-tech/runtime-setting-contract (composer require nowo-tech/runtime-setting-contract).');
+        }
     }
 
     private function assertExpiryMapped(ContainerBuilder $container, bool $enabled): void

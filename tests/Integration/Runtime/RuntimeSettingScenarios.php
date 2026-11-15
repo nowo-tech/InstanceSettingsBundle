@@ -28,6 +28,7 @@ use Nowo\RuntimeSettingContract\Bridge\Symfony\DependencyInjection\RuntimeSettin
 use Nowo\RuntimeSettingContract\Bridge\Symfony\NowoRuntimeSettingBundle;
 use Nowo\RuntimeSettingContract\Contract\Exception\InvalidRuntimeSettingValue;
 use Nowo\RuntimeSettingContract\Contract\Exception\RuntimeSettingNotWritable;
+use Nowo\RuntimeSettingContract\Contract\RuntimeSettingChange;
 use Nowo\RuntimeSettingContract\Contract\RuntimeSettingDefinition;
 use Nowo\RuntimeSettingContract\Contract\RuntimeSettingErrorPolicy;
 use Nowo\RuntimeSettingContract\Contract\RuntimeSettingId;
@@ -145,11 +146,11 @@ abstract class RuntimeSettingScenarios extends TestCase
         self::assertSame(RuntimeSettingTables::INITIAL_VERSION, $seen[0]);
 
         foreach ([
-            static fn () => $updater->set('chat.retention_days', '45', 'cli:test'),
-            static fn () => $updater->set('chat.retention_days', '45', 'cli:test'),
-            fn () => $this->settings($admin)->save('chat', ['welcome' => 'Hi']),
-            static fn () => $updater->unset('chat.retention_days', 'cli:test'),
-            static fn () => $updater->unset('chat.retention_days', 'cli:test'),
+            static fn (): RuntimeSettingChange => $updater->set('chat.retention_days', '45', 'cli:test'),
+            static fn (): RuntimeSettingChange => $updater->set('chat.retention_days', '45', 'cli:test'),
+            fn (): array => $this->settings($admin)->save('chat', ['welcome' => 'Hi']),
+            static fn (): RuntimeSettingChange => $updater->unset('chat.retention_days', 'cli:test'),
+            static fn (): RuntimeSettingChange => $updater->unset('chat.retention_days', 'cli:test'),
         ] as $write) {
             $write();
             $token = $tables->token('chat');

@@ -100,6 +100,15 @@ final class ExpiringSecretsApiTest extends TestCase
         (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'runtime_setting' => ['enabled' => true]]], $container);
     }
 
+    public function testRuntimeSettingsNeedTheContract(): void
+    {
+        NowoInstanceSettingsExtension::assertRuntimeSettingContract(true);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('needs nowo-tech/runtime-setting-contract');
+        NowoInstanceSettingsExtension::assertRuntimeSettingContract(false);
+    }
+
     public function testTheRegistryFailsClosedWithoutTheFlag(): void
     {
         $this->expectException(LogicException::class);
