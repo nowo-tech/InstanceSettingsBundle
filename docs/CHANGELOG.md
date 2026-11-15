@@ -38,6 +38,20 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.19.1.
+
+### Fixed
+
+- Inside a REPEATABLE READ transaction of the host (MySQL / MariaDB) that read the expiry table before, a date another
+  editor changed meanwhile was read from the transaction's snapshot and overwritten without a 409: under the section
+  lock the expiry dates are now read with a locking read (`LockingSecretExpiryStoreInterface`, implemented by
+  `DoctrineSecretExpiryStore`; audit QQ-D2-L-1).
+
+### Documentation
+
+- HIGH-LOAD.md: why DBAL 3 needs savepoints inside host transactions; REPEATABLE READ next-key locks (a save waits for the
+  writer of the next section), READ COMMITTED recommended (QQ-I-1).
+
 ## [1.19.0] - 2026-11-15
 
 Target 1.19.0 (Beacon spec 239: load readiness). See [HIGH-LOAD.md](HIGH-LOAD.md).

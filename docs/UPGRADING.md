@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [To 1.19.1](#to-1191)
 - [To 1.19.0](#to-1190)
   - [To 1.19.0](#to-1190-1)
 - [To 1.18.1](#to-1181)
@@ -45,6 +46,13 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+### To 1.19.1
+
+From **1.19.0**: `composer update nowo-tech/instance-settings-bundle`. No configuration or schema change. A custom
+`SecretExpiryStoreInterface` keeps working; implement `LockingSecretExpiryStoreInterface` as well to get the locking read
+of the dates under the section lock (see [HIGH-LOAD.md](HIGH-LOAD.md#one-section-one-writer-at-a-time)). On DBAL 3,
+enable savepoints if you call the store inside your own transactions ([why](HIGH-LOAD.md#database-settings)).
 
 ## To 1.19.0
 
