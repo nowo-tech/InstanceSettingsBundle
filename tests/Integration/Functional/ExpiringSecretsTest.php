@@ -139,6 +139,37 @@ final class ExpiringSecretsTest extends KernelTestCase
         self::assertSame([], $source->expiringWithin(10000, $this->today()), 'no stale date is reported for the new secrets');
     }
 
+    public function testTheRowWriterKeepsTheDateOfASecretItRewritesUnchanged(): void
+    {
+        $kernel   = $this->bootKernel(self::ENABLED, ['providers_section' => ExpiringFixtureSection::class]);
+        $settings = $this->settings($kernel);
+        $writer   = $this->container($kernel)->get(SettingRowWriterInterface::class);
+        self::assertInstanceOf(SettingRowWriterInterface::class, $writer);
+        $at = new DateTimeImmutable('2026-11-15 10:00:00');
+
+        // Audit D1-I1 (1.18.1): a restore that rewrites the identical secret keeps its reminder date; another secret
+        // under the same key still loses it.
+        $settings->save('providers', ['api_key' => self::SECRET, 'api_key:expires_on' => '2031-01-31', 'backup_key' => 'bk-1', 'backup_key:expires_on' => '2031-02-01']);
+        $writer->writeRows([new StoredSettingRow('providers', 'api_key', null, true, self::SECRET, $at), new StoredSettingRow('providers', 'backup_key', null, true, 'bk-2', $at)]);
+        self::assertSame('2031-01-31', $this->dateOf($kernel, 'api_key'), 'the same secret keeps its date');
+        self::assertNull($this->dateOf($kernel, 'backup_key'), 'another secret loses it');
+        $settings->reset();
+        self::assertSame(self::SECRET, $settings->getSecret('providers.api_key'));
+        $writer->writeRows([new StoredSettingRow('providers', 'api_key', null, true, self::SECRET, $at)], ['providers.api_key']);
+        self::assertSame('2031-01-31', $this->dateOf($kernel, 'api_key'), 'saved and removed: the row is saved, so is its date');
+
+        $writer->writeRows([new StoredSettingRow('providers', 'api_key', null, true, self::SECRET . '-rotated', $at)]);
+        self::assertNull($this->dateOf($kernel, 'api_key'), 'a rotated secret loses it');
+
+        // Audit QC-I2: a secret row rewritten as a plain row loses its date too, with or without a remove of the key.
+        $settings->reset();
+        $settings->save('providers', ['api_key' => self::SECRET, 'api_key:expires_on' => '2031-01-31', 'backup_key' => 'bk-3', 'backup_key:expires_on' => '2031-02-01']);
+        $writer->writeRows([new StoredSettingRow('providers', 'api_key', 'plain', false, null, $at)], ['providers.api_key']);
+        self::assertNull($this->dateOf($kernel, 'api_key'), 'saved as plain and removed');
+        $writer->writeRows([new StoredSettingRow('providers', 'backup_key', 'plain', false, null, $at)]);
+        self::assertNull($this->dateOf($kernel, 'backup_key'), 'saved as plain');
+    }
+
     public function testTheAdminPageShowsTheDateRowAndEscapedWarnings(): void
     {
         $kernel   = $this->bootKernel(self::ENABLED_UI, ['providers_section' => ExpiringFixtureSection::class]);

@@ -17,10 +17,12 @@ use function hash;
 use function json_encode;
 use function rawurlencode;
 use function rtrim;
+use function str_repeat;
 use function strrev;
 use function strtolower;
 use function strtoupper;
 use function strtr;
+use function substr;
 use function urlencode;
 
 /**
@@ -77,6 +79,34 @@ final class LeakGuardTest extends TestCase
         // Secrets shorter than six characters: exact match only (case-insensitive).
         self::assertTrue(LeakGuard::hits('PIN', ['pin']));
         self::assertFalse(LeakGuard::hits('pin=48213', ['48213']));
+    }
+
+    public function testAGuardBuiltOnceMatchesEveryTextLikeHits(): void
+    {
+        // Audit PU-D1-I1 (1.18.1): the parts of every form of every secret are indexed once per guard, then each text is
+        // read once, instead of searching each part in each text; what is a hit does not change.
+        $secrets = [self::SECRET, 'ThrowAwayLeakGuardFixture', 'a+b/c=d+e/f=g+h', 'pin', ''];
+        $guard   = LeakGuard::of($secrets);
+        foreach ([
+            self::SECRET, 'Bearer ' . self::SECRET, '…Q2wLx7…', 'Tk9vQ', '', 'PIN', 'pin=1', 'Basic ' . base64_encode('client:ThrowAwayLeakGuardFixture'),
+            bin2hex('ThrowAwayLeakGuardFixture'), strrev(self::SECRET), '?q=' . rawurlencode('a+b/c=d+e/f=g+h'), 'error: 401', 'oauth2.googleapis.com',
+        ] as $text) {
+            self::assertSame(LeakGuard::hits($text, $secrets), $guard->matches($text), $text);
+        }
+        self::assertFalse(LeakGuard::of([])->matches('anything'));
+        self::assertTrue(LeakGuard::of(['abc'])->matches('ABC'), 'a short secret: exact, any case');
+
+        // A long structured secret (a 2 KB service-account JSON) against the largest report stays cheap.
+        $long  = (string) json_encode(['type' => 'service_account', 'private_key' => str_repeat('MIIEvQIBADANBgkqhkiG9w0BAQEFAASC', 60)]);
+        $guard = LeakGuard::of([$long]);
+        $texts = [];
+        for ($i = 0; $i < 200; ++$i) {
+            $texts[] = str_repeat('connection refused by host-' . $i . ' ', 7);
+        }
+        foreach ($texts as $text) {
+            self::assertFalse($guard->matches($text));
+        }
+        self::assertTrue($guard->matches('key: ' . substr($long, 900, 6)));
     }
 
     public function testAReportWithoutHitsIsReturnedAsIs(): void

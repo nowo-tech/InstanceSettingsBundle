@@ -203,6 +203,11 @@ yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true
   `%field%` = its label and `%message%` = the error). Host code should read a provider's secret only while that
   provider is selected: with `keep_typed`, secrets of non-selected providers are stored too (sealed on export, named
   but never valued in `SettingsChangedEvent`).
+- Locked rows (1.17 `web_ui.reveal_in_input`) that are hidden: a value typed into a hidden row holding a stored secret
+  without its "Replace the stored value" box is refused exactly as on a visible row (1.18.1): HTTP 422, the error
+  "Tick “Replace the stored value” to change it." on that row, nothing saved, in both modes, and the
+  `notice.hidden_secret_locked` notice above the form names the hidden row and says to show it and tick Replace. With Replace ticked the mode above
+  decides (`drop` ignores the value, `keep_typed` saves it); "clear" still deletes.
 - Notice while dropped (1.9): `web_ui.hidden_secrets_notice: true` adds a notice above the form of every section that
   has a provider-dependent secret and drops hidden secrets ("Secrets typed for a provider that is not selected are not
   saved…", key `notice.hidden_secrets_dropped` of the `NowoInstanceSettingsBundle` domain; override the text in your
@@ -1410,7 +1415,10 @@ It reads and writes through a private entity manager on the connection of the ma
 **Writing the raw store without the entity.** `Repository\SettingRowWriterInterface::writeRows($save, $remove)`
 (1.11) takes `StoredSettingRow` DTOs (insert or replace by section and name; a secret row stores `secret()`, encrypted
 at rest) and `section.field` keys to delete, in one transaction. It writes the store as given (no section schema, no
-event): use it for migrations and restores; application code keeps using `InstanceSettingsInterface::save()`.
+event): use it for migrations and restores; application code keeps using `InstanceSettingsInterface::save()`. With
+`expiring_secrets.enabled` (1.17) it removes the expiry date of each secret row it writes with another value or
+deletes; a secret rewritten byte for byte (a restore of identical rows) keeps its date (1.18.1). Set a known date again
+with `SecretExpiryStoreInterface::write()`.
 
 **Other ports you can implement**
 
