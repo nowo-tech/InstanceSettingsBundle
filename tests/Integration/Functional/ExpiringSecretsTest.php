@@ -160,6 +160,14 @@ final class ExpiringSecretsTest extends KernelTestCase
 
         $writer->writeRows([new StoredSettingRow('providers', 'api_key', null, true, self::SECRET . '-rotated', $at)]);
         self::assertNull($this->dateOf($kernel, 'api_key'), 'a rotated secret loses it');
+
+        // Audit QC-I2: a secret row rewritten as a plain row loses its date too, with or without a remove of the key.
+        $settings->reset();
+        $settings->save('providers', ['api_key' => self::SECRET, 'api_key:expires_on' => '2031-01-31', 'backup_key' => 'bk-3', 'backup_key:expires_on' => '2031-02-01']);
+        $writer->writeRows([new StoredSettingRow('providers', 'api_key', 'plain', false, null, $at)], ['providers.api_key']);
+        self::assertNull($this->dateOf($kernel, 'api_key'), 'saved as plain and removed');
+        $writer->writeRows([new StoredSettingRow('providers', 'backup_key', 'plain', false, null, $at)]);
+        self::assertNull($this->dateOf($kernel, 'backup_key'), 'saved as plain');
     }
 
     public function testTheAdminPageShowsTheDateRowAndEscapedWarnings(): void

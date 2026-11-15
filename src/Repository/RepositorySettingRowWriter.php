@@ -35,7 +35,7 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
     }
 
     /**
-     * Removes the expiry dates of the secret rows written and of the rows deleted (1.17, audit L3): a raw write cannot
+     * Removes the expiry dates of the rows written and of the rows deleted (1.17, audit L3): a raw write cannot
      * know the date of the new secret. Set it again with {@see SecretExpiryStoreInterface::write()} when it is known.
      * 1.18.1 (audit D1-I1): a secret rewritten byte for byte (a restore of identical rows) keeps its date.
      *
@@ -49,8 +49,10 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
         }
         foreach ($plans as $section => $plan) {
             $dates = [];
-            foreach ($plan['save'] ?? [] as $name => $row) {
-                if ($row->isSecret && !isset($unchanged[$section][$name])) {
+            foreach ($plan['save'] ?? [] as $name => $unused) {
+                // Every saved row except an unchanged secret (audit QC-I2: a secret rewritten as a plain row too); a
+                // null for a row without a date is a no-op.
+                if (!isset($unchanged[$section][$name])) {
                     $dates[$name] = null;
                 }
             }
