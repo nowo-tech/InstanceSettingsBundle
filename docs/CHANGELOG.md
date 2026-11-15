@@ -45,7 +45,9 @@ Target 1.19.1.
 - Inside a REPEATABLE READ transaction of the host (MySQL / MariaDB) that read the expiry table before, a date another
   editor changed meanwhile was read from the transaction's snapshot and overwritten without a 409: under the section
   lock the expiry dates are now read with a locking read (`LockingSecretExpiryStoreInterface`, implemented by
-  `DoctrineSecretExpiryStore`; audit QQ-D2-L-1).
+  `DoctrineSecretExpiryStore`; audit QQ-D2-L-1). `DoctrineSecretExpiryStore::write()` reads the stored dates with a
+  locking read too, so a rotation (or a raw row write) inside such a transaction removes a date another editor added
+  meanwhile instead of leaving it on the new secret (QQ-D3-L-1).
 
 ### Documentation
 

@@ -236,6 +236,31 @@ final class LoadReadinessTest extends DatabaseTestCase
     }
 
     /**
+     * R5 (audit QQ-D3-L-1) — a rotation inside a REPEATABLE READ transaction of the host that read the expiry table
+     * before another editor dated the current secret: the date goes with the old secret, never onto the new one.
+     */
+    public function testARotationInsideTheHostTransactionClearsADateAddedMeanwhile(): void
+    {
+        $kernel = $this->boot(self::EXPIRING, ['providers_section' => ExpiringFixtureSection::class]);
+        $peer   = $this->boot(self::EXPIRING, ['providers_section' => ExpiringFixtureSection::class]);
+        $this->settings($kernel)->save('providers', ['api_key' => 'sk-first']);
+        $this->settings($kernel)->reset();
+
+        $this->connection($kernel)->transactional(function ($connection) use ($kernel, $peer): void {
+            // The host reads the expiry table: its REPEATABLE READ snapshot starts here.
+            $connection->fetchAllAssociative('SELECT * FROM instance_setting_secret_expiry');
+            // The other editor dates the current secret.
+            $this->settings($peer)->save('providers', ['api_key:expires_on' => '2033-03-03']);
+            // This request rotates the secret (a plain save): the date of sk-first goes with it.
+            $this->settings($kernel)->save('providers', ['api_key' => 'sk-new']);
+        });
+
+        self::assertFalse($this->connection($peer)->fetchOne('SELECT expires_on FROM instance_setting_secret_expiry WHERE section = ? AND name = ?', ['providers', 'api_key']), 'the rotated secret has no date');
+        $this->settings($peer)->reset();
+        self::assertSame('sk-new', $this->settings($peer)->getSecret('providers.api_key'));
+    }
+
+    /**
      * R6 — a save that fails (here a lock wait) must not leave its values in the request memo: 1.18.1 changed the
      * memoised rows in place and kept serving the unsaved value for the rest of the request (or worker unit).
      */

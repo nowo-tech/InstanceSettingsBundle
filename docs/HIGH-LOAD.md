@@ -61,7 +61,8 @@ with it.
 Every writer of a section takes the section's **write lock** inside its unit of work, then reads the section's rows,
 stored secrets and expiry dates again with a locking read (`SELECT … FOR UPDATE`), so it decides on what the writer
 before it committed, never on an older snapshot (also inside a REPEATABLE READ transaction of yours that read the
-section earlier; the expiry dates since 1.19.1):
+section earlier; the expiry dates since 1.19.1, both when a save compares them and when the store decides to update or
+delete a date, e.g. the date of a secret being rotated):
 
 - the lock is a sentinel row of the settings table under the reserved section `_section_lock` (row name = the section
   name), created and locked in one statement: `INSERT … ON DUPLICATE KEY UPDATE id = id` on MySQL / MariaDB,

@@ -80,7 +80,8 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
     }
 
     /**
-     * Sets or removes dates of one section; a new date forgets the announced thresholds.
+     * Sets or removes dates of one section; a new date forgets the announced thresholds. The stored dates are read with
+     * a locking read (1.19.1).
      */
     public function write(string $section, array $dates, DateTimeImmutable $at): void
     {
@@ -88,7 +89,9 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
             return;
         }
         [$connection, $table] = $this->target();
-        $stored               = $this->findBySection($section);
+        // 1.19.1 (audit QQ-D3-L-1): a locking read, so a date another editor added after the caller's REPEATABLE READ
+        // snapshot is seen (and removed with its secret) instead of staying on a rotated secret. Also for the raw row writes.
+        $stored = $this->bySection($section, true);
         foreach ($dates as $field => $date) {
             $current = $stored[$field] ?? null;
             if ($date === null) {
