@@ -90,6 +90,16 @@ final class ExpiringSecretsApiTest extends TestCase
         (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'expiring_secrets' => ['enabled' => true]]], $container);
     }
 
+    public function testARuntimeSettingFlagPrependedAfterThisExtensionFailsClearly(): void
+    {
+        $container = new ContainerBuilder();
+        $container->setParameter(NowoInstanceSettingsExtension::RUNTIME_MAPPED_PARAMETER, false);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('the runtime-setting tables are not mapped');
+        (new NowoInstanceSettingsExtension())->load([['web_ui' => ['enabled' => false], 'runtime_setting' => ['enabled' => true]]], $container);
+    }
+
     public function testTheRegistryFailsClosedWithoutTheFlag(): void
     {
         $this->expectException(LogicException::class);

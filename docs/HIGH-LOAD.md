@@ -15,6 +15,7 @@ FrankenPHP worker mode with the kernel **not** reset between requests, RoadRunne
 - [Races that no longer happen](#races-that-no-longer-happen)
 - [Exact keys](#exact-keys)
 - [Database settings](#database-settings)
+- [Runtime settings (1.20)](#runtime-settings-120)
 - [Tests](#tests)
 
 ## One unit of work per write
@@ -192,6 +193,25 @@ re-checks the section (and field) name with `===`, and no read applies a LIMIT b
   refused inside your transaction (409 conflict, 422 validation, 503 transient failure) marks your transaction
   rollback-only, and your commit then fails, so your own work in that transaction is lost too. With savepoints only the
   refused save is rolled back. DBAL 4 always nests with savepoints.
+
+## Runtime settings (1.20)
+
+With `runtime_setting.enabled` (nowo-tech/runtime-setting-contract):
+
+- **Version per section.** Every write of a section (form, API, import, seed, runtime writer, purge) changes the
+  section's token in the same unit of work, after the flush. Workers re-read the token at most every `version_ttl`;
+  a shared pool (`nowo_runtime_setting.cache_pool`) then serves non-secret values keyed by token. A rolled-back write
+  never publishes a token (it is random, never reused).
+- **No insert race.** The token row is ensured with `INSERT … ON DUPLICATE KEY UPDATE` (MySQL / MariaDB) or
+  `INSERT … ON CONFLICT DO NOTHING` (PostgreSQL / SQLite), then updated: two first writes of a section serialise.
+- **Locks.** A runtime-setting write takes the section write lock (as a save does), so writers of one section queue;
+  writers of different sections do not wait for each other. It purges only its own field's expired previous value; the
+  table-wide sweep is `purgeExpired()` (one conditional `DELETE` on the indexed expiry).
+- **Own transaction.** The writer refuses to run inside a transaction you opened (also Messenger's
+  `doctrine_transaction` middleware): the contract publishes the change when the writer returns.
+- **Reads** go through DBAL on every call (token and value from the same connection): no identity map can serve an
+  old value under a new token.
+- **UTC.** Rotation expiries are stored as UTC wall-clock time, whatever the PHP timezone of the CLI and the workers.
 
 ## Tests
 

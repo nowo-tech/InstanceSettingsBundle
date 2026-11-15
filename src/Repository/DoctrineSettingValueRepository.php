@@ -14,6 +14,7 @@ use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
+use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingTables;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
 use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 use Nowo\TransactionContract\TransientStorageFailure;
@@ -63,6 +64,7 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
         ?SettingsEntityManager $entityManager = null,
         private readonly ?SettingsPendingEventsInterface $pendingEvents = null,
         ?InstanceSettingsTransactionRunner $runner = null,
+        private readonly ?RuntimeSettingTables $runtimeSettings = null,
     ) {
         $this->entityManager = $entityManager ?? new SettingsEntityManager($registry, $entityManagerName);
         $this->runner        = $runner ?? new InstanceSettingsTransactionRunner($this->entityManager);
@@ -170,6 +172,15 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
 
         try {
             $entityManager->flush();
+            // 1.20 (runtime_setting.enabled): every write path (form, API, import, seed) changes the section version
+            // token in the same unit of work, and drops the previous value of a rotation of the written fields.
+            if ($this->runtimeSettings instanceof RuntimeSettingTables) {
+                $rows = [];
+                foreach ([...$save, ...$remove] as $row) {
+                    $rows[] = [$row->getSection(), $row->getName()];
+                }
+                $this->runtimeSettings->rowsWritten($rows);
+            }
         } finally {
             if ($this->depth === 0) {
                 // @igor-ignore - Clears the bundle's own private unit of work at the end of the write unit (rule 6).

@@ -376,6 +376,16 @@ final class Configuration implements ConfigurationInterface
                 ->end()
                 ->append($this->brandNode())
                 ->append($this->expiringSecretsNode())
+                ->arrayNode('runtime_setting')
+                    ->info('1.20: nowo-tech/runtime-setting-contract source and writer over the settings (section.field ids), with section version tokens and rotation. Needs nowo-tech/runtime-setting-contract. Maps instance_setting_runtime_version and instance_setting_runtime_previous: off by default, no schema change.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->booleanNode('enabled')
+                            ->info('Literal boolean only.')
+                            ->defaultFalse()
+                        ->end()
+                    ->end()
+                ->end()
             ->end();
 
         return $treeBuilder;

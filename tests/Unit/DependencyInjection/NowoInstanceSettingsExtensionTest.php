@@ -251,12 +251,13 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $container = new ContainerBuilder();
         $container->registerExtension($this->extension('doctrine'));
         $container->registerExtension(new NowoInstanceSettingsExtension());
-        $container->loadFromExtension('nowo_instance_settings', ['doctrine' => ['entity_manager' => ' settings '], 'files' => ['enabled' => true]]);
+        $container->loadFromExtension('nowo_instance_settings', ['doctrine' => ['entity_manager' => ' settings '], 'files' => ['enabled' => true], 'runtime_setting' => ['enabled' => true]]);
         (new NowoInstanceSettingsExtension())->prepend($container);
 
         self::assertSame([], $container->getExtensionConfig('doctrine'), 'nothing prepended to the default manager');
         self::assertTrue($container->getParameter(NowoInstanceSettingsExtension::DEDICATED_MAPPING_PARAMETER));
         self::assertTrue($container->getParameter(NowoInstanceSettingsExtension::DEDICATED_FILES_MAPPING_PARAMETER));
+        self::assertTrue($container->getParameter(NowoInstanceSettingsExtension::DEDICATED_RUNTIME_MAPPING_PARAMETER));
 
         self::assertSame('settings', NowoInstanceSettingsExtension::rawEntityManager([['doctrine' => ['entity_manager' => 'other']], ['doctrine' => ['entity_manager' => 'settings']]]));
         self::assertNull(NowoInstanceSettingsExtension::rawEntityManager([['doctrine' => ['entity_manager' => 'settings']], ['doctrine' => ['entity_manager' => null]]]), 'the last value wins');

@@ -162,8 +162,16 @@ Files changed by [004](../004-image-fields/spec.md) (mapped above as well):
 | `src/Twig/InstanceSettingsTwigExtension.php` | [004](../004-image-fields/spec.md) | FR-003 |
 | `src/DependencyInjection/Configuration.php` | [004](../004-image-fields/spec.md) | FR-005, FR-007, FR-008 |
 | `src/DependencyInjection/NowoInstanceSettingsExtension.php` | [004](../004-image-fields/spec.md) | FR-004, FR-005, FR-008 |
+| `src/Runtime/InstanceSettingsRuntimeSource.php` | [USAGE: Runtime settings (1.20)](../../docs/USAGE.md#runtime-settings-120) | FR-RS-001 |
+| `src/Runtime/InstanceSettingsRuntimeWriter.php` | [USAGE: Runtime settings (1.20)](../../docs/USAGE.md#runtime-settings-120) | FR-RS-002 |
+| `src/Runtime/RuntimeSettingTables.php` | [HIGH-LOAD: Runtime settings (1.20)](../../docs/HIGH-LOAD.md#runtime-settings-120) | FR-RS-003 |
+| `src/Runtime/RuntimeSettingAdminGuard.php` | [USAGE: Runtime settings (1.20)](../../docs/USAGE.md#runtime-settings-120) | FR-RS-004 |
+| `src/RuntimeEntity/RuntimeSettingVersion.php` | [HIGH-LOAD: Runtime settings (1.20)](../../docs/HIGH-LOAD.md#runtime-settings-120) | FR-RS-003 |
+| `src/RuntimeEntity/RuntimeSettingPrevious.php` | [USAGE: Runtime settings (1.20)](../../docs/USAGE.md#runtime-settings-120) | FR-RS-002 |
+| `src/DependencyInjection/Compiler/RuntimeSettingPortsPass.php` | [UPGRADING: Unreleased](../../docs/UPGRADING.md#unreleased) | FR-RS-005 |
 
 ## Totals
 
-- Mapped files: **83/83** (100%).
+- Mapped files: **115** of the 205 files under `src/` (the table was not refreshed for several releases before 1.20; a full re-audit is pending).
+- FR-RS-001..005 (1.20, runtime settings): source, writer, section version tokens, admin guard, ports binding; see the linked docs.
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

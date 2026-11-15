@@ -9,11 +9,12 @@ RUN apk add --no-cache \
     libsodium-dev \
     libpng-dev \
     libjpeg-turbo-dev \
-    libwebp-dev
+    libwebp-dev \
+    postgresql-dev
 
 # GD with PNG, JPEG and WebP: image setting fields (1.4) sniff, check and re-encode uploads with it.
 RUN docker-php-ext-configure gd --with-jpeg --with-webp \
-    && docker-php-ext-install -j$(nproc) zip sodium gd
+    && docker-php-ext-install -j$(nproc) zip sodium gd pdo_mysql pdo_pgsql
 
 # PCOV for code coverage
 RUN apk add --no-cache $PHPIZE_DEPS \

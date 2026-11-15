@@ -23,6 +23,7 @@
   - [Host-side importer API](#host-side-importer-api)
 - [brand](#brand)
   - [Error page illustrations (1.13)](#error-page-illustrations-113)
+- [Runtime settings (1.20)](#runtime-settings-120)
 - [Expiring secrets (1.17)](#expiring-secrets-117)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
@@ -914,6 +915,19 @@ registered (the images live in the database, and an error page must not need it)
 
 The brand images are always public (served anonymously by the file route): keep the `PUBLIC_ACCESS` line of
 [files](#files). Access to the two sections follows `security.area_roles.brand` / `.appearance` (default: the UI roles).
+
+## Runtime settings (1.20)
+
+```yaml
+nowo_instance_settings:
+    runtime_setting:
+        enabled: false   # literal boolean; needs nowo-tech/runtime-setting-contract
+```
+
+With `true`, the instance settings are a source and writer of nowo-tech/runtime-setting-contract for `section.field`
+ids: section version tokens, rotation with a previous value and a UTC expiry, the admin UI validating registered
+settings with their own validator. Maps two tables (migrate when you enable it). See
+[USAGE](USAGE.md#runtime-settings-120) and [HIGH-LOAD](HIGH-LOAD.md#runtime-settings-120).
 
 ## Expiring secrets (1.17)
 

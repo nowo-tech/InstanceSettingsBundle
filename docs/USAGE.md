@@ -43,6 +43,8 @@
   - [Overriding templates (REQ-TWIG-001)](#overriding-templates-req-twig-001)
 - [Translations](#translations)
 - [Doctrine schema and migrations](#doctrine-schema-and-migrations)
+- [Runtime settings (1.20)](#runtime-settings-120)
+  - [Example: Beacon chat retention and per-IP rate limits](#example-beacon-chat-retention-and-per-ip-rate-limits)
 - [Using it from a DDD / hexagonal application](#using-it-from-a-ddd--hexagonal-application)
 
 ## Contributing a settings section
@@ -1328,6 +1330,90 @@ php bin/console doctrine:migrations:migrate
 ```
 
 `doctrine:schema:update --force` is fine for local demos only. After changing `doctrine.table_prefix`, generate a migration that renames the table and its unique index. The bundle never changes the schema at runtime.
+
+## Runtime settings (1.20)
+
+With `runtime_setting.enabled` and [nowo-tech/runtime-setting-contract](https://github.com/nowo-tech/runtime-setting-contract),
+a section field can back a bundle setting that lives in `.env` today: the bundle reads it through
+`RuntimeSettingResolver`, operators change it with `nowo:runtime-setting:set|unset|rotate` or the admin UI, and running
+workers see the change within `version_ttl`, without a restart.
+
+- **Ids** are `section.field`. The section field keeps its own type, constraints and default; the runtime setting adds
+  its source (`db` / `db_then_env`), its `on_error` and its validator. No stored row = unset (then the configured env
+  value, then the bundle default; not the field default).
+- **Admin UI**: a registered writable setting is validated with its runtime-setting validator too (same rules as the
+  command). Secrets stay write-only.
+- **Rotation**: `rotate` keeps the old value (encrypted, as stored) until `--keep-previous`; `candidates()` accepts both
+  inside the window. Schedule `nowo:runtime-setting:purge`.
+- **Transactions**: the writer refuses to run inside a transaction you opened (a Messenger handler under
+  `doctrine_transaction`, a `wrapInTransaction()`): change runtime settings outside those units.
+
+### Example: Beacon chat retention and per-IP rate limits
+
+A host section owns the values; ChatKit and the host's rate limiter read them through the contract.
+
+```php
+final class ChatPolicySection extends AbstractSettingsSection
+{
+    public function getName(): string
+    {
+        return 'chat';
+    }
+
+    public function getFields(): iterable
+    {
+        yield SettingField::int('retention_days', 90, 'chat.retention_days', constraints: [new Range(min: 1, max: 36500)]);
+    }
+}
+
+final class RateLimitSection extends AbstractSettingsSection
+{
+    public function getName(): string
+    {
+        return 'rate_limit';
+    }
+
+    public function getFields(): iterable
+    {
+        yield SettingField::int('login_per_ip', 20, 'rate_limit.login_per_ip', constraints: [new Range(min: 1, max: 10000)]);
+        yield SettingField::int('api_per_ip', 600, 'rate_limit.api_per_ip', constraints: [new Range(min: 10, max: 100000)]);
+    }
+}
+```
+
+```yaml
+nowo_instance_settings:
+    runtime_setting: { enabled: true }
+nowo_runtime_setting:
+    cache_pool: cache.app
+    version_ttl: 5
+nowo_chat_kit:
+    retention_days: '%env(int:CHAT_RETENTION_DAYS)%'
+    runtime:
+        retention_days: { source: db_then_env, key: chat.retention_days, on_error: fail_closed }
+
+services:
+    app.runtime_setting.login_per_ip:
+        class: Nowo\RuntimeSettingContract\Contract\RuntimeSettingDefinition
+        arguments:
+            $id: rate_limit.login_per_ip
+            $type: !php/enum Nowo\RuntimeSettingContract\Contract\RuntimeSettingType::Int
+            $source: !php/enum Nowo\RuntimeSettingContract\Contract\RuntimeSettingSource::DbThenEnv
+            $onError: !php/enum Nowo\RuntimeSettingContract\Contract\RuntimeSettingErrorPolicy::Fallback
+            $validator: !service { class: Nowo\RuntimeSettingContract\Contract\Validator\IntRange, arguments: [1, 10000] }
+            $configured: '%env(int:LOGIN_RATE_PER_IP)%'
+        tags: [nowo_runtime_setting.definition]
+```
+
+```php
+// The host's limiter factory: one value per request, the new limit within version_ttl of a change.
+$limit = $resolver->get($registry->get('rate_limit.login_per_ip'));
+```
+
+```bash
+bin/console nowo:runtime-setting:set chat.retention_days 30
+bin/console nowo:runtime-setting:set rate_limit.login_per_ip 10      # under attack: tighten, no deploy
+```
 
 ## Using it from a DDD / hexagonal application
 
