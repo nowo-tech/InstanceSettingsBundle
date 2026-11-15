@@ -8,6 +8,7 @@ settings:
 flash:
   saved: Paramètres enregistrés.
   unchanged: Rien n'a changé.
+  conflict: "Une autre personne a modifié ce réglage après l’ouverture de la page. Rien n’a été enregistré : rechargez la page et refaites votre modification."
 notice:
   hidden_secret_invalid: "Les paramètres n’ont pas été enregistrés. Le secret saisi pour « %field% » n’est pas valide : %message% Son fournisseur n’est pas sélectionné, le champ est donc masqué : sélectionnez ce fournisseur pour le corriger, ou laissez-le vide."
   hidden_secret_locked: "Les paramètres n’ont pas été enregistrés. Une valeur a été saisie pour « %field% », dont la ligne est masquée et contient un secret enregistré : affichez la ligne, puis cochez « Remplacer la valeur enregistrée » pour le modifier, ou laissez-le vide."

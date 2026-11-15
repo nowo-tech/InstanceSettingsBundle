@@ -11,6 +11,8 @@ use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\HostEntity\HostNote;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
+use Nowo\TransactionDoctrine\DoctrineTransactionRunner;
+use RuntimeException;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -38,16 +40,17 @@ final class HostTransactionListenerWritesTest extends KernelTestCase
         $seen   = $this->auditListener($kernel, $host);
         $conn   = $host->getConnection();
 
-        $conn->beginTransaction();
-        $this->settings($kernel)->save('general', ['site_name' => 'Beacon']);
-        $this->settings($kernel)->save('mailer', ['from_name' => 'Ops']);
-        $own = new HostNote('ops entity');
-        $host->persist($own);
-        self::assertTrue($host->getUnitOfWork()->isScheduledForInsert($own), 'the bundle did not flush the host entity');
-        self::assertSame(0, $this->notes($kernel));
-        $host->flush();
-        self::assertSame([], $seen->getArrayCopy(), 'nothing inside the host transaction');
-        $conn->commit();
+        // The host's own unit of work (its own runner: begin, the closure, the host flush, commit).
+        DoctrineTransactionRunner::forEntityManager($host)->run(function () use ($kernel, $host, $seen): void {
+            $this->settings($kernel)->save('general', ['site_name' => 'Beacon']);
+            $this->settings($kernel)->save('mailer', ['from_name' => 'Ops']);
+            $own = new HostNote('ops entity');
+            $host->persist($own);
+            self::assertTrue($host->getUnitOfWork()->isScheduledForInsert($own), 'the bundle did not flush the host entity');
+            self::assertSame(0, $this->notes($kernel));
+            $host->flush();
+            self::assertSame([], $seen->getArrayCopy(), 'nothing inside the host transaction');
+        });
         self::assertSame([], $seen->getArrayCopy(), 'nothing from inside the commit');
 
         // The end of the request dispatches them (the http_kernel service: no services resetter in between).
@@ -70,14 +73,22 @@ final class HostTransactionListenerWritesTest extends KernelTestCase
         $kernel = $this->bootKernel(extensions: ['doctrine' => ['orm' => ['mappings' => ['Host' => self::HOST_MAPPING]]]]);
         $host   = $this->host($kernel);
         $seen   = $this->auditListener($kernel, $host);
-        $conn   = $host->getConnection();
 
-        $conn->beginTransaction();
-        $this->settings($kernel)->save('general', ['site_name' => 'Beacon']);
-        $this->settings($kernel)->save('mailer', ['from_name' => 'Ops']);
-        $host->persist(new HostNote('ops entity'));
-        $host->flush();
-        $conn->rollBack();
+        // The host's own transaction, rolled back by a failure after its flush.
+        try {
+            DoctrineTransactionRunner::forEntityManager($host)->run(function () use ($kernel, $host): never {
+                $this->settings($kernel)->save('general', ['site_name' => 'Beacon']);
+                $this->settings($kernel)->save('mailer', ['from_name' => 'Ops']);
+                $host->persist(new HostNote('ops entity'));
+                $host->flush();
+
+                throw new RuntimeException('the host gives up');
+            });
+        } catch (RuntimeException) {
+            // The host's own failure: its transaction was rolled back.
+        }
+        // 1.19: the memo read inside the transaction is dropped by the rollback (no reset() needed).
+        self::assertSame('Acme', $this->settings($kernel)->getString('general.site_name'), 'the memo follows the rollback');
 
         self::assertSame(0, $this->pending($kernel)->dispatchPending());
         self::assertSame([], $seen->getArrayCopy(), 'no event after a rollback');

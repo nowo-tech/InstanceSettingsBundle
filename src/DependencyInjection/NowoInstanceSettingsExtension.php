@@ -32,6 +32,7 @@ use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\Doctrine\FileStoreTransactionMiddleware;
+use Nowo\InstanceSettingsBundle\Doctrine\KeyCollationListener;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
@@ -90,7 +91,10 @@ use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Seed\TransactionStateGuard;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
+use Nowo\InstanceSettingsBundle\Settings\SettingsMemoObserver;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
+use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
+use Nowo\InstanceSettingsBundle\Transaction\StorageFailureListener;
 use Nowo\InstanceSettingsBundle\Twig\InstanceSettingsTwigExtension;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
 use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
@@ -594,11 +598,28 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $doctrine['entity_manager'],
         ]))->addTag('kernel.reset', ['method' => 'reset']));
 
+        // 1.19 (Beacon spec 239): the bundle's own runner (one attempt; runRetrying() for the outermost console units),
+        // injected by its class: never a runner the application binds to the transaction contract.
+        $container->setDefinition(InstanceSettingsTransactionRunner::class, new Definition(InstanceSettingsTransactionRunner::class, [
+            new Reference(SettingsEntityManager::class),
+        ]));
+        $container->setAlias(InstanceSettingsTransactionRunner::SERVICE_ID, InstanceSettingsTransactionRunner::class);
+        $container->setDefinition(StorageFailureListener::class, (new Definition(StorageFailureListener::class))
+            ->addTag('kernel.event_listener', ['event' => KernelEvents::EXCEPTION, 'method' => 'onException', 'priority' => StorageFailureListener::PRIORITY]));
+        $container->setDefinition(KeyCollationListener::class, (new Definition(KeyCollationListener::class, [
+            new Reference('doctrine'),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->addTag('doctrine.event_listener', ['event' => 'postGenerateSchemaTable']));
+        $container->setDefinition(SettingsMemoObserver::class, new Definition(SettingsMemoObserver::class, [
+            new ServiceClosureArgument(new Reference(InstanceSettings::class, ContainerInterface::IGNORE_ON_UNINITIALIZED_REFERENCE)),
+        ]));
+
         $container->setDefinition(DoctrineSettingValueRepository::class, new Definition(DoctrineSettingValueRepository::class, [
             new Reference('doctrine'),
             $doctrine['entity_manager'],
             new Reference(SettingsEntityManager::class),
             new Reference(SettingsPendingEventsInterface::class),
+            new Reference(InstanceSettingsTransactionRunner::class),
         ]));
         $container->setAlias(SettingValueRepositoryInterface::class, DoctrineSettingValueRepository::class);
 
@@ -624,7 +645,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                 ->addTag('kernel.event_listener', ['event' => $boundary, 'method' => 'onBoundary', 'priority' => 1024]);
         }
         $container->setAlias(SettingsPendingEventsInterface::class, AfterCommitEventDispatcher::class)->setPublic(true);
-        $container->setDefinition(FileStoreTransactionMiddleware::class, (new Definition(FileStoreTransactionMiddleware::class, [new Reference(AfterCommitEventDispatcher::class)]))
+        // 1.19: the settings memo is dropped when a transaction or a savepoint rolls back (SettingsMemoObserver).
+        $container->setDefinition(FileStoreTransactionMiddleware::class, (new Definition(FileStoreTransactionMiddleware::class, [new Reference(AfterCommitEventDispatcher::class), new Reference(SettingsMemoObserver::class)]))
             ->addTag('doctrine.middleware'));
 
         // 1.10 (DDD P2): persistence-neutral read view of the stored rows, over whichever repository is aliased.
@@ -653,6 +675,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(ImageProcessor::class),
             new Reference(SettingFileUrls::class),
             $expiryStore,
+            // 1.19: keys the fingerprints of the section form snapshot.
+            '%kernel.secret%',
         ]))->addTag('kernel.reset', ['method' => 'reset']));
         $container->setAlias(InstanceSettingsInterface::class, InstanceSettings::class)->setPublic(true);
 
@@ -689,6 +713,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(AfterCommitEventDispatcher::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             $expiryStore,
+            new Reference(InstanceSettingsTransactionRunner::class),
         ]))->setPublic(true));
 
         $container->setDefinition(SeedFromFallbacksCommand::class, (new Definition(SeedFromFallbacksCommand::class, [
@@ -709,6 +734,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(TransactionStateGuard::class),
             new Reference(AfterCommitEventDispatcher::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference(InstanceSettingsTransactionRunner::class),
         ]))->setPublic(true));
 
         $container->setDefinition(SeedCommand::class, (new Definition(SeedCommand::class, [
@@ -753,6 +779,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $container->getDefinition(FileStoreTransactionMiddleware::class)->setArguments([
                 new Reference(FilesystemSettingFileStore::class),
                 new Reference(AfterCommitEventDispatcher::class),
+                new Reference(SettingsMemoObserver::class),
             ]);
             $container->setAlias(SettingFileStoreInterface::class, FilesystemSettingFileStore::class);
         } else {

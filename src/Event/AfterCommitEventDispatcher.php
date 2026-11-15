@@ -117,9 +117,10 @@ final class AfterCommitEventDispatcher implements EventDispatcherInterface, Sett
             $events          = $this->committed;
             $this->committed = [];
             foreach ($events as $event) {
-                ++$count;
+                // Held work (1.19) is not an event: not counted.
+                $count += $event instanceof DeferredWork ? 0 : 1;
                 try {
-                    $this->dispatcher?->dispatch($event);
+                    $this->deliver($event);
                 } catch (Throwable $e) {
                     $this->logger?->error('Instance settings: a listener failed after the commit.', [
                         'bundle'    => 'NowoInstanceSettingsBundle',
@@ -138,9 +139,24 @@ final class AfterCommitEventDispatcher implements EventDispatcherInterface, Sett
      */
     public function countPending(): int
     {
-        $count = count($this->committed);
+        $count = $this->countEvents($this->committed);
         foreach ($this->transactions as $levels) {
-            $count += count($this->flatten($levels));
+            $count += $this->countEvents($this->flatten($levels));
+        }
+
+        return $count;
+    }
+
+    /**
+     * The events of a list, without the held work (1.19).
+     *
+     * @param list<object> $events
+     */
+    private function countEvents(array $events): int
+    {
+        $count = 0;
+        foreach ($events as $event) {
+            $count += $event instanceof DeferredWork ? 0 : 1;
         }
 
         return $count;
@@ -165,7 +181,7 @@ final class AfterCommitEventDispatcher implements EventDispatcherInterface, Sett
             }
             $this->dispatchPending();
 
-            return $this->dispatcher?->dispatch($event) ?? $event;
+            return $this->deliver($event);
         }
         $levels        = $this->transactions[$connection];
         $last          = count($levels) - 1;
@@ -176,6 +192,33 @@ final class AfterCommitEventDispatcher implements EventDispatcherInterface, Sett
         $this->transactions[$connection] = $levels;
 
         return $event;
+    }
+
+    /**
+     * Runs `$work` once the write is committed, like an event (1.19): now when no transaction is open, else at the next
+     * safe point after the outermost commit; dropped when the transaction (or the savepoint that holds it) rolls back. A
+     * failure is logged like a listener's when it runs deferred.
+     *
+     * @param Closure(): void $work the work (the audit log line of a save)
+     */
+    public function afterCommit(Closure $work): void
+    {
+        $this->dispatch(new DeferredWork($work));
+    }
+
+    /**
+     * Runs `$work` after the commit through `$dispatcher` when it is this dispatcher (the bundle's wiring), else now.
+     *
+     * @param Closure(): void $work
+     */
+    public static function afterCommitOf(?EventDispatcherInterface $dispatcher, Closure $work): void
+    {
+        if ($dispatcher instanceof self) {
+            $dispatcher->afterCommit($work);
+
+            return;
+        }
+        $work();
     }
 
     /**
@@ -256,6 +299,20 @@ final class AfterCommitEventDispatcher implements EventDispatcherInterface, Sett
         }
 
         return !$connection instanceof Connection || !$connection->isTransactionActive();
+    }
+
+    /**
+     * Dispatches an event to the application, or runs held work.
+     */
+    private function deliver(object $event): object
+    {
+        if ($event instanceof DeferredWork) {
+            ($event->work)();
+
+            return $event;
+        }
+
+        return $this->dispatcher?->dispatch($event) ?? $event;
     }
 
     private function closeSavepoint(object $connection, string $name, bool $committed): void

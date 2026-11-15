@@ -7,11 +7,14 @@ namespace Nowo\InstanceSettingsBundle\Settings;
 use DateTimeImmutable;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
+use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\EventListener\WorkerBoundaryResetListener;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\Exception\SettingsConflictException;
 use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryRecord;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\ImageProcessor;
@@ -21,6 +24,7 @@ use Nowo\InstanceSettingsBundle\File\ProcessedImage;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\File\SettingFileUrls;
 use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
+use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
@@ -40,15 +44,19 @@ use WeakReference;
 use function array_key_exists;
 use function array_keys;
 use function array_map;
+use function hash_hmac;
 use function implode;
 use function in_array;
 use function is_float;
 use function is_int;
 use function is_string;
+use function json_encode;
 use function preg_match;
 use function sprintf;
 use function substr;
 use function trim;
+
+use const JSON_PRESERVE_ZERO_FRACTION;
 
 /**
  * Default {@see InstanceSettingsInterface}: one query per request for every row, memoized for the current main request
@@ -57,7 +65,7 @@ use function trim;
  * of work: {@see WorkerBoundaryResetListener} calls {@see reset()} at every boundary, also when the services resetter
  * does not run.
  */
-final class InstanceSettings implements InstanceSettingsInterface, ResetInterface
+final class InstanceSettings implements InstanceSettingsInterface, SnapshotSettingsWriterInterface, ResetInterface
 {
     /** @var array<string, array<string, SettingValue>>|null section => field => row */
     private ?array $rows = null;
@@ -81,6 +89,7 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      * @param SettingFileUrls $fileUrls file route URLs (1.4)
      * @param SecretExpiryStoreInterface|null $expiryStore expiry dates of the expiring secrets (1.17; required to save a
      *                                                     section that declares one)
+     * @param string $snapshotKey keys the fingerprints of {@see self::snapshot()} (1.19: `%kernel.secret%`)
      */
     public function __construct(
         private readonly SettingValueRepositoryInterface $repository,
@@ -94,6 +103,7 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         private readonly ImageProcessor $images = new ImageProcessor(),
         private readonly SettingFileUrls $fileUrls = new SettingFileUrls(),
         private readonly ?SecretExpiryStoreInterface $expiryStore = null,
+        private readonly string $snapshotKey = '',
     ) {
     }
 
@@ -255,9 +265,43 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
     }
 
     /**
-     * Validates every value first, then upserts / removes the changed rows with one flush.
+     * Validates every value first, then upserts / removes the changed rows in one unit of work, under the section's write
+     * lock (1.19): the stored rows are read again under the lock, so a concurrent save is never undone by a stale read.
      */
     public function save(string $section, array $values, string $origin = SettingsChangedEvent::ORIGIN_API): array
+    {
+        return $this->write($section, $values, $origin, null);
+    }
+
+    /**
+     * The section as stored now, as its form shows it (1.19).
+     */
+    public function snapshot(string $section): SectionSnapshot
+    {
+        $fields = $this->registry->fields($section);
+        $dates  = $this->hasExpiringFields($fields) && $this->expiryStore instanceof SecretExpiryStoreInterface ? $this->expiryStore->findBySection($section) : [];
+
+        return new SectionSnapshot($section, $this->fingerprints($section, $fields, $this->rows()[$section] ?? [], $dates));
+    }
+
+    /**
+     * Saves a section form merged with the changes saved since `$base` (1.19, {@see SnapshotSettingsWriterInterface}).
+     */
+    public function saveSince(string $section, array $values, SectionSnapshot $base, string $origin = SettingsChangedEvent::ORIGIN_FORM): array
+    {
+        return $this->write($section, $values, $origin, $base);
+    }
+
+    /**
+     * A save: the values are normalized first (images re-encoded), outside any lock; then, in one unit of work under the
+     * section's write lock, the stored rows are read again, the base snapshot (if any) is merged, the required rules are
+     * checked against the stored state and the changes are written. The log line and the event follow the commit.
+     *
+     * @param array<array-key, mixed> $values
+     *
+     * @return list<string>
+     */
+    private function write(string $section, array $values, string $origin, ?SectionSnapshot $base): array
     {
         $fields = $this->registry->fields($section);
         // 1.17: the companion expiry dates (`<field>:expires_on`) of expiring secrets, taken out before anything else.
@@ -271,7 +315,7 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         $imageValues = [];
         $violations  = $expiryViolations;
         $required    = [];
-        // Pass 1: normalize every value; `required` is decided in pass 2, once the controlling values are normalized.
+        // Pass 1: normalize every value; `required` is decided in pass 2, under the lock, against the stored values.
         foreach ($values as $name => $value) {
             $field = $this->registry->field($section, (string) $name);
             if ($field->type === SettingType::Image) {
@@ -299,15 +343,85 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
                 $required[$field->name] = $value;
             }
         }
+        if ($violations !== []) {
+            throw new InvalidSettingValueException($section, $violations);
+        }
+
+        $now   = $this->clock?->now() ?? (new NativeClock())->now();
+        $store = $imageValues === [] ? null : $this->fileStore;
+
+        try {
+            // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored by the repository.
+            $written = FileStoreTransaction::run($this->repository, $store, fn (): ?array => $this->writeLocked($section, $fields, $values, $normalized, $imageValues, $required, $expiryInput, $base, $now));
+        } finally {
+            // The memo may hold rows changed in memory by the unit (written or rolled back): read again next time.
+            $this->reset();
+        }
+        if ($written === null) {
+            return [];
+        }
+        [$changed, $secrets, $fileChanges, $newImages, $expiryChanges] = $written;
+
+        $saved   = [...$changed, ...array_map(SettingField::expiryKey(...), array_keys($expiryChanges))];
+        $context = [
+            'bundle'  => 'NowoInstanceSettingsBundle',
+            'section' => $section,
+            'fields'  => implode(',', $saved),
+            'origin'  => $origin,
+        ];
+        if ($fileChanges !== []) {
+            $context['files'] = $this->describeFiles($fileChanges, $newImages);
+        }
+        // 1.19: the audit line follows the outermost commit (dropped with a rolled-back host transaction), like the event.
+        $logger = $this->logger;
+        AfterCommitEventDispatcher::afterCommitOf($this->dispatcher, static function () use ($logger, $context): void {
+            $logger?->info('Instance settings saved.', $context);
+        });
+        if ($changed !== []) {
+            // A date-only change is not a settings change: the event keeps listing field names only (1.17).
+            $this->dispatcher?->dispatch(new SettingsChangedEvent($section, $changed, $secrets, $origin, $fileChanges));
+        }
+
+        return $saved;
+    }
+
+    /**
+     * The locked part of a save, inside the unit of work: null when nothing changed, else the changed fields, the changed
+     * secrets, the file changes, the new images and the expiry date changes.
+     *
+     * @param array<string, SettingField> $fields
+     * @param array<array-key, mixed> $values submitted values (after the section filter)
+     * @param array<string, bool|float|int|string|null> $normalized normalized plain and secret values
+     * @param array<string, ProcessedImage|string|null> $imageValues normalized image values
+     * @param array<string, mixed> $required submitted values that normalized to null (the `required` rule)
+     * @param array<string, DateTimeImmutable|null> $expiryInput dates given with the save
+     *
+     * @throws InvalidSettingValueException
+     * @throws SettingsConflictException
+     *
+     * @return array{0: list<string>, 1: list<string>, 2: array<string, array{old: string|null, new: string|null}>, 3: array<string, ProcessedImage|null>, 4: array<string, DateTimeImmutable|null>}|null
+     */
+    private function writeLocked(string $section, array $fields, array $values, array $normalized, array $imageValues, array $required, array $expiryInput, ?SectionSnapshot $base, DateTimeImmutable $now): ?array
+    {
+        $existing = [];
+        foreach (SectionLock::rowsOf($this->repository, $section) as $row) {
+            $existing[$row->getName()] = $row;
+        }
+        $current = $this->effectiveValues($fields, $existing);
+        if ($base instanceof SectionSnapshot) {
+            [$normalized, $imageValues, $expiryInput, $required] = $this->merge($section, $fields, $values, $normalized, $imageValues, $expiryInput, $required, $base, $existing);
+        }
+
         // Pass 2: `required` only applies to a provider-dependent field visible for the normalized saved values merged
         // over the effective stored ones (1.3); a value saved empty takes its default, as it will once its row is
         // deleted (1.3.1).
-        $context = null;
+        $context    = null;
+        $violations = [];
         foreach ($required as $name => $value) {
             $field   = $fields[$name];
             $visible = true;
             if ($field->visibleWhen !== null) {
-                $context ??= $this->visibilityContext($section, $normalized);
+                $context ??= $this->visibilityContext($fields, $normalized, $current);
                 $visible = $field->isVisibleFor($context);
             }
             [, $messages] = $this->normalizer->normalize($field, $value, $visible);
@@ -318,24 +432,19 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         if ($violations !== []) {
             throw new InvalidSettingValueException($section, $violations);
         }
-        $existing = [];
-        foreach ($this->repository->findBySection($section) as $row) {
-            $existing[$row->getName()] = $row;
-        }
         // 1.12: a colour equal to its preset (default, or the colour of the submitted / stored preset source value) is
         // not stored, so a later change of the preset still reaches it. A colour re-submitted unchanged (the stored
         // value) is kept as is (audit LM-M1: an untouched save never changes a stored colour).
         $presetContext = null;
         foreach ($normalized as $name => $value) {
             if ($value !== null && $fields[$name]->type === SettingType::Color && ($existing[$name] ?? null)?->getValue() !== $value) {
-                $presetContext ??= $this->visibilityContext($section, $normalized);
+                $presetContext ??= $this->visibilityContext($fields, $normalized, $current);
                 if ($value === $fields[$name]->presetColor($presetContext)) {
                     $normalized[$name] = null;
                 }
             }
         }
 
-        $now         = $this->clock?->now() ?? (new NativeClock())->now();
         $save        = [];
         $remove      = [];
         $changed     = [];
@@ -401,33 +510,149 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
         $expiryChanges = $expiryInput === [] && !$this->changesExpiringSecret($fields, $changed) ? [] : $this->expiryChanges($section, $fields, $expiryInput, $normalized, $existing, $changed);
 
         if ($changed === [] && $expiryChanges === []) {
-            return [];
+            return null;
+        }
+        $this->applyChanges($section, $save, $remove, $newImages, $orphans, $now, $expiryChanges);
+
+        return [$changed, $secrets, $fileChanges, $newImages, $expiryChanges];
+    }
+
+    /**
+     * Merges a section form with the changes saved since it was opened (1.19): a field another editor changed meanwhile
+     * is dropped from the save when this editor left it as shown, and is a conflict when this editor changed it too (to
+     * another value) or acted on a secret, an image or an expiry date replaced meanwhile.
+     *
+     * @param array<string, SettingField> $fields
+     * @param array<array-key, mixed> $values
+     * @param array<string, bool|float|int|string|null> $normalized
+     * @param array<string, ProcessedImage|string|null> $imageValues
+     * @param array<string, DateTimeImmutable|null> $expiryInput
+     * @param array<string, mixed> $required
+     * @param array<string, SettingValue> $existing
+     *
+     * @throws SettingsConflictException
+     *
+     * @return array{0: array<string, bool|float|int|string|null>, 1: array<string, ProcessedImage|string|null>, 2: array<string, DateTimeImmutable|null>, 3: array<string, mixed>}
+     */
+    private function merge(string $section, array $fields, array $values, array $normalized, array $imageValues, array $expiryInput, array $required, SectionSnapshot $base, array $existing): array
+    {
+        $dates     = $expiryInput !== [] && $this->expiryStore instanceof SecretExpiryStoreInterface ? $this->expiryStore->findBySection($section) : [];
+        $now       = $this->fingerprints($section, $fields, $existing, $dates);
+        $conflicts = [];
+        foreach ($normalized as $name => $value) {
+            $was = $base->fingerprint($name);
+            if ($was === null || $was === $now[$name]) {
+                continue;
+            }
+            if (!$fields[$name]->secret) {
+                if ($this->fingerprint($section, $fields[$name], $values[$name] ?? null) === $was || $this->fingerprint($section, $fields[$name], $value) === $was) {
+                    // Left as shown: the other editor's value stays.
+                    unset($normalized[$name], $required[$name]);
+
+                    continue;
+                }
+                if ($this->fingerprint($section, $fields[$name], $value) === $now[$name]) {
+                    continue;
+                }
+            }
+            $conflicts[] = $name;
+        }
+        foreach ($imageValues as $name => $value) {
+            $was = $base->fingerprint($name);
+            if ($was === null || $was === $now[$name]) {
+                continue;
+            }
+            if (is_string($value)) {
+                unset($imageValues[$name]);
+
+                continue;
+            }
+            $conflicts[] = $name;
+        }
+        foreach ($expiryInput as $name => $date) {
+            $key = SettingField::expiryKey($name);
+            $was = $base->fingerprint($key);
+            if ($was !== null && $was !== ($now[$key] ?? null)) {
+                $conflicts[] = $key;
+            }
+        }
+        if ($conflicts !== []) {
+            throw new SettingsConflictException($section, $conflicts);
         }
 
-        if ($fileChanges === [] && $expiryChanges === []) {
-            $this->repository->apply($save, $remove);
-        } else {
-            $this->applyWithFiles($section, $save, $remove, $newImages, $orphans, $now, $expiryChanges);
-        }
-        $this->reset();
+        return [$normalized, $imageValues, $expiryInput, $required];
+    }
 
-        $saved   = [...$changed, ...array_map(SettingField::expiryKey(...), array_keys($expiryChanges))];
-        $context = [
-            'bundle'  => 'NowoInstanceSettingsBundle',
-            'section' => $section,
-            'fields'  => implode(',', $saved),
-            'origin'  => $origin,
-        ];
-        if ($fileChanges !== []) {
-            $context['files'] = $this->describeFiles($fileChanges, $newImages);
-        }
-        $this->logger?->info('Instance settings saved.', $context);
-        if ($changed !== []) {
-            // A date-only change is not a settings change: the event keeps listing field names only (1.17).
-            $this->dispatcher?->dispatch(new SettingsChangedEvent($section, $changed, $secrets, $origin, $fileChanges));
+    /**
+     * Fingerprints of a section as its form shows it (1.19): every field, and the expiry date of every expiring secret.
+     *
+     * @param array<string, SettingField> $fields
+     * @param array<string, SettingValue> $rows stored rows by field name
+     * @param array<string, SecretExpiryRecord> $dates stored expiry dates by field name
+     *
+     * @return array<string, string>
+     */
+    private function fingerprints(string $section, array $fields, array $rows, array $dates): array
+    {
+        $fingerprints = [];
+        foreach ($fields as $name => $field) {
+            $row = $rows[$name] ?? null;
+            if ($field->secret) {
+                $fingerprints[$name] = $this->hash($section, $name, $row === null ? '' : 's:' . $row->getSecret());
+                if ($field->expires) {
+                    $date                                         = $dates[$name] ?? null;
+                    $fingerprints[SettingField::expiryKey($name)] = $this->hash($section, SettingField::expiryKey($name), $date === null ? '' : ExpiryDate::format($date->expiresOn));
+                }
+
+                continue;
+            }
+            if ($field->type === SettingType::Image) {
+                $fingerprints[$name] = $this->hash($section, $name, (string) json_encode($row?->getValue()));
+
+                continue;
+            }
+            // What the form shows: the effective value; an unstored colour is empty (= follow the preset, 1.12).
+            $shown               = $field->type === SettingType::Color && $row === null ? null : $this->effectiveFrom($field, $row);
+            $fingerprints[$name] = $this->fingerprint($section, $field, $shown);
         }
 
-        return $saved;
+        return $fingerprints;
+    }
+
+    /**
+     * Fingerprint of a plain value as a form shows it (numbers of a float field compare as floats).
+     */
+    private function fingerprint(string $section, SettingField $field, mixed $value): string
+    {
+        if ($field->type === SettingType::Float && is_int($value)) {
+            $value = (float) $value;
+        }
+
+        return $this->hash($section, $field->name, (string) json_encode($value, JSON_PRESERVE_ZERO_FRACTION));
+    }
+
+    /**
+     * Keyed hash of one field state (never a value in the clear, never an unkeyed hash of a secret).
+     */
+    private function hash(string $section, string $key, string $state): string
+    {
+        return substr(hash_hmac('sha256', $section . "\0" . $key . "\0" . $state, 'nowo_instance_settings_snapshot' . "\0" . $this->snapshotKey), 0, 16);
+    }
+
+    /**
+     * Whether a section declares an expiring secret.
+     *
+     * @param array<string, SettingField> $fields
+     */
+    private function hasExpiringFields(array $fields): bool
+    {
+        foreach ($fields as $field) {
+            if ($field->expires) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -541,20 +766,21 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      * Effective values after a save: the normalized saved values (an empty one replaced by its field default) merged
      * over the effective stored ones.
      *
+     * @param array<string, SettingField> $fields
      * @param array<string, bool|float|int|string|null> $normalized
+     * @param array<string, bool|float|int|string|null> $current effective stored values (read under the lock, 1.19)
      *
      * @return array<string, mixed>
      */
-    private function visibilityContext(string $section, array $normalized): array
+    private function visibilityContext(array $fields, array $normalized, array $current): array
     {
-        $fields = $this->registry->fields($section);
         foreach ($normalized as $name => $value) {
             if ($value === null) {
                 $normalized[$name] = $fields[$name]->default;
             }
         }
 
-        return $normalized + $this->getSection($section);
+        return $normalized + $current;
     }
 
     /**
@@ -600,8 +826,8 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
     }
 
     /**
-     * Writes the image files, orphans the replaced ones, applies the rows and writes the expiry dates (1.17) in one
-     * transaction.
+     * Inside the unit of work: writes the image files, orphans the replaced ones, applies the rows and writes the expiry
+     * dates (1.17). A staged (filesystem) store applies its file changes only after the outermost commit (1.7, audit JG-M1).
      *
      * @param list<SettingValue> $save
      * @param list<SettingValue> $remove
@@ -609,27 +835,23 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
      * @param list<array{0: string, 1: string}> $orphans field => replaced hash
      * @param array<string, DateTimeImmutable|null> $expiryChanges field => expiry date or null (1.17)
      */
-    private function applyWithFiles(string $section, array $save, array $remove, array $newImages, array $orphans, DateTimeImmutable $now, array $expiryChanges = []): void
+    private function applyChanges(string $section, array $save, array $remove, array $newImages, array $orphans, DateTimeImmutable $now, array $expiryChanges): void
     {
         $store = $newImages === [] && $orphans === [] ? $this->fileStore : ($this->fileStore ?? throw new LogicException('Instance settings image fields need a file store (SettingFileStoreInterface).'));
-        // @igor-ignore - The closure runs synchronously inside the transaction and is not stored by the repository.
-        // A staged (filesystem) store applies its file changes only after the outermost commit (1.7, audit JG-M1).
-        FileStoreTransaction::run($this->repository, $store, function () use ($store, $section, $save, $remove, $newImages, $orphans, $now, $expiryChanges): void {
-            foreach ($newImages as $name => $image) {
-                if ($image instanceof ProcessedImage) {
-                    $store?->save($section, $name, $image, $now);
-                }
+        foreach ($newImages as $name => $image) {
+            if ($image instanceof ProcessedImage) {
+                $store?->save($section, $name, $image, $now);
             }
-            foreach ($orphans as [$name, $sha]) {
-                $store?->orphan($section, $name, $sha, $now);
-            }
-            if ($save !== [] || $remove !== []) {
-                $this->repository->apply($save, $remove);
-            }
-            if ($expiryChanges !== []) {
-                $this->expiryStore?->write($section, $expiryChanges, $now);
-            }
-        });
+        }
+        foreach ($orphans as [$name, $sha]) {
+            $store?->orphan($section, $name, $sha, $now);
+        }
+        if ($save !== [] || $remove !== []) {
+            $this->repository->apply($save, $remove);
+        }
+        if ($expiryChanges !== []) {
+            $this->expiryStore?->write($section, $expiryChanges, $now);
+        }
     }
 
     /**
@@ -661,8 +883,15 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
 
     private function effective(string $section, string $name, SettingField $field): bool|float|int|string|null
     {
-        $row = $this->rows()[$section][$name] ?? null;
-        if ($row === null) {
+        return $this->effectiveFrom($field, $this->rows()[$section][$name] ?? null);
+    }
+
+    /**
+     * Effective value of a field for its stored row (or none).
+     */
+    private function effectiveFrom(SettingField $field, ?SettingValue $row): bool|float|int|string|null
+    {
+        if (!$row instanceof SettingValue) {
             return $field->default;
         }
 
@@ -670,6 +899,26 @@ final class InstanceSettings implements InstanceSettingsInterface, ResetInterfac
 
         // A stored value that no longer matches the field (type changed in code) falls back to the default.
         return $value !== null && SettingField::matchesType($field->type, $value, $field->choices) ? $value : $field->default;
+    }
+
+    /**
+     * Effective plain values of a section (no secrets, no image fields) for its stored rows.
+     *
+     * @param array<string, SettingField> $fields
+     * @param array<string, SettingValue> $rows
+     *
+     * @return array<string, bool|float|int|string|null>
+     */
+    private function effectiveValues(array $fields, array $rows): array
+    {
+        $values = [];
+        foreach ($fields as $name => $field) {
+            if (!$field->secret && $field->type !== SettingType::Image) {
+                $values[$name] = $this->effectiveFrom($field, $rows[$name] ?? null);
+            }
+        }
+
+        return $values;
     }
 
     /**

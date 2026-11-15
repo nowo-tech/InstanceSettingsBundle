@@ -11,6 +11,7 @@ use Doctrine\DBAL\Exception\RetryableException;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\DBAL\Types\Types;
+use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\ExpiryEntity\SecretExpiry;
 
@@ -135,6 +136,8 @@ final readonly class DoctrineSecretExpiryStore implements SecretExpiryStoreInter
     {
         $row   = ['section' => $section, 'name' => $field, 'expires_on' => $date, 'notified_threshold' => null, 'notified_at' => null, 'updated_at' => $at];
         $types = ['expires_on' => Types::DATE_IMMUTABLE, 'notified_at' => Types::DATETIME_IMMUTABLE, 'updated_at' => Types::DATETIME_IMMUTABLE];
+        // 1.19: the ids come from a sequence on PostgreSQL with DBAL 3 (no column default).
+        $row = SequenceId::into($row, $connection, $this->entityManager->get()->getClassMetadata(SecretExpiry::class));
         // QC-M1: an own savepoint, rolled back ONLY for the unique violation. Any other error (MySQL deadlock 1213,
         // which already rolled back the whole transaction and dropped every savepoint) is left to the caller's
         // transaction untouched: no ROLLBACK TO SAVEPOINT (1305) and no DBAL nesting level left behind.

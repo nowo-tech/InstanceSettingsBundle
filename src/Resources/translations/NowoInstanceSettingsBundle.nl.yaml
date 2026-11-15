@@ -8,6 +8,7 @@ settings:
 flash:
   saved: Instellingen opgeslagen.
   unchanged: Er is niets gewijzigd.
+  conflict: "Iemand anders heeft deze instelling gewijzigd nadat u de pagina opende. Er is niets opgeslagen: laad de pagina opnieuw en breng uw wijziging opnieuw aan."
 notice:
   hidden_secret_invalid: "De instellingen zijn niet opgeslagen. Het geheim dat is ingevoerd voor “%field%” is ongeldig: %message% De provider is niet geselecteerd, dus het veld is verborgen: selecteer die provider om het te corrigeren, of laat het leeg."
   hidden_secret_locked: "De instellingen zijn niet opgeslagen. Er is een waarde ingevoerd voor “%field%”, waarvan de rij verborgen is en een opgeslagen geheim bevat: toon de rij en vink “Opgeslagen waarde vervangen” aan om het te wijzigen, of laat het leeg."

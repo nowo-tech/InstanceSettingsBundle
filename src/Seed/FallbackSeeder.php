@@ -8,10 +8,12 @@ use DateTimeImmutable;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
+use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
+use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Section\SectionFallbackProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
@@ -20,6 +22,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
+use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
@@ -27,10 +30,12 @@ use Symfony\Contracts\Service\ResetInterface;
 
 use function array_key_exists;
 use function array_keys;
+use function array_map;
 use function array_merge;
 use function implode;
 use function in_array;
 use function is_string;
+use function strval;
 use function trim;
 
 /**
@@ -61,6 +66,7 @@ final readonly class FallbackSeeder
      * @param EventDispatcherInterface|null $dispatcher receives one {@see SettingsChangedEvent} per seeded section, after the commit
      * @param ClockInterface|null $clock `updated_at` of the inserted rows
      * @param SecretExpiryStoreInterface|null $expiryStore 1.17: stores the expiry date a secret fallback carries
+     * @param InstanceSettingsTransactionRunner|null $runner 1.19: replays a transient failure of the outermost seed unit
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -72,6 +78,7 @@ final readonly class FallbackSeeder
         private ?EventDispatcherInterface $dispatcher = null,
         private ?ClockInterface $clock = null,
         private ?SecretExpiryStoreInterface $expiryStore = null,
+        private ?InstanceSettingsTransactionRunner $runner = null,
     ) {
     }
 
@@ -119,12 +126,17 @@ final readonly class FallbackSeeder
             $this->settings->reset();
         }
         foreach ($events as $event) {
-            $this->logger?->info('Instance settings saved.', [
+            // 1.19: the audit line follows the outermost commit, like the event.
+            $logger  = $this->logger;
+            $context = [
                 'bundle'  => 'NowoInstanceSettingsBundle',
                 'section' => $event->section,
                 'fields'  => implode(',', $event->changedFields),
                 'origin'  => SettingsChangedEvent::ORIGIN_SEED,
-            ]);
+            ];
+            AfterCommitEventDispatcher::afterCommitOf($this->dispatcher, static function () use ($logger, $context): void {
+                $logger?->info('Instance settings saved.', $context);
+            });
             $this->dispatcher?->dispatch($event);
         }
 
@@ -185,8 +197,12 @@ final readonly class FallbackSeeder
             return [new SeedReport($examined, $seeded, $skipped, $secrets, true), []];
         }
 
+        // 1.19: replayed after a transient failure when it is the outermost transaction (runRetrying()); the events and
+        // log lines follow the commit, so a replay never duplicates them.
+        // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored.
+        $unit = fn (): array => $this->repository->transactional(fn (): array => $this->insertMissing($plans, $expiry));
         /** @var array{0: list<string>, 1: list<string>, 2: array<string, string>, 3: list<SettingsChangedEvent>} $written */
-        $written                            = $plans === [] ? [[], [], [], []] : $this->repository->transactional(fn (): array => $this->insertMissing($plans, $expiry));
+        $written                            = $plans === [] ? [[], [], [], []] : ($this->runner instanceof InstanceSettingsTransactionRunner ? $this->runner->runRetrying($unit) : $unit());
         [$seeded, $secrets, $lost, $events] = $written;
 
         return [new SeedReport($examined, $seeded, array_merge($skipped, $lost), $secrets, false), $events];
@@ -207,10 +223,12 @@ final readonly class FallbackSeeder
         $secrets = [];
         $lost    = [];
         $events  = [];
+        // 1.19: the write locks of every section first, in the lock order; each section is then re-read under its lock.
+        SectionLock::lockAll($this->repository, array_map(strval(...), array_keys($plans)));
         foreach ($plans as $name => $values) {
             $fields = $this->registry->fields($name);
             $stored = [];
-            foreach ($this->repository->findBySection($name) as $row) {
+            foreach (SectionLock::rowsOf($this->repository, $name) as $row) {
                 $stored[$row->getName()] = true;
             }
 

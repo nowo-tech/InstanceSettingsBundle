@@ -15,6 +15,7 @@ use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
 use Nowo\InstanceSettingsBundle\File\ImageUpload;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
+use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Secret\SecretSealerInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
@@ -31,6 +32,7 @@ use Symfony\Component\Clock\NativeClock;
 use function array_intersect;
 use function array_key_exists;
 use function array_keys;
+use function array_map;
 use function base64_decode;
 use function base64_encode;
 use function count;
@@ -48,6 +50,7 @@ use function str_contains;
 use function str_replace;
 use function strlen;
 use function strtolower;
+use function strval;
 
 /**
  * Export / import of the instance configuration (settings sections + tagged providers) in a versioned JSON envelope
@@ -324,6 +327,8 @@ final readonly class ConfigPortability
             foreach ($expiry as $section => $dates) {
                 $sections[$section] = ($sections[$section] ?? []) + $dates;
             }
+            // 1.19: the write locks of every imported section first, in the lock order (each save takes its own again).
+            SectionLock::lockAll($this->repository, array_map(strval(...), array_keys($sections)));
             foreach ($sections as $section => $values) {
                 $changes[$section] = $this->settings->save($section, $values, SettingsChangedEvent::ORIGIN_IMPORT);
             }

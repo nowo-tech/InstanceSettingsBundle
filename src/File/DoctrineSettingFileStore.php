@@ -9,6 +9,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
+use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 
 use function array_flip;
 use function count;
@@ -32,17 +33,22 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
 
     private SettingsEntityManager $entityManager;
 
+    private InstanceSettingsTransactionRunner $runner;
+
     /**
      * @param ManagerRegistry $registry Doctrine registry
      * @param string|null $entityManagerName `doctrine.entity_manager` (null = the manager that maps the bundle entities)
      * @param SettingsEntityManager|null $entityManager the bundle's private manager (shared with the setting repository)
+     * @param InstanceSettingsTransactionRunner|null $runner 1.19: the bundle's runner (null = one on the private manager)
      */
     public function __construct(
         ManagerRegistry $registry,
         ?string $entityManagerName = null,
         ?SettingsEntityManager $entityManager = null,
+        ?InstanceSettingsTransactionRunner $runner = null,
     ) {
         $this->entityManager = $entityManager ?? new SettingsEntityManager($registry, $entityManagerName);
+        $this->runner        = $runner ?? new InstanceSettingsTransactionRunner($this->entityManager);
     }
 
     /**
@@ -110,10 +116,13 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
         }
 
         $entityManager = $this->entityManager();
-        foreach ([SettingFile::ORIGINAL => $image->original] + $image->variants as $variant => $encoded) {
-            $entityManager->persist(new SettingFile($section, $field, $sha, $variant, $encoded->mimeType, $encoded->width, $encoded->height, strlen($encoded->bytes), $encoded->bytes, $at));
-        }
-        $entityManager->flush();
+        // 1.19: flushed by the bundle's runner (a savepoint inside the save's unit of work; nothing left pending after a failure).
+        // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored.
+        $this->runner->run(static function () use ($entityManager, $section, $field, $sha, $image, $at): void {
+            foreach ([SettingFile::ORIGINAL => $image->original] + $image->variants as $variant => $encoded) {
+                $entityManager->persist(new SettingFile($section, $field, $sha, $variant, $encoded->mimeType, $encoded->width, $encoded->height, strlen($encoded->bytes), $encoded->bytes, $at));
+            }
+        });
         // The rows hold the bytes: detach them at once so no blob stays in the identity map after this call.
         foreach ($entityManager->getUnitOfWork()->getIdentityMap()[SettingFile::class] ?? [] as $entity) {
             $entityManager->detach($entity);

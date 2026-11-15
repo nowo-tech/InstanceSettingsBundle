@@ -173,7 +173,7 @@ final class HostEntityManagerIsolationTest extends KernelTestCase
         $host->persist($note);
         $this->settings($kernel)->save('general', ['site_name' => 'Dedicated']);
 
-        self::assertSame('"Dedicated"', $settings->getConnection()->fetchOne('SELECT value FROM instance_setting_value'));
+        self::assertSame('"Dedicated"', $settings->getConnection()->fetchOne("SELECT value FROM instance_setting_value WHERE name = 'site_name'"));
         self::assertSame(0, (int) $host->getConnection()->fetchOne('SELECT COUNT(*) FROM host_xml_note'));
         self::assertTrue($host->getUnitOfWork()->isScheduledForInsert($note));
         self::assertNotContains('instance_setting_value', $host->getConnection()->createSchemaManager()->listTableNames(), 'nothing on the host database');
@@ -208,9 +208,9 @@ final class HostEntityManagerIsolationTest extends KernelTestCase
 
         $this->settings($kernel)->save('general', ['site_name' => 'Auto-discovered host']);
 
-        self::assertSame('"Auto-discovered host"', $settings->getConnection()->fetchOne('SELECT value FROM instance_setting_value'));
+        self::assertSame('"Auto-discovered host"', $settings->getConnection()->fetchOne("SELECT value FROM instance_setting_value WHERE name = 'site_name'"));
         $repository = $registry->getRepository(SettingValue::class);
-        self::assertCount(1, $repository->findAll(), 'getRepository() reads the bundle database');
+        self::assertCount(1, $repository->findBy(['section' => 'general']), 'getRepository() reads the bundle database');
         self::assertNotContains('instance_setting_value', $host->getConnection()->createSchemaManager()->listTableNames(), 'nothing on the host database');
         if ($explicitDefaultDriver) {
             // The host manager keeps its own entities, and only them.

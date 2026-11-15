@@ -93,7 +93,7 @@ final class ColorFieldTest extends KernelTestCase
         $form    = $crawler->filter('form[name="settings_section"]')->form();
         $names   = array_keys($form->getPhpValues()['settings_section']);
         sort($names);
-        self::assertSame(['_token', 'accent', 'legacy', 'link', 'scheme'], $names, 'without JavaScript only the hex inputs are posted');
+        self::assertSame(['_base', '_token', 'accent', 'legacy', 'link', 'scheme'], $names, 'without JavaScript only the hex inputs are posted (and the 1.19 snapshot token)');
 
         // Custom colours are lower-cased and stored.
         $this->post($admin, ['accent' => '#ABCDEF', 'link' => '#00FF00', 'legacy' => '#ABCDEF']);

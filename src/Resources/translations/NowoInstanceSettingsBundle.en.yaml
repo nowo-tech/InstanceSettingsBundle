@@ -8,6 +8,7 @@ settings:
 flash:
   saved: Settings saved.
   unchanged: Nothing changed.
+  conflict: "Another person changed this setting after you opened the page. Nothing was saved: reload the page and make your change again."
 notice:
   hidden_secret_invalid: "The settings were not saved. The secret typed for “%field%” is not valid: %message% Its provider is not selected, so the field is hidden: select that provider to correct it, or leave it blank."
   hidden_secret_locked: "The settings were not saved. A value was typed for “%field%”, whose row is hidden and holds a stored secret: show the row, then tick “Replace the stored value” to change it, or leave it blank."
