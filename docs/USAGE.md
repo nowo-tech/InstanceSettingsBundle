@@ -206,7 +206,7 @@ yield SettingField::string('tracking_domain')->withVisibleWhen('tracking', [true
 - Locked rows (1.17 `web_ui.reveal_in_input`) that are hidden: a value typed into a hidden row holding a stored secret
   without its "Replace the stored value" box is refused exactly as on a visible row (1.18.1): HTTP 422, the error
   "Tick “Replace the stored value” to change it." on that row, nothing saved, in both modes, and the
-  `notice.hidden_secret_invalid` notice above the form names the hidden row. With Replace ticked the mode above
+  `notice.hidden_secret_locked` notice above the form names the hidden row and says to show it and tick Replace. With Replace ticked the mode above
   decides (`drop` ignores the value, `keep_typed` saves it); "clear" still deletes.
 - Notice while dropped (1.9): `web_ui.hidden_secrets_notice: true` adds a notice above the form of every section that
   has a provider-dependent secret and drops hidden secrets ("Secrets typed for a provider that is not selected are not

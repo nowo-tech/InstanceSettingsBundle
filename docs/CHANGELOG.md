@@ -45,18 +45,24 @@ Target 1.18.1.
   the row was visible but 302 when its switch was off in the same POST: the value was dropped (the stored secret was
   never overwritten) and the other fields were saved. Both now answer 422 with "Tick “Replace the stored value” to
   change it." on that row and nothing saved, with `hidden_secrets: drop` and `keep_typed` alike (this also closes the
-  `keep_typed` residual of the 1.17 audit L1), and the `notice.hidden_secret_invalid` notice names the hidden row.
+  `keep_typed` residual of the 1.17 audit L1), and a new notice, `notice.hidden_secret_locked` (seven locales), names
+  the hidden row and says to show it and tick Replace.
   With Replace ticked the `hidden_secrets` mode decides as before; the clear box still deletes. The docs
   (CONFIGURATION, SECURITY, USAGE, the `reveal_in_input` option info) now say so; the option row and info no longer
   say the value is "ignored" or that only revealable rows are locked.
 - **Concurrent first expiry date** (1.17 audit I4). Two editors saving the first date of the same expiring secret at
-  the same moment gave one of them an HTTP 500 (unique key). The insert now runs in its own transaction, or a savepoint
-  inside the settings transaction, and on a unique violation the date is written over the other one with one
-  conditional UPDATE (last writer wins; an equal date keeps its announced thresholds) on MySQL / MariaDB, PostgreSQL
-  and SQLite.
+  the same moment gave one of them an HTTP 500 (unique key). On a unique violation the insert is now rolled back to its
+  own savepoint inside the settings transaction (a plain insert outside one), and the date is written over the other
+  one with one conditional UPDATE (last writer wins; an equal date keeps its announced thresholds). Only the unique
+  violation is handled there: any other error, such as a MySQL deadlock, reaches the caller's transaction untouched
+  (audit QC-M1, so no `ROLLBACK TO SAVEPOINT` on a savepoint MySQL already dropped and no DBAL nesting level left on a
+  worker connection). Verified with real concurrent connections on MySQL 8.4 and PostgreSQL 16, and in the SQLite
+  suite; MariaDB was not tested. Residual (audit QC-I1): with three or more first saves of the same field at the same
+  moment, MySQL can still make one of them a deadlock victim, a retryable `DeadlockException` (HTTP 500 for that save
+  only; saving again works).
 - **`SettingRowWriterInterface::writeRows()` keeps the expiry date of a secret rewritten byte for byte** (1.17 audit
-  D1-I1): a restore of identical rows no longer drops the reminder dates. Another value, or a deleted row, still
-  removes the date.
+  D1-I1): a restore of identical rows no longer drops the reminder dates. Another value, a deleted row, or a secret
+  rewritten as a plain row (audit QC-I2, also when the same key is removed in that call) still removes the date.
 - **Section test leak guard cost** (1.18 audit PU-D1-I1). The parts of every form of every secret are indexed once per
   report or page view and each text is read once, instead of searching every part in every text: a 1.8 KB JSON
   service-account secret against the largest report went from about 1.4 s to about 0.01 s. What is redacted does not
