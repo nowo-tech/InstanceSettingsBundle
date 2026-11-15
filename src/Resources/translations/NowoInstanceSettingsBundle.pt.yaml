@@ -10,6 +10,7 @@ flash:
   unchanged: Nada foi alterado.
 notice:
   hidden_secret_invalid: "As definições não foram guardadas. O segredo escrito para «%field%» não é válido: %message% O seu fornecedor não está selecionado, por isso o campo está oculto: selecione esse fornecedor para o corrigir ou deixe-o em branco."
+  hidden_secret_locked: "As definições não foram guardadas. Foi escrito um valor para «%field%», cuja linha está oculta e guarda um segredo: mostre a linha e marque «Substituir o valor guardado» para o alterar, ou deixe-o em branco."
   hidden_secrets_dropped: "Os segredos escritos para um fornecedor que não está selecionado não são guardados: selecione primeiro o fornecedor e depois escreva o seu segredo."
 portability:
   title: Importar / exportar

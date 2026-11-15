@@ -96,6 +96,12 @@ final readonly class SettingsSectionEmbedder
     /** Translation key (bundle domain) of the notice naming an invalid secret typed into a hidden row (1.9, keep_typed). */
     public const HIDDEN_SECRET_INVALID_NOTICE = 'notice.hidden_secret_invalid';
 
+    /**
+     * Translation key (bundle domain) of the notice naming a hidden locked secret row that received a typed value without
+     * Replace (1.18.1, audit QC-I4).
+     */
+    public const HIDDEN_SECRET_LOCKED_NOTICE = 'notice.hidden_secret_locked';
+
     /** Translation key (bundle domain) of the error of a value typed into a locked secret row without Replace (1.17). */
     public const REPLACE_REQUIRED_ERROR = 'reveal.replace_required';
 
@@ -352,7 +358,7 @@ final readonly class SettingsSectionEmbedder
         if ($form->isSubmitted() && ($hiddenSecrets === HiddenSecrets::KeepTyped || $locked !== [])) {
             // 1.9 (audit KB-I-L1): an invalid secret typed into a hidden row refuses the save with an error the user
             // cannot see; name it above the form. 1.18.1: also a value typed into a hidden locked row without Replace.
-            array_push($notices, ...$this->hiddenSecretErrors($form, $fields, $definition->getTranslationDomain()));
+            array_push($notices, ...$this->hiddenSecretErrors($form, $fields, $definition->getTranslationDomain(), $refused));
         }
 
         $formView = $form->createView();
@@ -601,19 +607,28 @@ final readonly class SettingsSectionEmbedder
     /**
      * One notice per provider-dependent secret hidden for the submitted values that carries an error (keep_typed: the
      * typed value was validated but its row is hidden): `%field%` is its translated label, `%message%` its first error.
+     * A refused locked row (1.18.1) gets the notice that says how to replace it instead.
      *
      * @param FormInterface<mixed> $form
      * @param array<string, SettingField> $fields
+     * @param list<string> $refused locked rows refused for a value typed without Replace
      *
      * @return list<Label>
      */
-    private function hiddenSecretErrors(FormInterface $form, array $fields, string $domain): array
+    private function hiddenSecretErrors(FormInterface $form, array $fields, string $domain, array $refused): array
     {
         /** @var array<string, mixed> $data */
         $data    = (array) $form->getData();
         $notices = [];
         foreach ($fields as $name => $field) {
             if (!$field->secret || $field->visibleWhen === null || $field->isVisibleFor($data)) {
+                continue;
+            }
+            if (in_array($name, $refused, true)) {
+                $notices[] = new Label(self::HIDDEN_SECRET_LOCKED_NOTICE, NowoInstanceSettingsBundle::TRANSLATION_DOMAIN, [
+                    '%field%' => $this->trans($field->labelKey(), [], $domain),
+                ]);
+
                 continue;
             }
             foreach ($form->get($name)->getErrors(true) as $error) {

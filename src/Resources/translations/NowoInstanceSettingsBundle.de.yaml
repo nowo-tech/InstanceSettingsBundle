@@ -10,6 +10,7 @@ flash:
   unchanged: Nichts geändert.
 notice:
   hidden_secret_invalid: "Die Einstellungen wurden nicht gespeichert. Das für „%field%“ eingegebene Geheimnis ist ungültig: %message% Sein Anbieter ist nicht ausgewählt, daher ist das Feld ausgeblendet: Wählen Sie diesen Anbieter, um es zu korrigieren, oder lassen Sie es leer."
+  hidden_secret_locked: "Die Einstellungen wurden nicht gespeichert. Für „%field%“ wurde ein Wert eingegeben, dessen Zeile ausgeblendet ist und ein gespeichertes Geheimnis enthält: Zeigen Sie die Zeile an und aktivieren Sie „Gespeicherten Wert ersetzen“, um es zu ändern, oder lassen Sie das Feld leer."
   hidden_secrets_dropped: "Geheimnisse, die für einen nicht ausgewählten Anbieter eingegeben werden, werden nicht gespeichert: Wählen Sie zuerst den Anbieter und geben Sie dann sein Geheimnis ein."
 portability:
   title: Import / Export

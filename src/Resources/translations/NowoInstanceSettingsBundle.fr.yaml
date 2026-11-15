@@ -10,6 +10,7 @@ flash:
   unchanged: Rien n'a changé.
 notice:
   hidden_secret_invalid: "Les paramètres n’ont pas été enregistrés. Le secret saisi pour « %field% » n’est pas valide : %message% Son fournisseur n’est pas sélectionné, le champ est donc masqué : sélectionnez ce fournisseur pour le corriger, ou laissez-le vide."
+  hidden_secret_locked: "Les paramètres n’ont pas été enregistrés. Une valeur a été saisie pour « %field% », dont la ligne est masquée et contient un secret enregistré : affichez la ligne, puis cochez « Remplacer la valeur enregistrée » pour le modifier, ou laissez-le vide."
   hidden_secrets_dropped: "Les secrets saisis pour un fournisseur non sélectionné ne sont pas enregistrés : sélectionnez d’abord le fournisseur, puis saisissez son secret."
 portability:
   title: Import / export

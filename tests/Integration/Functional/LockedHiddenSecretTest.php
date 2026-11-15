@@ -53,8 +53,10 @@ final class LockedHiddenSecretTest extends KernelTestCase
         $form = $this->switchedOff($client);
         $client->submit($form, ['settings_section[signing_secret][value]' => 'typed-hidden', 'settings_section[label]' => 'changed']);
         $hidden = $this->assertRefused($client, $kernel);
-        self::assertStringContainsString('The settings were not saved. The secret typed for', $hidden, 'the hidden row\'s error is named above the form');
-        self::assertStringNotContainsString('The settings were not saved. The secret typed for', $visible);
+        // Audit QC-I4: a notice of its own, which says how to change a hidden stored secret.
+        self::assertStringContainsString('The settings were not saved. A value was typed for “webhooks.signing_secret”, whose row is hidden and holds a stored secret: show the row, then tick “Replace the stored value” to change it, or leave it blank.', $hidden, 'the hidden row\'s refusal is named above the form');
+        self::assertStringNotContainsString('is not valid', $hidden);
+        self::assertStringNotContainsString('The settings were not saved. A value was typed for', $visible);
         self::assertTrue($this->settings($kernel)->get('webhooks.enabled'), 'the switch is not saved either (all or nothing)');
     }
 
