@@ -3,6 +3,8 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [To 1.19.0](#to-1190)
+    - [Optional: exact collation of the key columns](#optional-exact-collation-of-the-key-columns)
 - [To 1.18.1](#to-1181)
 - [To 1.18.0](#to-1180)
   - [To 1.18.0](#to-1180-1)
@@ -43,6 +45,64 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+### To 1.19.0
+
+From **1.18.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+No configuration change and no required migration. What changes (see [HIGH-LOAD.md](HIGH-LOAD.md)):
+
+- New dependencies: nowo-tech/transaction-contract ^1.0 and nowo-tech/transaction-doctrine ^1.1. doctrine/dbal is widened
+  to `^3.8.2 || ^4.0` (DBAL 3 hosts can install the bundle again).
+- Every save runs in one transaction under the section's write lock (a savepoint inside your own transaction). The lock
+  creates one row per section under the reserved section `_section_lock` in the settings table the first time the
+  section is written; the bundle never reads, exports or seeds these rows. Code of yours that reads the table directly
+  (`getRepository(SettingValue::class)->findAll()`, SQL) should skip the sections starting with `_`, as for the section
+  test rows of 1.18.
+- A transient storage failure (deadlock, lock wait timeout) is a `Nowo\TransactionContract\TransientStorageFailure`
+  (previous: the DBAL exception); on the bundle's routes it answers 503 with `Retry-After` instead of 500. A unique key
+  violation answers 409. Code that caught `Doctrine\DBAL\Exception\DeadlockException` around `save()` should catch
+  `TransientStorageFailure` (or walk `getPrevious()`).
+- The section form has a hidden `_base` field. A form saved after another editor changed a field it left as shown keeps
+  that editor's value; a field both changed is refused with 409 and an error on the field. A host template that renders
+  the form field by field and wants the merge must render `_base` (`form_rest()` / `form_end()` do); without it the
+  form saves as in 1.18.
+- The audit line `Instance settings saved.` is written after the outermost commit (inside your transaction: when you
+  commit; never when you roll back).
+- Services you build by hand: `DoctrineSettingValueRepository`, `DoctrineSettingFileStore` and
+  `DoctrineSectionTestStateStorage` create a runner on the private manager when none is passed; `FallbackSeeder` and
+  `SeedFileSeeder` make one attempt without the `runner:` argument; `InstanceSettings` takes `snapshotKey:` (pass
+  `%kernel.secret%`).
+
+#### Optional: exact collation of the key columns
+
+New schemas give `section` and `name` of `instance_setting_value`, `instance_setting_secret_expiry` and
+`instance_setting_file` the binary NO PAD collation on MySQL / MariaDB (REQ-SEC-006 rule 3). Every read re-checks the
+section name with `===` either way, so this migration is **optional**: it only lets the database itself keep `General`
+and `general` (or `general ` and `general`) apart, also in the unique keys. Going from a folding collation to a binary
+one never creates duplicates. PostgreSQL and SQLite compare exactly already. `doctrine:migrations:diff` generates the same
+statements; use your table prefix (`doctrine.table_prefix`) if you set one.
+
+```sql
+-- MySQL 8 (MariaDB: utf8mb4_nopad_bin)
+ALTER TABLE instance_setting_value
+  MODIFY section VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+  MODIFY name VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL;
+-- with expiring_secrets.enabled
+ALTER TABLE instance_setting_secret_expiry
+  MODIFY section VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+  MODIFY name VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL;
+-- with files.enabled
+ALTER TABLE instance_setting_file
+  MODIFY section VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL,
+  MODIFY name VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL;
+```
+
+Recommended database settings for high load: [HIGH-LOAD.md](HIGH-LOAD.md#database-settings).
 
 ## To 1.18.1
 
