@@ -3,8 +3,8 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
-  - [To 1.19.0](#to-1190)
-    - [Optional: exact collation of the key columns](#optional-exact-collation-of-the-key-columns)
+- [To 1.19.0](#to-1190)
+  - [To 1.19.0](#to-1190-1)
 - [To 1.18.1](#to-1181)
 - [To 1.18.0](#to-1180)
   - [To 1.18.0](#to-1180-1)
@@ -45,6 +45,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.19.0
+
+From **1.18.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 ### To 1.19.0
 
