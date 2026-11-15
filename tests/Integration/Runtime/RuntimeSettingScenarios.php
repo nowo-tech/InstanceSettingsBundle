@@ -11,6 +11,8 @@ use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Doctrine\Persistence\ManagerRegistry;
+use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
+use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeSource;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeWriter;
@@ -221,7 +223,12 @@ abstract class RuntimeSettingScenarios extends TestCase
         $admin  = $this->kernel(true);
         $tables = $this->service($admin, RuntimeSettingTables::class);
         self::assertInstanceOf(RuntimeSettingTables::class, $tables);
-        $this->connection($admin)->insert('instance_setting_value', ['section' => 'chat', 'name' => 'welcome', 'value' => null, 'updated_at' => '2026-11-16 12:00:00']);
+        $doctrine = $this->service($admin, 'doctrine');
+        self::assertInstanceOf(ManagerRegistry::class, $doctrine);
+        $manager = $doctrine->getManager();
+        self::assertInstanceOf(EntityManagerInterface::class, $manager);
+        $connection = $this->connection($admin);
+        $connection->insert('instance_setting_value', SequenceId::into(['section' => 'chat', 'name' => 'welcome', 'value' => null, 'updated_at' => '2026-11-16 12:00:00'], $connection, $manager->getClassMetadata(SettingValue::class)));
 
         $tables->rowsWritten([['_section_lock', 'chat'], ['chat', 'welcome']]);
 

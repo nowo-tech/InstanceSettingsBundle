@@ -42,6 +42,9 @@ class RuntimeSettingPrevious
     #[Encrypted]
     private ?string $secretValue = null;
 
+    /**
+     * Creates the row.
+     */
     public function __construct(
         #[ORM\Column(type: 'string', length: 64)]
         private string $section,
@@ -52,6 +55,9 @@ class RuntimeSettingPrevious
     ) {
     }
 
+    /**
+     * Database id (null until persisted).
+     */
     public function getId(): ?int
     {
         return $this->id;
@@ -79,16 +85,25 @@ class RuntimeSettingPrevious
         return $this;
     }
 
+    /**
+     * Section name.
+     */
     public function getSection(): string
     {
         return $this->section;
     }
 
+    /**
+     * Field name.
+     */
     public function getName(): string
     {
         return $this->name;
     }
 
+    /**
+     * Plain previous value (null for a secret).
+     */
     public function getValue(): bool|float|int|string|null
     {
         return $this->value;

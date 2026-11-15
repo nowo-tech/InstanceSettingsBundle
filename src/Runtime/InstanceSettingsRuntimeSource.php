@@ -49,6 +49,9 @@ final readonly class InstanceSettingsRuntimeSource implements RuntimeValueSource
 {
     private LoggerInterface $logger;
 
+    /**
+     * @param EncryptUtil $encryptUtil decrypts the secret columns (DoctrineEncrypt default profile, the entity's format)
+     */
     public function __construct(
         private RuntimeSettingTables $tables,
         private EncryptUtil $encryptUtil,
@@ -58,11 +61,17 @@ final readonly class InstanceSettingsRuntimeSource implements RuntimeValueSource
         $this->logger = $logger ?? new NullLogger();
     }
 
+    /**
+     * The committed token of the section.
+     */
     public function namespaceVersion(string $namespace): string
     {
         return $this->tables->token($namespace);
     }
 
+    /**
+     * The stored value of `section.field` (and the previous one inside its window); null when unset.
+     */
     public function read(RuntimeSettingId $id): ?StoredRuntimeValue
     {
         if ($id->isEnvName()) {

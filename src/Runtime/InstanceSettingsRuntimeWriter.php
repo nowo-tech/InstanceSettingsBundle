@@ -45,6 +45,10 @@ final readonly class InstanceSettingsRuntimeWriter implements RuntimeSettingWrit
 {
     private LoggerInterface $logger;
 
+    /**
+     * @param SettingValueRepositoryInterface $repository the settings repository (its unit of work and section lock)
+     * @param InstanceSettingsInterface $settings writes the value (field rules, encryption, after-commit event and audit)
+     */
     public function __construct(
         private SettingValueRepositoryInterface $repository,
         private InstanceSettingsInterface $settings,
@@ -57,6 +61,9 @@ final readonly class InstanceSettingsRuntimeWriter implements RuntimeSettingWrit
         $this->logger = $logger ?? new NullLogger();
     }
 
+    /**
+     * Stores a value of the field (validated by the updater; the field rules apply too).
+     */
     public function set(RuntimeSettingDefinition $definition, string $value, RuntimeSettingWriteContext $context): RuntimeSettingChange
     {
         // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored by the repository.
@@ -65,6 +72,9 @@ final readonly class InstanceSettingsRuntimeWriter implements RuntimeSettingWrit
         });
     }
 
+    /**
+     * Removes the stored value of the field (its configured value or default applies again).
+     */
     public function unset(RuntimeSettingDefinition $definition, RuntimeSettingWriteContext $context): RuntimeSettingChange
     {
         // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored by the repository.
@@ -73,6 +83,9 @@ final readonly class InstanceSettingsRuntimeWriter implements RuntimeSettingWrit
         });
     }
 
+    /**
+     * Stores a new value and keeps the replaced one, as stored, until `$previousExpiresAt` (UTC).
+     */
     public function rotate(RuntimeSettingDefinition $definition, string $value, DateTimeImmutable $previousExpiresAt, RuntimeSettingWriteContext $context): RuntimeSettingChange
     {
         // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored by the repository.
@@ -82,17 +95,14 @@ final readonly class InstanceSettingsRuntimeWriter implements RuntimeSettingWrit
             $this->save($definition, $definition->type->parse($value, $definition->maxLength));
             // ... then the value it replaced becomes the previous one, as stored (a secret stays encrypted).
             if ($stored !== null) {
-                $this->tables->connection()->insert($this->tables->previousTable(), [
-                    'section'      => $definition->namespace(),
-                    'name'         => $definition->key(),
-                    'value'        => $stored['value'],
-                    'secret_value' => $stored['secret'],
-                    'expires_at'   => RuntimeSettingTables::utc($previousExpiresAt),
-                ], ['expires_at' => 'datetime_immutable']);
+                $this->tables->insertPrevious($definition->namespace(), $definition->key(), $stored['value'], $stored['secret'], $previousExpiresAt);
             }
         });
     }
 
+    /**
+     * Deletes every previous value expired at `$now` (one conditional DELETE) and bumps the sections it touched.
+     */
     public function purgeExpired(DateTimeImmutable $now): int
     {
         $this->assertOwnTransaction();

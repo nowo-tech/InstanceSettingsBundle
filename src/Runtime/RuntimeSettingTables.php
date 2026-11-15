@@ -9,6 +9,7 @@ use DateTimeZone;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Doctrine\DBAL\Types\Types;
+use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\RuntimeEntity\RuntimeSettingPrevious;
@@ -49,11 +50,17 @@ final readonly class RuntimeSettingTables
 
     private const ENSURE_STANDARD = 'INSERT INTO %s (section, token) VALUES (?, ?) ON CONFLICT (section) DO NOTHING';
 
+    /**
+     * @param SettingsEntityManager $entityManager the bundle's private manager (its connection and mapping)
+     */
     public function __construct(
         private SettingsEntityManager $entityManager,
     ) {
     }
 
+    /**
+     * The connection of the bundle's private manager.
+     */
     public function connection(): Connection
     {
         return $this->entityManager->get()->getConnection();
@@ -75,11 +82,17 @@ final readonly class RuntimeSettingTables
         ];
     }
 
+    /**
+     * The previous-values table, with `doctrine.table_prefix`.
+     */
     public function previousTable(): string
     {
         return $this->entityManager->get()->getClassMetadata(RuntimeSettingPrevious::class)->getTableName();
     }
 
+    /**
+     * The section-tokens table, with `doctrine.table_prefix`.
+     */
     public function versionsTable(): string
     {
         return $this->entityManager->get()->getClassMetadata(RuntimeSettingVersion::class)->getTableName();
@@ -141,6 +154,26 @@ final readonly class RuntimeSettingTables
         }
     }
 
+    /**
+     * Inserts the previous value of a rotation (the stored form, UTC expiry), with an id from the entity's sequence
+     * where the ids come from one (PostgreSQL with DBAL 3, audit QM-M3).
+     */
+    public function insertPrevious(string $section, string $name, ?string $value, ?string $secret, DateTimeImmutable $expiresAt): void
+    {
+        $connection = $this->connection();
+        $metadata   = $this->entityManager->get()->getClassMetadata(RuntimeSettingPrevious::class);
+        $connection->insert($metadata->getTableName(), SequenceId::into([
+            'section'      => $section,
+            'name'         => $name,
+            'value'        => $value,
+            'secret_value' => $secret,
+            'expires_at'   => self::utc($expiresAt),
+        ], $connection, $metadata), ['expires_at' => Types::DATETIME_IMMUTABLE]);
+    }
+
+    /**
+     * Deletes the previous value of a field (any write replaces it).
+     */
     public function dropPrevious(string $section, string $name): void
     {
         $this->connection()->delete($this->previousTable(), ['section' => $section, 'name' => $name]);

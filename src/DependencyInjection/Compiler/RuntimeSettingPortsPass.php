@@ -30,6 +30,9 @@ final class RuntimeSettingPortsPass implements CompilerPassInterface
 
     private const REGISTRY = 'Nowo\\RuntimeSettingContract\\Contract\\RuntimeSettingRegistry';
 
+    /**
+     * Binds the ports and the admin validation when the feature is on.
+     */
     public function process(ContainerBuilder $container): void
     {
         if (!$container->hasParameter(NowoInstanceSettingsExtension::RUNTIME_ENABLED_PARAMETER) || $container->getParameter(NowoInstanceSettingsExtension::RUNTIME_ENABLED_PARAMETER) !== true) {

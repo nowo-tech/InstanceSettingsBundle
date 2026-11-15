@@ -23,6 +23,9 @@ use function is_string;
  */
 final readonly class RuntimeSettingAdminGuard
 {
+    /**
+     * @param RuntimeSettingRegistry $registry the registered runtime settings
+     */
     public function __construct(
         private RuntimeSettingRegistry $registry,
     ) {

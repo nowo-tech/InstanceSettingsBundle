@@ -18,6 +18,9 @@ class RuntimeSettingVersion
     /** Base table name (before `doctrine.table_prefix`). */
     public const TABLE = 'instance_setting_runtime_version';
 
+    /**
+     * Creates the row.
+     */
     public function __construct(
         #[ORM\Id]
         #[ORM\Column(type: 'string', length: 64)]
@@ -27,11 +30,17 @@ class RuntimeSettingVersion
     ) {
     }
 
+    /**
+     * Section name.
+     */
     public function getSection(): string
     {
         return $this->section;
     }
 
+    /**
+     * Current token.
+     */
     public function getToken(): string
     {
         return $this->token;
