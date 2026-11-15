@@ -246,15 +246,15 @@ final readonly class SectionTestRunner
      */
     public function view(StoredTestReport $report, string $domain): array
     {
-        $secrets = $this->secrets($report->section);
-        $view    = SectionTestView::json($report, $domain, $this->translator);
+        $guard = LeakGuard::of($this->secrets($report->section));
+        $view  = SectionTestView::json($report, $domain, $this->translator);
         foreach ($view['checks'] as $index => $check) {
-            if (LeakGuard::hits($check['label'], $secrets) || ($check['hint'] !== null && LeakGuard::hits($check['hint'], $secrets))) {
+            if ($guard->matches($check['label']) || ($check['hint'] !== null && $guard->matches($check['hint']))) {
                 $view['checks'][$index]['label'] = $this->trans(LeakGuard::REDACTED_LABEL, [], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
                 $view['checks'][$index]['hint']  = $this->trans(LeakGuard::REDACTED_HINT, [], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
             }
         }
-        if (LeakGuard::hits($view['summary'], $secrets)) {
+        if ($guard->matches($view['summary'])) {
             $view['summary'] = LeakGuard::REDACTED;
         }
 
@@ -270,13 +270,14 @@ final readonly class SectionTestRunner
      */
     private function guardRendered(TestReport $report, string $domain, #[SensitiveParameter] array $secrets): array
     {
+        $guard  = LeakGuard::of($secrets);
         $hits   = 0;
         $checks = [];
         foreach ($report->checks as $check) {
             $checkDomain = $check->domain ?? $domain;
             $label       = $this->trans($check->labelKey, [], $checkDomain);
             $hint        = $check->hintKey === null ? '' : $this->trans($check->hintKey, SectionTestView::params($check->hintParams), $checkDomain);
-            if (LeakGuard::hits($label, $secrets) || LeakGuard::hits($hint, $secrets)) {
+            if ($guard->matches($label) || $guard->matches($hint)) {
                 ++$hits;
                 $check = new TestCheck(LeakGuard::REDACTED_LABEL, $check->status, LeakGuard::REDACTED_HINT, [], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
             }
