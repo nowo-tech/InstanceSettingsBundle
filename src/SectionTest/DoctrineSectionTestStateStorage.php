@@ -10,7 +10,10 @@ use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Query;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
+use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
+use Throwable;
 
+use function array_filter;
 use function is_string;
 use function sprintf;
 
@@ -28,12 +31,17 @@ use function sprintf;
  */
 final readonly class DoctrineSectionTestStateStorage implements SectionTestStateStorageInterface
 {
+    private InstanceSettingsTransactionRunner $runner;
+
     /**
      * @param SettingsEntityManager $entityManager the bundle's private entity manager
+     * @param InstanceSettingsTransactionRunner|null $runner 1.19: the bundle's runner (null = one on the private manager)
      */
     public function __construct(
         private SettingsEntityManager $entityManager,
+        ?InstanceSettingsTransactionRunner $runner = null,
     ) {
+        $this->runner = $runner ?? new InstanceSettingsTransactionRunner($entityManager);
     }
 
     /**
@@ -48,7 +56,8 @@ final readonly class DoctrineSectionTestStateStorage implements SectionTestState
             ->setHint(Query::HINT_REFRESH, true)
             ->getResult();
         $rows = [];
-        foreach ($entities as $entity) {
+        // 1.19 (audit QQ-I-3): the exact reserved section only.
+        foreach (array_filter($entities, static fn (SettingValue $entity): bool => $entity->getSection() === $section) as $entity) {
             $rows[] = $this->view($entity);
         }
         // @igor-ignore - Clears the bundle's own private unit of work after the read (rule 6), never an application manager.
@@ -66,12 +75,19 @@ final readonly class DoctrineSectionTestStateStorage implements SectionTestState
         $entityManager = $this->entityManager->get();
 
         try {
-            // @igor-ignore - One insert on the bundle's private unit of work, cleared in finally (rule 6).
-            $entityManager->persist($entity);
-            // @igor-ignore - Flushes only the bundle's private unit of work (rule 6).
-            $entityManager->flush();
-        } catch (UniqueConstraintViolationException) {
-            return null;
+            // 1.19: one insert in a unit of the bundle's runner (a savepoint inside a caller's transaction, so a lost
+            // insert never aborts it on PostgreSQL); the runner forgets the refused row.
+            // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored.
+            $this->runner->run(static function () use ($entityManager, $entity): void {
+                $entityManager->persist($entity);
+            });
+        } catch (Throwable $e) {
+            // The unique key refused the insert: another request holds the row. Anything else reaches the caller.
+            if ($e instanceof UniqueConstraintViolationException) {
+                return null;
+            }
+
+            throw $e;
         } finally {
             // @igor-ignore - Clears the bundle's own private unit of work at the end of the write (rule 6).
             $this->entityManager->clear();

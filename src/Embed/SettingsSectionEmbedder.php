@@ -11,6 +11,7 @@ use Nowo\DoctrineEncryptBundle\Form\SecretFieldApplier;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\Exception\SettingsConflictException;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecrets;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
@@ -35,6 +36,8 @@ use Nowo\InstanceSettingsBundle\SectionTest\SectionTestRunner;
 use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
+use Nowo\InstanceSettingsBundle\Settings\SectionSnapshot;
+use Nowo\InstanceSettingsBundle\Settings\SnapshotSettingsWriterInterface;
 use Nowo\InstanceSettingsBundle\Ui\ImagePreview;
 use Nowo\InstanceSettingsBundle\Ui\SecretReveal;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
@@ -110,6 +113,9 @@ final readonly class SettingsSectionEmbedder
 
     /** Translation key (bundle domain) of the notice of an expired secret (1.17). */
     public const SECRET_EXPIRED_NOTICE = 'secret_expiry.notice_expired';
+
+    /** Translation key (bundle domain) of the error of a field another editor changed since the form was opened (1.19). */
+    public const CONFLICT_ERROR = 'flash.conflict';
 
     /** Token id prefix of the section forms (one id per section; shared by the bundle page and the embed). */
     public const CSRF_TOKEN_PREFIX = 'nowo_instance_settings_section_';
@@ -304,6 +310,8 @@ final readonly class SettingsSectionEmbedder
             'secret_expiry_dates'    => $expiryDates,
             'secret_expiry_warnings' => $expiryWarnings,
             'locked_secrets'         => $locked,
+            // 1.19: the section as this editor sees it (a save keeps what another editor saved meanwhile).
+            'base_token' => $this->settings instanceof SnapshotSettingsWriterInterface ? $this->settings->snapshot($section)?->token() : null,
         ]);
         $form->handleRequest($request);
         // 1.14: the field groups as subtabs (one form: hidden panels still submit their fields); [] = stacked.
@@ -318,9 +326,14 @@ final readonly class SettingsSectionEmbedder
         foreach ($refused as $name) {
             $form->get($name)->addError(new FormError($this->trans(self::REPLACE_REQUIRED_ERROR)));
         }
+        $status = $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK;
         if ($refused === [] && $form->isSubmitted() && $form->isValid()) {
             try {
-                $changed = $this->settings->save($section, $this->submittedValues($form, $fields, $hiddenSecrets, $expiryDates, $locked), SettingsChangedEvent::ORIGIN_FORM);
+                $values  = $this->submittedValues($form, $fields, $hiddenSecrets, $expiryDates, $locked);
+                $base    = $this->settings instanceof SnapshotSettingsWriterInterface && $form->has(SettingsSectionType::BASE_FIELD) ? SectionSnapshot::fromToken($section, $form->get(SettingsSectionType::BASE_FIELD)->getData()) : null;
+                $changed = $base instanceof SectionSnapshot && $this->settings instanceof SnapshotSettingsWriterInterface
+                    ? $this->settings->saveSince($section, $values, $base, SettingsChangedEvent::ORIGIN_FORM)
+                    : $this->settings->save($section, $values, SettingsChangedEvent::ORIGIN_FORM);
                 $this->addFlash('success', $this->trans($changed === [] ? 'flash.unchanged' : 'flash.saved'));
 
                 // 1.14: back to the open subtab (a known group code only, never a raw request value).
@@ -335,6 +348,12 @@ final readonly class SettingsSectionEmbedder
                     foreach ($messages as $message) {
                         $form->get($name)->addError(new FormError($message));
                     }
+                }
+            } catch (SettingsConflictException $e) {
+                // 1.19: another editor changed these fields since the page was opened; nothing was saved (409).
+                $status = Response::HTTP_CONFLICT;
+                foreach ($e->fields as $name) {
+                    ($form->has($name) ? $form->get($name) : $form)->addError(new FormError($this->trans(self::CONFLICT_ERROR)));
                 }
             }
         }
@@ -401,7 +420,7 @@ final readonly class SettingsSectionEmbedder
             'section_test' => $this->sectionTest($section, $definition->getTranslationDomain()),
         ] + ($options instanceof SectionEmbedOptions ? ['embedded' => true] : []) + $extra);
 
-        return new Response($content, $form->isSubmitted() ? Response::HTTP_UNPROCESSABLE_ENTITY : Response::HTTP_OK);
+        return new Response($content, $status);
     }
 
     /**

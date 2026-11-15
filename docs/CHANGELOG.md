@@ -37,6 +37,66 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.19.0 (Beacon spec 239: load readiness). See [HIGH-LOAD.md](HIGH-LOAD.md).
+
+### Added
+
+- `InstanceSettingsTransactionRunner` (`nowo_instance_settings.transaction_runner`): the bundle's own runner on its private
+  entity manager, built on nowo-tech/transaction-doctrine (`run()`: one attempt; `runRetrying()`: replays a transient
+  failure of the outermost unit, full-jitter backoff). Every write of the store runs on it; a transient storage failure is
+  a `Nowo\TransactionContract\TransientStorageFailure` with a Retry-After hint.
+- Section write lock (`SectionLock`, `SectionLockingRepositoryInterface`): writers of one section are serialized and read
+  its rows again with a locking read. Sentinel rows under the reserved section `_section_lock`.
+- Section form snapshot: the hidden `_base` field (`SectionSnapshot`), `SnapshotSettingsWriterInterface::snapshot()` /
+  `saveSince()` on `InstanceSettings`, `SettingsConflictException`. A field another editor saved meanwhile is kept when
+  this editor left it as shown; a field both changed answers 409 with an error on the field (new translation key
+  `flash.conflict` in the 7 locales). Secrets are fingerprinted from their stored (encrypted) form, never their plaintext
+  (`StoredSecretStateInterface`, audit QQ-L-1); no token without a fingerprint key.
+- `StorageFailureListener`: on the bundle's routes a transient failure answers 503 with `Retry-After`, a conflict 409
+  (JSON on the reveal and test endpoints), walking the previous-exception chain, without SQL or secrets.
+- `KeyCollationListener`: new schemas give the `section` / `name` columns of the bundle tables a binary NO PAD collation
+  on MySQL / MariaDB (optional `ALTER TABLE` for existing tables in UPGRADING).
+- `AfterCommitEventDispatcher::afterCommit()` / `afterCommitOf()`: work held like an event until the outermost commit.
+- CI job "Load readiness": `tests/Database` on MySQL 8.4 and PostgreSQL 16, DBAL 4 and DBAL 3.
+- Dependencies: nowo-tech/transaction-contract ^1.0, nowo-tech/transaction-doctrine ^1.1; doctrine/dbal widened to
+  `^3.8.2 || ^4.0`; dev: nowo-tech/phpstan-frankenphp ^1.4 with the load-readiness flags.
+
+### Fixed
+
+- R1: a save that read the section before a concurrent save changed a field judged that field "unchanged" from the
+  stale read and silently lost its value.
+- R2, R8, R9: two first saves of one field (also through an import or a raw row write) failed with a unique key
+  violation (HTTP 500).
+- R3: a section form reverted a field another editor saved after the page was loaded (lost update).
+- R4: a secret stored by another editor between a form's checks and its write was overwritten (or failed with a 500).
+- R5: an expiry date typed for the secret shown was attached to the secret another editor rotated meanwhile, also when
+  the secret had no date or the rotation kept the same date (audit QQ-M-1); a date left as shown after such a rotation
+  keeps the other editor's state instead of answering 409 (QQ-L-3).
+- R6: a save that failed left its values in the request memo (served for the rest of the request or worker unit).
+- R7: a deadlock or lock wait on a bundle route answered 500 (now 503 + Retry-After).
+- R10: a value read inside a transaction (or savepoint) that rolled back was served from the memo afterwards (in a
+  worker with kernel reset off, until the end of the command or message).
+- R11: the audit lines `Instance settings saved.` and `Instance configuration imported.` were written for a write that a
+  host transaction then rolled back (QQ-L-2).
+- The expiry date, file and section test stores re-check the section and field names with `===`; the file lookup by hash
+  prefix no longer applies a LIMIT before that check (audit QQ-I-3).
+- `FileStoreTransactionConnection::exec()` returns an int on DBAL 3 and 4.
+
+### Known issues
+
+- Without DoctrineEncrypt (or with a custom repository without `StoredSecretStateInterface`), a secret rotated by another
+  editor in the same second as the page load is not detected as a conflict: the fallback fingerprint is the row id and
+  `updated_at` (second precision). See HIGH-LOAD.md (audit QQ-D-L-1).
+
+### Changed
+
+- A transient storage failure around `save()` (and every other write) is now a `Nowo\TransactionContract\TransientStorageFailure`
+  whose previous exception is the DBAL one (`DeadlockException`, `LockWaitTimeoutException`, …): catch it, or walk
+  `getPrevious()` (audit QQ-I-2).
+- Every save is one unit of work (also a save without image or expiry date), under the section lock.
+- Imports, seeds and raw row writes lock their sections in ascending name order before writing.
+- Image rows of the database store and section test rows are flushed by the bundle's runner.
+
 ## [1.18.1] - 2026-11-15
 
 Target 1.18.1.

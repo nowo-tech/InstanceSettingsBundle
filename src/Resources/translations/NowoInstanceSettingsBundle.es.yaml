@@ -8,6 +8,7 @@ settings:
 flash:
   saved: Ajustes guardados.
   unchanged: No ha cambiado nada.
+  conflict: "Otra persona cambió este ajuste después de que abrieras la página. No se ha guardado nada: recarga la página y vuelve a hacer el cambio."
 notice:
   hidden_secret_invalid: "Los ajustes no se han guardado. El secreto escrito para «%field%» no es válido: %message% Su proveedor no está seleccionado, así que el campo está oculto: selecciona ese proveedor para corregirlo o déjalo en blanco."
   hidden_secret_locked: "Los ajustes no se han guardado. Se ha escrito un valor para «%field%», cuya fila está oculta y guarda un secreto: muestra la fila y marca «Sustituir el valor guardado» para cambiarlo, o déjalo en blanco."

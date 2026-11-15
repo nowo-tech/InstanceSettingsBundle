@@ -6,6 +6,7 @@ namespace Nowo\InstanceSettingsBundle\Portability;
 
 use DateTimeImmutable;
 use LogicException;
+use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
@@ -15,6 +16,7 @@ use Nowo\InstanceSettingsBundle\File\ImageRefusedException;
 use Nowo\InstanceSettingsBundle\File\ImageUpload;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
+use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Secret\SecretSealerInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
@@ -25,12 +27,14 @@ use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
 use Psr\Clock\ClockInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Clock\NativeClock;
 
 use function array_intersect;
 use function array_key_exists;
 use function array_keys;
+use function array_map;
 use function base64_decode;
 use function base64_encode;
 use function count;
@@ -48,6 +52,7 @@ use function str_contains;
 use function str_replace;
 use function strlen;
 use function strtolower;
+use function strval;
 
 /**
  * Export / import of the instance configuration (settings sections + tagged providers) in a versioned JSON envelope
@@ -93,6 +98,8 @@ final readonly class ConfigPortability
      * @param int $maxFileBytes `portability.max_file_bytes`: decoded bytes of all the files of one envelope
      * @param ImageProcessor $images upload pipeline re-run on imported files
      * @param SecretExpiryStoreInterface|null $expiryStore expiry dates of the expiring secrets (1.17)
+     * @param EventDispatcherInterface|null $afterCommit 1.19 (audit QQ-L-2): the bundle's {@see AfterCommitEventDispatcher};
+     *                                                   the import's audit line follows the outermost commit
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -109,6 +116,7 @@ final readonly class ConfigPortability
         private int $maxFileBytes = self::DEFAULT_MAX_FILE_BYTES,
         private ImageProcessor $images = new ImageProcessor(),
         private ?SecretExpiryStoreInterface $expiryStore = null,
+        private ?EventDispatcherInterface $afterCommit = null,
     ) {
     }
 
@@ -324,6 +332,8 @@ final readonly class ConfigPortability
             foreach ($expiry as $section => $dates) {
                 $sections[$section] = ($sections[$section] ?? []) + $dates;
             }
+            // 1.19: the write locks of every imported section first, in the lock order (each save takes its own again).
+            SectionLock::lockAll($this->repository, array_map(strval(...), array_keys($sections)));
             foreach ($sections as $section => $values) {
                 $changes[$section] = $this->settings->save($section, $values, SettingsChangedEvent::ORIGIN_IMPORT);
             }
@@ -336,10 +346,12 @@ final readonly class ConfigPortability
         });
 
         $result = new ImportResult($changes);
-        $this->logger?->info('Instance configuration imported.', [
-            'bundle'  => 'NowoInstanceSettingsBundle',
-            'changed' => implode(',', $result->changedKeys()),
-        ]);
+        // 1.19 (audit QQ-L-2): the audit line follows the outermost commit (never for an import a host transaction rolls back).
+        $logger  = $this->logger;
+        $context = ['bundle' => 'NowoInstanceSettingsBundle', 'changed' => implode(',', $result->changedKeys())];
+        AfterCommitEventDispatcher::afterCommitOf($this->afterCommit, static function () use ($logger, $context): void {
+            $logger?->info('Instance configuration imported.', $context);
+        });
 
         return $result;
     }

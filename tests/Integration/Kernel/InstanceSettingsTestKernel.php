@@ -42,6 +42,8 @@ final class InstanceSettingsTestKernel extends Kernel
      * @param list<string> $without bundle short names to leave out (security, doctrine_encrypt; security_off = a `security: false` firewall)
      * @param bool $hostDefaultDriver the host gives its default manager's chain a catch-all default driver (what
      *                                DoctrineBundle 3.4 `auto_discover_entities` does)
+     * @param string|null $databaseUrl 1.19: a real database (tests/Database); null = in-memory SQLite
+     * @param string|null $keyId 1.19: shares the encryption key of kernels on one database (null = this kernel's own)
      */
     public function __construct(
         private readonly string $id,
@@ -50,6 +52,8 @@ final class InstanceSettingsTestKernel extends Kernel
         private readonly array $without = [],
         bool $debug = false,
         private readonly bool $hostDefaultDriver = false,
+        private readonly ?string $databaseUrl = null,
+        private readonly ?string $keyId = null,
     ) {
         parent::__construct('test', $debug);
     }
@@ -124,7 +128,7 @@ final class InstanceSettingsTestKernel extends Kernel
         ]);
         $container->extension('twig', ['strict_variables' => true]);
         $container->extension('doctrine', [
-            'dbal' => ['url' => 'sqlite:///:memory:'],
+            'dbal' => ['url' => $this->databaseUrl ?? 'sqlite:///:memory:'],
             'orm'  => [],
         ]);
         if (!in_array('doctrine_encrypt', $this->without, true)) {
@@ -133,7 +137,7 @@ final class InstanceSettingsTestKernel extends Kernel
                 'secret_permissions'   => ['enabled' => false],
                 'generate_missing_key' => true,
                 'on_decrypt_failure'   => 'null',
-                'profiles'             => ['default' => ['encryptor_class' => 'Halite', 'secret_directory_path' => self::baseDir() . '/' . $this->id . '/keys']],
+                'profiles'             => ['default' => ['encryptor_class' => 'Halite', 'secret_directory_path' => self::baseDir() . '/' . ($this->keyId ?? $this->id) . '/keys']],
             ]);
         }
         if (!in_array('security', $this->without, true)) {

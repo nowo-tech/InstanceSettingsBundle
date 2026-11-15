@@ -8,6 +8,7 @@ settings:
 flash:
   saved: Impostazioni salvate.
   unchanged: Nessuna modifica.
+  conflict: "Un’altra persona ha modificato questa impostazione dopo l’apertura della pagina. Non è stato salvato nulla: ricarica la pagina e ripeti la modifica."
 notice:
   hidden_secret_invalid: "Le impostazioni non sono state salvate. Il segreto inserito per «%field%» non è valido: %message% Il suo provider non è selezionato, quindi il campo è nascosto: seleziona quel provider per correggerlo, oppure lascialo vuoto."
   hidden_secret_locked: "Le impostazioni non sono state salvate. È stato inserito un valore per «%field%», la cui riga è nascosta e contiene un segreto salvato: mostra la riga, poi seleziona «Sostituisci il valore salvato» per cambiarlo, oppure lascialo vuoto."

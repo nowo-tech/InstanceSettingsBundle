@@ -35,7 +35,7 @@ final class DoctrineSettingValueRepositoryTest extends KernelTestCase
         self::assertCount(3, $repository->findAll());
         self::assertSame(['dsn', 'from'], array_map(static fn (SettingValue $r): string => $r->getName(), $repository->findBySection('mailer')));
         $connection = $this->connection($kernel);
-        self::assertSame(3, (int) $connection->fetchOne('SELECT COUNT(*) FROM app_instance_setting_value'));
+        self::assertSame(3, (int) $connection->fetchOne("SELECT COUNT(*) FROM app_instance_setting_value WHERE section IN ('mailer', 'general')"));
 
         // Another process changes a row: the next request (reset) sees it.
         $connection->executeStatement("UPDATE app_instance_setting_value SET value = '45' WHERE name = 'page_size'");

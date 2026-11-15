@@ -80,11 +80,13 @@ final class FileStoreTransactionConnection extends AbstractConnectionMiddleware
     }
 
     /**
-     * Executes the statement; a successful savepoint statement is reported to the observers.
+     * Executes the statement; a successful savepoint statement is reported to the observers. The affected row count is
+     * returned as an int on DBAL 3 and 4.
      */
-    public function exec(string $sql): int|string
+    public function exec(string $sql): int
     {
-        $result = parent::exec($sql);
+        // An int on DBAL 3 and 4 (1.19: DBAL 3 declares `int`, DBAL 4 `int|string`; savepoint statements affect no row).
+        $result = (int) parent::exec($sql);
         if (preg_match(self::SAVEPOINT_PATTERN, $sql, $match) === 1) {
             $verb = strtoupper($match[1]);
             $name = $match[2];

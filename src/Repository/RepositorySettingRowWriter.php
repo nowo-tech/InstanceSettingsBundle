@@ -10,10 +10,13 @@ use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Psr\Clock\ClockInterface;
 use Symfony\Component\Clock\NativeClock;
 
+use function array_keys;
+use function array_map;
 use function count;
 use function explode;
 use function hash_equals;
 use function sprintf;
+use function strval;
 
 /**
  * Default {@see SettingRowWriterInterface}: maps the rows onto the entities of the aliased
@@ -91,12 +94,14 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
 
         // @igor-ignore - The closure runs synchronously inside the transaction and is not stored.
         $this->repository->transactional(function () use ($plans): void {
+            // 1.19: the write locks of every section first, in the lock order; each section is then re-read under its lock.
+            SectionLock::lockAll($this->repository, array_map(strval(...), array_keys($plans)));
             $entities  = [];
             $deleted   = [];
             $unchanged = [];
             foreach ($plans as $section => $plan) {
                 $existing = [];
-                foreach ($this->repository->findBySection($section) as $entity) {
+                foreach (SectionLock::rowsOf($this->repository, (string) $section) as $entity) {
                     $existing[$entity->getName()] = $entity;
                 }
                 foreach ($plan['save'] ?? [] as $name => $row) {

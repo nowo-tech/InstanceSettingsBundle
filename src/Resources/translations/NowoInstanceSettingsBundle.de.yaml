@@ -8,6 +8,7 @@ settings:
 flash:
   saved: Einstellungen gespeichert.
   unchanged: Nichts geändert.
+  conflict: "Jemand anderes hat diese Einstellung geändert, nachdem Sie die Seite geöffnet haben. Es wurde nichts gespeichert: Laden Sie die Seite neu und nehmen Sie die Änderung erneut vor."
 notice:
   hidden_secret_invalid: "Die Einstellungen wurden nicht gespeichert. Das für „%field%“ eingegebene Geheimnis ist ungültig: %message% Sein Anbieter ist nicht ausgewählt, daher ist das Feld ausgeblendet: Wählen Sie diesen Anbieter, um es zu korrigieren, oder lassen Sie es leer."
   hidden_secret_locked: "Die Einstellungen wurden nicht gespeichert. Für „%field%“ wurde ein Wert eingegeben, dessen Zeile ausgeblendet ist und ein gespeichertes Geheimnis enthält: Zeigen Sie die Zeile an und aktivieren Sie „Gespeicherten Wert ersetzen“, um es zu ändern, oder lassen Sie das Feld leer."

@@ -10,6 +10,7 @@ use InvalidArgumentException;
 use JsonException;
 use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
+use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\File\FileStoreTransaction;
 use Nowo\InstanceSettingsBundle\File\FilesystemSettingFileStore;
@@ -19,6 +20,7 @@ use Nowo\InstanceSettingsBundle\File\ImageUpload;
 use Nowo\InstanceSettingsBundle\File\PathGuard;
 use Nowo\InstanceSettingsBundle\File\ProcessedImage;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
+use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
@@ -27,6 +29,7 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionSaveFilterInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Settings\ValueNormalizer;
+use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
@@ -36,6 +39,7 @@ use Symfony\Contracts\Service\ResetInterface;
 
 use function array_key_exists;
 use function array_keys;
+use function array_map;
 use function class_exists;
 use function dirname;
 use function explode;
@@ -57,6 +61,7 @@ use function str_starts_with;
 use function stripos;
 use function strlen;
 use function strtolower;
+use function strval;
 use function substr;
 use function trim;
 
@@ -140,6 +145,7 @@ final readonly class SeedFileSeeder
         private ?TransactionStateGuard $transactionGuard = null,
         private ?EventDispatcherInterface $dispatcher = null,
         private ?ClockInterface $clock = null,
+        private ?InstanceSettingsTransactionRunner $runner = null,
     ) {
         if (!PathGuard::isLocalPath($baseDir)) {
             throw new InvalidArgumentException(sprintf('Instance settings seed: seed.base_dir must be a local directory path, got "%s".', $baseDir));
@@ -282,7 +288,7 @@ final readonly class SeedFileSeeder
         $attempt = 0;
         while (true) {
             try {
-                [$seeded, $lost, $events] = $dryRun ? [$this->plannedKeys($plans), [], []] : FileStoreTransaction::run($this->repository, $this->fileStore, fn (): array => $this->insertMissing($plans));
+                [$seeded, $lost, $events] = $dryRun ? [$this->plannedKeys($plans), [], []] : $this->write($plans);
                 break;
             } catch (UniqueConstraintViolationException $e) {
                 if (++$attempt >= self::ATTEMPTS) {
@@ -305,7 +311,11 @@ final readonly class SeedFileSeeder
             if ($files !== '') {
                 $context['files'] = $files;
             }
-            $this->logger?->info('Instance settings saved.', $context);
+            // 1.19: the audit line follows the outermost commit, like the event.
+            $logger = $this->logger;
+            AfterCommitEventDispatcher::afterCommitOf($this->dispatcher, static function () use ($logger, $context): void {
+                $logger?->info('Instance settings saved.', $context);
+            });
             $this->dispatcher?->dispatch($event);
         }
         $this->logger?->info($dryRun ? 'Instance settings seed file checked (dry run).' : 'Instance settings seeded from a seed file.', [
@@ -487,9 +497,11 @@ final readonly class SeedFileSeeder
         $seeded = [];
         $lost   = [];
         $events = [];
+        // 1.19: the write locks of every section first, in the lock order; each section is then re-read under its lock.
+        SectionLock::lockAll($this->repository, array_map(strval(...), array_keys($plans)));
         foreach ($plans as $section => $plan) {
             $stored = [];
-            foreach ($this->repository->findBySection($section) as $row) {
+            foreach (SectionLock::rowsOf($this->repository, $section) as $row) {
                 $stored[$row->getName()] = true;
             }
             $rows    = [];
@@ -523,6 +535,23 @@ final readonly class SeedFileSeeder
         }
 
         return [$seeded, $lost, $events];
+    }
+
+    /**
+     * The write unit of a seed (1.19): replayed after a transient failure when it is the outermost transaction and the
+     * bundle's runner is wired ({@see InstanceSettingsTransactionRunner::runRetrying()}); its events and log lines follow
+     * the commit, so a replay never duplicates them.
+     *
+     * @param array<string, array{values: array<string, bool|float|int|string>, images: array<string, array{0: ProcessedImage, 1: string, 2: string}>}> $plans
+     *
+     * @return array{0: list<string>, 1: array<string, string>, 2: list<array{0: SettingsChangedEvent, 1: string}>}
+     */
+    private function write(array $plans): array
+    {
+        // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored.
+        $unit = fn (): array => FileStoreTransaction::run($this->repository, $this->fileStore, fn (): array => $this->insertMissing($plans));
+
+        return $this->runner instanceof InstanceSettingsTransactionRunner ? $this->runner->runRetrying($unit) : $unit();
     }
 
     /**

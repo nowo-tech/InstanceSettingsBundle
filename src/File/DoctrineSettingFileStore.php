@@ -9,11 +9,15 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
+use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 
+use function array_filter;
 use function array_flip;
+use function array_values;
 use function count;
 use function is_resource;
 use function sprintf;
+use function str_starts_with;
 use function stream_get_contents;
 use function strlen;
 
@@ -32,17 +36,22 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
 
     private SettingsEntityManager $entityManager;
 
+    private InstanceSettingsTransactionRunner $runner;
+
     /**
      * @param ManagerRegistry $registry Doctrine registry
      * @param string|null $entityManagerName `doctrine.entity_manager` (null = the manager that maps the bundle entities)
      * @param SettingsEntityManager|null $entityManager the bundle's private manager (shared with the setting repository)
+     * @param InstanceSettingsTransactionRunner|null $runner 1.19: the bundle's runner (null = one on the private manager)
      */
     public function __construct(
         ManagerRegistry $registry,
         ?string $entityManagerName = null,
         ?SettingsEntityManager $entityManager = null,
+        ?InstanceSettingsTransactionRunner $runner = null,
     ) {
         $this->entityManager = $entityManager ?? new SettingsEntityManager($registry, $entityManagerName);
+        $this->runner        = $runner ?? new InstanceSettingsTransactionRunner($this->entityManager);
     }
 
     /**
@@ -54,8 +63,10 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
         $rows = $this->entityManager()
             ->createQuery(sprintf('SELECT %s FROM %s f WHERE f.section = :section AND f.name = :name AND f.variant = :variant AND f.sha256 LIKE :prefix', self::COLUMNS, SettingFile::class))
             ->setParameters(['section' => $section, 'name' => $field, 'variant' => $variant, 'prefix' => $hashPrefix . '%'])
-            ->setMaxResults(2)
             ->getArrayResult();
+        // 1.19 (audit QQ-I-3): the exact section, field and prefix first (a folding collation matches look-alikes), then the
+        // ambiguity check; no LIMIT before it.
+        $rows = array_values(array_filter($rows, static fn (array $row): bool => self::exact($row, $section, $field) && str_starts_with((string) $row['sha256'], $hashPrefix)));
 
         return count($rows) === 1 ? $this->record($rows[0]) : null;
     }
@@ -72,7 +83,8 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
             ->getArrayResult();
 
         $records = [];
-        foreach ($rows as $row) {
+        // 1.19 (audit QQ-I-3): the exact section, field and hash only.
+        foreach (array_filter($rows, static fn (array $row): bool => self::exact($row, $section, $field) && (string) $row['sha256'] === $sha256) as $row) {
             $record                    = $this->record($row);
             $records[$record->variant] = $record;
         }
@@ -110,10 +122,13 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
         }
 
         $entityManager = $this->entityManager();
-        foreach ([SettingFile::ORIGINAL => $image->original] + $image->variants as $variant => $encoded) {
-            $entityManager->persist(new SettingFile($section, $field, $sha, $variant, $encoded->mimeType, $encoded->width, $encoded->height, strlen($encoded->bytes), $encoded->bytes, $at));
-        }
-        $entityManager->flush();
+        // 1.19: flushed by the bundle's runner (a savepoint inside the save's unit of work; nothing left pending after a failure).
+        // @igor-ignore - The closure runs synchronously inside the unit of work and is not stored.
+        $this->runner->run(static function () use ($entityManager, $section, $field, $sha, $image, $at): void {
+            foreach ([SettingFile::ORIGINAL => $image->original] + $image->variants as $variant => $encoded) {
+                $entityManager->persist(new SettingFile($section, $field, $sha, $variant, $encoded->mimeType, $encoded->width, $encoded->height, strlen($encoded->bytes), $encoded->bytes, $at));
+            }
+        });
         // The rows hold the bytes: detach them at once so no blob stays in the identity map after this call.
         foreach ($entityManager->getUnitOfWork()->getIdentityMap()[SettingFile::class] ?? [] as $entity) {
             $entityManager->detach($entity);
@@ -223,5 +238,15 @@ final readonly class DoctrineSettingFileStore implements SettingFileStoreInterfa
     private function entityManager(): EntityManagerInterface
     {
         return $this->entityManager->get();
+    }
+
+    /**
+     * Whether a row's section and field are exactly the given ones (byte for byte).
+     *
+     * @param array<string, mixed> $row
+     */
+    private static function exact(array $row, string $section, string $field): bool
+    {
+        return (string) $row['section'] === $section && (string) $row['name'] === $field;
     }
 }

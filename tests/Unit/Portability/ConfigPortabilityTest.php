@@ -119,7 +119,7 @@ final class ConfigPortabilityTest extends TestCase
 
         $result = $portability->import($payload);
         self::assertFalse($result->dryRun);
-        self::assertSame(1, $target->transactions);
+        self::assertSame(3, $target->transactions, 'the import unit, and one nested unit per saved section (1.19)');
         self::assertSame('ops@example.test', $targetSettings->get('mailer.from'));
         self::assertSame('smtp://REDACTED-TEST', $targetSettings->getSecret('mailer.dsn'));
         self::assertSame(50, $targetSettings->getInt('general.page_size'));

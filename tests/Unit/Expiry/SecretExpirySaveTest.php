@@ -151,7 +151,7 @@ final class SecretExpirySaveTest extends TestCase
         $settings = new InstanceSettings($this->repository, new SettingsSectionRegistry([new GeneralFixtureSection()]), new ValueNormalizer(), $this->dispatcher);
 
         self::assertSame(['site_name'], $settings->save('general', ['site_name' => 'Beacon']));
-        self::assertSame(0, $this->repository->transactions, 'byte-identical path: one apply, no transaction');
+        self::assertSame(1, $this->repository->transactions, '1.19: one unit of work (the section lock), one apply');
         self::assertSame(0, $this->store->writes);
     }
 
@@ -160,7 +160,7 @@ final class SecretExpirySaveTest extends TestCase
         $this->settings()->save('providers', ['webhook_token' => 'whk-1']);
 
         self::assertSame(0, $this->store->writes);
-        self::assertSame(0, $this->repository->transactions);
+        self::assertSame(1, $this->repository->transactions, '1.19: one unit of work (the section lock)');
     }
 
     public function testAnExpiringSectionNeedsTheStore(): void

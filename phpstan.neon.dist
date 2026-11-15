@@ -12,6 +12,12 @@ parameters:
     reportUnmatchedIgnoredErrors: false
     treatPhpDocTypesAsCertain: false
     ignoreErrors: []
+    # 1.19 (Beacon spec 239): the load-readiness flags of phpstan-frankenphp 1.4.
+    frankenphp:
+        flagRollbackAfterNestedBegin: true
+        flagFlushInHandWrittenTransaction: true
+        flagUnboundedRecursion: true
+        flagFlushWithoutClosedManagerRecovery: true
 
 includes:
   - vendor/nowo-tech/phpstan-frankenphp/ruleset-classic.neon

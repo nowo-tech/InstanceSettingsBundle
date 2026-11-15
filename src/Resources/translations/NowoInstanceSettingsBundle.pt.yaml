@@ -8,6 +8,7 @@ settings:
 flash:
   saved: Definições guardadas.
   unchanged: Nada foi alterado.
+  conflict: "Outra pessoa alterou esta definição depois de abrir a página. Nada foi guardado: recarregue a página e faça a alteração de novo."
 notice:
   hidden_secret_invalid: "As definições não foram guardadas. O segredo escrito para «%field%» não é válido: %message% O seu fornecedor não está selecionado, por isso o campo está oculto: selecione esse fornecedor para o corrigir ou deixe-o em branco."
   hidden_secret_locked: "As definições não foram guardadas. Foi escrito um valor para «%field%», cuja linha está oculta e guarda um segredo: mostre a linha e marque «Substituir o valor guardado» para o alterar, ou deixe-o em branco."

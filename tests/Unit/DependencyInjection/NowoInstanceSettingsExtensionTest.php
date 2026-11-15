@@ -40,6 +40,7 @@ use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
+use Nowo\InstanceSettingsBundle\Settings\SettingsMemoObserver;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -88,7 +89,7 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertSame(SettingsPendingEventsInterface::class, (string) $container->getDefinition(DoctrineSettingValueRepository::class)->getArgument(3));
         $middleware = $container->getDefinition(FileStoreTransactionMiddleware::class);
         self::assertTrue($middleware->hasTag('doctrine.middleware'), 'always registered since 1.10');
-        self::assertSame([AfterCommitEventDispatcher::class], array_map('strval', $middleware->getArguments()));
+        self::assertSame([AfterCommitEventDispatcher::class, SettingsMemoObserver::class], array_map('strval', $middleware->getArguments()), '1.19: the memo follows the rollbacks');
         foreach ([InstanceSettings::class => 3, FallbackSeeder::class => 6, SeedFileSeeder::class => 10] as $service => $index) {
             self::assertSame(AfterCommitEventDispatcher::class, (string) $container->getDefinition($service)->getArgument($index), $service);
         }
@@ -97,7 +98,7 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         self::assertSame(SettingValueRepositoryInterface::class, (string) $container->getDefinition(RepositorySettingRowReader::class)->getArgument(0));
 
         $filesystem = $this->load(['brand' => ['enabled' => false], 'files' => ['enabled' => true, 'store' => 'filesystem', 'directory' => '/srv/files']], withSecurity: true);
-        self::assertSame([FilesystemSettingFileStore::class, AfterCommitEventDispatcher::class], array_map('strval', $filesystem->getDefinition(FileStoreTransactionMiddleware::class)->getArguments()));
+        self::assertSame([FilesystemSettingFileStore::class, AfterCommitEventDispatcher::class, SettingsMemoObserver::class], array_map('strval', $filesystem->getDefinition(FileStoreTransactionMiddleware::class)->getArguments()));
     }
 
     /**

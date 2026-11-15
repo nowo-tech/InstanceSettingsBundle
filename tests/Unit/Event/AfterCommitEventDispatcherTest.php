@@ -319,6 +319,75 @@ final class AfterCommitEventDispatcherTest extends TestCase
         self::assertSame(['waits', 'via_manager'], $this->seen);
     }
 
+    public function testHeldWorkRunsAfterTheCommitAndIsDroppedOnRollback(): void
+    {
+        $connection = $this->connection();
+        /** @var ArrayObject<int, string> $ran */
+        $ran = new ArrayObject();
+
+        $this->dispatcher->afterCommit(static function () use ($ran): void {
+            $ran[] = 'now';
+        });
+        self::assertSame(['now'], $ran->getArrayCopy(), 'no transaction: at once');
+
+        $connection->beginTransaction();
+        $this->dispatcher->afterCommit(static function () use ($ran): void {
+            $ran[] = 'rolled back';
+        });
+        $connection->rollBack();
+
+        $connection->beginTransaction();
+        $this->dispatcher->afterCommit(static function () use ($ran): void {
+            $ran[] = 'committed';
+        });
+        $this->dispatcher->dispatch(new SettingsChangedEvent('general', ['a']));
+        self::assertSame(1, $this->dispatcher->countPending(), 'held work is not an event');
+        $connection->commit();
+        self::assertSame(['now'], $ran->getArrayCopy(), 'never from inside the commit');
+        self::assertSame(1, $this->dispatcher->dispatchPending(), 'one event; the held work is not counted');
+        self::assertSame(['now', 'committed'], $ran->getArrayCopy());
+        self::assertSame(['general'], $this->seen);
+    }
+
+    public function testFailingHeldWorkIsLoggedLikeAListener(): void
+    {
+        $logger = new class extends AbstractLogger {
+            /** @var list<string> */
+            public array $lines = [];
+
+            public function log($level, string|Stringable $message, array $context = []): void
+            {
+                $this->lines[] = (string) $message;
+            }
+        };
+        $dispatcher = new AfterCommitEventDispatcher($this->inner, $logger, fn (): ?DbalConnection => $this->conn);
+        $connection = $this->conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], (new Configuration())->setMiddlewares([new FileStoreTransactionMiddleware($dispatcher)]));
+        $connection->beginTransaction();
+        $dispatcher->afterCommit(static function (): never {
+            throw new RuntimeException('log down');
+        });
+        $connection->commit();
+
+        self::assertSame(0, $dispatcher->dispatchPending());
+        self::assertSame(['Instance settings: a listener failed after the commit.'], $logger->lines);
+    }
+
+    public function testAfterCommitOfAnotherDispatcherRunsAtOnce(): void
+    {
+        $ran = 0;
+        AfterCommitEventDispatcher::afterCommitOf(new EventDispatcher(), static function () use (&$ran): void {
+            ++$ran;
+        });
+        AfterCommitEventDispatcher::afterCommitOf(null, static function () use (&$ran): void {
+            ++$ran;
+        });
+        AfterCommitEventDispatcher::afterCommitOf($this->dispatcher, static function () use (&$ran): void {
+            ++$ran;
+        });
+
+        self::assertSame(3, $ran);
+    }
+
     private function connection(): DbalConnection
     {
         return $this->conn = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true], (new Configuration())->setMiddlewares([new FileStoreTransactionMiddleware($this->dispatcher)]));

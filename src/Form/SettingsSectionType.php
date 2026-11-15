@@ -16,6 +16,7 @@ use Nowo\InstanceSettingsBundle\Section\HiddenSecrets;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
+use Nowo\InstanceSettingsBundle\Settings\SectionSnapshot;
 use Nowo\UiKitBundle\Form\VisibleWhen;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Exception\TransformationFailedException;
@@ -23,6 +24,7 @@ use Symfony\Component\Form\Extension\Core\Type\CheckboxType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\DateType;
 use Symfony\Component\Form\Extension\Core\Type\EmailType;
+use Symfony\Component\Form\Extension\Core\Type\HiddenType;
 use Symfony\Component\Form\Extension\Core\Type\IntegerType;
 use Symfony\Component\Form\Extension\Core\Type\NumberType;
 use Symfony\Component\Form\Extension\Core\Type\TextareaType;
@@ -76,6 +78,9 @@ final class SettingsSectionType extends AbstractType
     /** Placeholder handed to {@see SecretType} as `current_value` when a secret is stored (only its presence counts). */
     private const STORED_SECRET_MARKER = 'stored';
 
+    /** 1.19: hidden child carrying the {@see SectionSnapshot} token of the section as the editor opened it. */
+    public const BASE_FIELD = '_base';
+
     /** Row class of an image field (1.12): one card per image field, laid out two per line by the bundle stylesheet. */
     public const IMAGE_CARD_CLASS = 'nowo-instance-settings-image-card';
 
@@ -121,7 +126,7 @@ final class SettingsSectionType extends AbstractType
     /**
      * Adds one form field per setting field.
      *
-     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>, secret_expiry_dates: array<string, DateTimeImmutable>, secret_expiry_warnings: array<string, ExpiringSecret>, locked_secrets: list<string>} $options
+     * @param array{section: SettingsSectionInterface, fields: array<string, SettingField>, stored_secrets: array<string, bool>, stored_images: array<string, bool>, stored_image_urls: array<string, string>, hidden_secrets: HiddenSecrets, revealable_secrets: list<string>, secret_expiry_dates: array<string, DateTimeImmutable>, secret_expiry_warnings: array<string, ExpiringSecret>, locked_secrets: list<string>, base_token: string|null} $options
      */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
@@ -224,6 +229,11 @@ final class SettingsSectionType extends AbstractType
                 $extra['choice_translation_domain'] = $domain;
             }
             $this->addWithDefaults($builder, $name, $type, array_replace_recursive($base, $extra, $field->formOptions));
+        }
+
+        if ($options['base_token'] !== null) {
+            // 1.19 (Beacon spec 239): the section as the editor opened it, so a save keeps what another editor saved meanwhile.
+            $builder->add(self::BASE_FIELD, HiddenType::class, ['mapped' => false, 'data' => $options['base_token']]);
         }
 
         if ($dependent !== []) {
@@ -378,7 +388,8 @@ final class SettingsSectionType extends AbstractType
      * field names whose row carries the Reveal marker; the page passes them only for a user who may reveal),
      * `secret_expiry_dates` (1.17: field => stored expiry date) and `secret_expiry_warnings` (1.17: field =>
      * {@see ExpiringSecret} within the warning window), `locked_secrets` (1.17: the secret rows locked by
-     * `web_ui.reveal_in_input`; each gets a Replace box).
+     * `web_ui.reveal_in_input`; each gets a Replace box), `base_token` (1.19: the {@see SectionSnapshot} token of the
+     * section as shown, in the hidden {@see self::BASE_FIELD} child; null = none).
      */
     public function configureOptions(OptionsResolver $resolver): void
     {
@@ -399,6 +410,8 @@ final class SettingsSectionType extends AbstractType
         $resolver->setAllowedTypes('stored_images', 'array');
         $resolver->setAllowedTypes('stored_image_urls', 'array');
         $resolver->setDefault('revealable_secrets', []);
+        $resolver->setDefault('base_token', null);
+        $resolver->setAllowedTypes('base_token', ['null', 'string']);
         $resolver->setDefault('locked_secrets', []);
         $resolver->setAllowedTypes('locked_secrets', 'string[]');
         $resolver->setDefault('secret_expiry_dates', []);

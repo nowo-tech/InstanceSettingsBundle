@@ -4,13 +4,22 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Repository;
 
+use DateTimeImmutable;
+use Doctrine\DBAL\LockMode;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\ORM\Query;
 use Doctrine\Persistence\ManagerRegistry;
+use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
 use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
+use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
+use Nowo\TransactionContract\TransientStorageFailure;
 
+use function array_filter;
+use function array_values;
 use function sprintf;
 
 /**
@@ -24,10 +33,18 @@ use function sprintf;
  * Worker-safe without `kernel.reset`: the private manager is cleared after every write unit and replaced when closed,
  * and reads use {@see Query::HINT_REFRESH} so rows are re-hydrated (and decrypted again) instead of being served stale
  * from the identity map of an earlier request.
+ *
+ * 1.19 (Beacon spec 239): {@see self::transactional()} runs through the bundle's own
+ * {@see InstanceSettingsTransactionRunner} (a transient storage failure is a {@see TransientStorageFailure}, and a failed
+ * unit leaves nothing pending in the private manager), and the writers of a section are serialized by
+ * {@see self::lockSection()} ({@see SectionLock}). Every read re-checks the section name byte for byte (a folding
+ * collation of an existing table can match a look-alike).
  */
-final class DoctrineSettingValueRepository implements SettingValueRepositoryInterface
+final class DoctrineSettingValueRepository implements SettingValueRepositoryInterface, SectionLockingRepositoryInterface, StoredSecretStateInterface
 {
     private readonly SettingsEntityManager $entityManager;
+
+    private readonly InstanceSettingsTransactionRunner $runner;
 
     /** Open {@see transactional()} levels: the private manager is cleared when the outermost one ends (back to 0 in finally). */
     private int $depth = 0;
@@ -38,14 +55,17 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
      * @param SettingsEntityManager|null $entityManager the bundle's private manager (shared with the file store)
      * @param SettingsPendingEventsInterface|null $pendingEvents dispatches the events committed by {@see transactional()}
      *                                                           once it returned (1.11.1)
+     * @param InstanceSettingsTransactionRunner|null $runner the bundle's runner (1.19; null = one on the private manager)
      */
     public function __construct(
         ManagerRegistry $registry,
         ?string $entityManagerName = null,
         ?SettingsEntityManager $entityManager = null,
         private readonly ?SettingsPendingEventsInterface $pendingEvents = null,
+        ?InstanceSettingsTransactionRunner $runner = null,
     ) {
         $this->entityManager = $entityManager ?? new SettingsEntityManager($registry, $entityManagerName);
+        $this->runner        = $runner ?? new InstanceSettingsTransactionRunner($this->entityManager);
     }
 
     /**
@@ -56,14 +76,14 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
         // 1.18 (audit PU-L6): the section test state (reserved `_section_test_*` sections) is not a setting.
         /** @var list<SettingValue> $rows */
         $rows = $this->query('SELECT s FROM %s s WHERE s.section NOT IN (:reserved) ORDER BY s.section ASC, s.name ASC')
-            ->setParameter('reserved', [SectionTestStore::REPORTS, SectionTestStore::LOCKS, SectionTestStore::RATES])
+            ->setParameter('reserved', [SectionTestStore::REPORTS, SectionTestStore::LOCKS, SectionTestStore::RATES, SectionLock::SECTION])
             ->getResult();
 
         return $rows;
     }
 
     /**
-     * Rows of one section, ordered by name.
+     * Rows of one section, ordered by name (the section name re-checked byte for byte).
      */
     public function findBySection(string $section): array
     {
@@ -72,7 +92,65 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
             ->setParameter('section', $section)
             ->getResult();
 
-        return $rows;
+        return $this->exactly($rows, $section);
+    }
+
+    /**
+     * Rows of one section as last committed: a locking read inside the open unit (1.19).
+     */
+    public function findBySectionForUpdate(string $section): array
+    {
+        /** @var list<SettingValue> $rows */
+        $rows = $this->query('SELECT s FROM %s s WHERE s.section = :section ORDER BY s.name ASC')
+            ->setParameter('section', $section)
+            ->setLockMode(LockMode::PESSIMISTIC_WRITE)
+            ->getResult();
+
+        return $this->exactly($rows, $section);
+    }
+
+    /**
+     * The stored (encrypted) secret column of each secret row of a section (1.19, audit QQ-L-1): read with DBAL, never
+     * decrypted. With `$forUpdate` a locking read on MySQL / MariaDB / PostgreSQL (audit QQ-D-M-1; SQLite locks the
+     * database for a writing transaction).
+     */
+    public function storedSecretStates(string $section, bool $forUpdate = false): array
+    {
+        $entityManager = $this->entityManager->get();
+        $metadata      = $entityManager->getClassMetadata(SettingValue::class);
+        $connection    = $entityManager->getConnection();
+        $platform      = $connection->getDatabasePlatform();
+        $rows          = $connection->fetchAllAssociative(sprintf(
+            'SELECT %1$s AS section, %2$s AS name, %3$s AS secret FROM %4$s WHERE %1$s = ? AND %3$s IS NOT NULL%5$s',
+            $metadata->getColumnName('section'),
+            $metadata->getColumnName('name'),
+            $metadata->getColumnName('secretValue'),
+            $metadata->getTableName(),
+            $forUpdate && ($platform instanceof AbstractMySQLPlatform || $platform instanceof PostgreSQLPlatform) ? ' FOR UPDATE' : '',
+        ), [$section]);
+        $states = [];
+        foreach (array_filter($rows, static fn (array $row): bool => (string) $row['section'] === $section) as $row) {
+            $states[(string) $row['name']] = (string) $row['secret'];
+        }
+
+        return $states;
+    }
+
+    /**
+     * Takes the write lock of a section in the open unit (1.19, {@see SectionLock}).
+     */
+    public function lockSection(string $section): void
+    {
+        $entityManager = $this->entityManager->get();
+        $metadata      = $entityManager->getClassMetadata(SettingValue::class);
+        $connection    = $entityManager->getConnection();
+        $id            = $connection->getDatabasePlatform() instanceof AbstractMySQLPlatform ? null : SequenceId::next($connection, $metadata);
+        SectionLock::acquire($connection, $metadata->getTableName(), [
+            'section'    => $metadata->getColumnName('section'),
+            'name'       => $metadata->getColumnName('name'),
+            'updated_at' => $metadata->getColumnName('updatedAt'),
+            'id'         => $metadata->getSingleIdentifierColumnName(),
+        ], $section, new DateTimeImmutable(), $id);
     }
 
     /**
@@ -101,14 +179,15 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
     }
 
     /**
-     * Runs the callback in one transaction of the private entity manager (on the shared connection).
+     * Runs the callback in one transaction of the private entity manager (on the shared connection), through the bundle's
+     * runner (1.19): one attempt; a transient failure is a {@see TransientStorageFailure}.
      */
     public function transactional(callable $callback): mixed
     {
         // @igor-ignore - Nesting counter of the running call, back to 0 in finally (never spans requests).
         ++$this->depth;
         try {
-            $result = $this->entityManager->get()->wrapInTransaction(static fn (): mixed => $callback());
+            $result = $this->runner->run($callback);
         } finally {
             // @igor-ignore - Nesting counter of the running call, back to 0 in finally (never spans requests).
             if (--$this->depth === 0) {
@@ -129,6 +208,18 @@ final class DoctrineSettingValueRepository implements SettingValueRepositoryInte
         if ($this->depth === 0) {
             $this->pendingEvents?->dispatchPending();
         }
+    }
+
+    /**
+     * The rows whose section is exactly `$section` (a folding or PAD SPACE collation matches look-alikes).
+     *
+     * @param list<SettingValue> $rows
+     *
+     * @return list<SettingValue>
+     */
+    private function exactly(array $rows, string $section): array
+    {
+        return array_values(array_filter($rows, static fn (SettingValue $row): bool => $row->getSection() === $section));
     }
 
     private function query(string $dql): Query
