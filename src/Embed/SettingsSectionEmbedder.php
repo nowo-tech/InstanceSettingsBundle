@@ -308,7 +308,7 @@ final readonly class SettingsSectionEmbedder
         // 1.17 (audit L1): a value typed into a locked row without its Replace box (no JavaScript, stale assets, a host
         // template without the lock script, a row locked after the page was rendered) refuses the save with an error on
         // that row, instead of being dropped under "Settings saved.".
-        $refused = $form->isSubmitted() && $form->isValid() ? $this->typedIntoLockedRows($form, $fields, $locked) : [];
+        $refused = $form->isSubmitted() && $form->isValid() ? $this->typedIntoLockedRows($form, $locked) : [];
         foreach ($refused as $name) {
             $form->get($name)->addError(new FormError($this->trans(self::REPLACE_REQUIRED_ERROR)));
         }
@@ -349,9 +349,9 @@ final readonly class SettingsSectionEmbedder
                 '%days%'  => abs($warning->daysLeft),
             ]);
         }
-        if ($form->isSubmitted() && $hiddenSecrets === HiddenSecrets::KeepTyped) {
+        if ($form->isSubmitted() && ($hiddenSecrets === HiddenSecrets::KeepTyped || $locked !== [])) {
             // 1.9 (audit KB-I-L1): an invalid secret typed into a hidden row refuses the save with an error the user
-            // cannot see; name it above the form.
+            // cannot see; name it above the form. 1.18.1: also a value typed into a hidden locked row without Replace.
             array_push($notices, ...$this->hiddenSecretErrors($form, $fields, $definition->getTranslationDomain()));
         }
 
@@ -555,23 +555,21 @@ final readonly class SettingsSectionEmbedder
 
     /**
      * Locked secret rows (1.17) that received a typed value without their Replace box and without the clear box (which
-     * wins and deletes, as everywhere). Rows hidden for the submitted provider are left out: their value is dropped by
-     * the form before validation anyway.
+     * wins and deletes, as everywhere). A row hidden by its `visible_when` switch counts the same as a visible one
+     * (1.18.1, Beacon report): the form keeps its typed value ({@see SettingsSectionType::keepHiddenFields()}) so that the
+     * answer is the same 422 with the same error, in both `hidden_secrets` modes, instead of a 302 that drops it.
      *
      * @param FormInterface<mixed> $form
-     * @param array<string, SettingField> $fields
      * @param list<string> $locked
      *
      * @return list<string>
      */
-    private function typedIntoLockedRows(FormInterface $form, array $fields, array $locked): array
+    private function typedIntoLockedRows(FormInterface $form, array $locked): array
     {
-        /** @var array<string, mixed> $data */
-        $data    = (array) $form->getData();
         $refused = [];
         foreach ($locked as $name) {
             $replace = SettingsSectionType::replaceKey($name);
-            if (!$fields[$name]->isVisibleFor($data) || ($form->has($replace) && $form->get($replace)->getData() === true)) {
+            if ($form->has($replace) && $form->get($replace)->getData() === true) {
                 continue;
             }
             $submitted = $form->get($name)->getData();

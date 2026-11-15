@@ -133,7 +133,7 @@ Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_
 | `navigation_hidden` | `[]` | 1.16: section names left out of the bundle page's tab bar and of the "first section" redirect. Presentation only — see [Section icons and hidden sections](#section-icons-and-hidden-sections-116). |
 | `reveal_on_toggle` | `false` | 1.16: on a revealable secret row, the PasswordToggle eye of the "new value" input reveals the stored secret (same endpoint and checks as the Reveal button) instead of unmasking what was typed. See [Revealing from the password eye](#revealing-from-the-password-eye-116). |
 | `reveal_toggle_only` | `false` | 1.16: with `reveal_on_toggle`, rows that have the eye drop the separate Reveal / Copy / Hide buttons (rows without an eye keep them). Ignored without `reveal_on_toggle`. |
-| `reveal_in_input` | `false` | 1.17: with `reveal_on_toggle`, a revealable row holding a stored secret is **locked**: read-only input, the eye shows the stored value in that input and hides it again, a new value needs "Replace the stored value", and the server ignores a value submitted for the row without it. Ignored without `reveal_on_toggle`. See [below](#locked-stored-secrets-reveal-in-the-input-117). |
+| `reveal_in_input` | `false` | 1.17: with `reveal_on_toggle`, every row holding a stored secret is **locked** for every editor: read-only input, the eye shows the stored value in that input (revealable rows, users who may reveal) and hides it again, a new value needs "Replace the stored value", and the server refuses (422) a value submitted for the row without it, visible or hidden by `visible_when`. Ignored without `reveal_on_toggle`. See [below](#locked-stored-secrets-reveal-in-the-input-117). |
 
 ### Layout and CSS stack (UiKit)
 
@@ -440,8 +440,10 @@ nowo_instance_settings:
   script's `new FormData(form)`). **On the server, a value typed into a locked row without its Replace box refuses the
   whole save** with the error "Tick “Replace the stored value” to change it." on that row (`reveal.replace_required`,
   HTTP 422; audit L1): without JavaScript, with stale assets, with a host template lacking the lock script, or for a
-  row that became locked after the page was rendered, nothing is dropped silently under "Settings saved.". A value
-  sent together with the clear box deletes the secret, as everywhere.
+  row that became locked after the page was rendered, nothing is dropped silently under "Settings saved.". The same
+  holds for a locked row hidden by its `visible_when` switch, with `hidden_secrets: drop` or `keep_typed` (1.18.1,
+  Beacon report: it answered 302 and dropped the value); the `notice.hidden_secret_invalid` notice above the form
+  names that hidden row. A value sent together with the clear box deletes the secret, as everywhere.
 - **Replacing** needs an explicit action: tick **Replace the stored value** (`<field>:replace`, rendered under the row;
   `reveal.replace`). The input becomes an empty, editable password input with PasswordToggle's own eye; unticking locks
   it again and drops what was typed. A ticked box with a blank input keeps the stored secret. The "Remove the saved

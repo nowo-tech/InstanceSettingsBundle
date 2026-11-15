@@ -228,8 +228,9 @@ final class SettingsSectionType extends AbstractType
 
         if ($dependent !== []) {
             $keepTyped = $options['hidden_secrets'] === HiddenSecrets::KeepTyped;
-            $builder->addEventListener(FormEvents::PRE_SUBMIT, static function (FormEvent $event) use ($dependent, $keepTyped): void {
-                self::keepHiddenFields($event, $dependent, $keepTyped);
+            $locked    = $options['locked_secrets'];
+            $builder->addEventListener(FormEvents::PRE_SUBMIT, static function (FormEvent $event) use ($dependent, $keepTyped, $locked): void {
+                self::keepHiddenFields($event, $dependent, $keepTyped, $locked);
             });
         }
     }
@@ -283,9 +284,14 @@ final class SettingsSectionType extends AbstractType
      * value. With `$keepTypedSecrets` (1.9, {@see HiddenSecrets::KeepTyped}) a hidden secret is left as submitted, so a
      * typed value is saved (its own constraints run; it is never `required`).
      *
+     * 1.18.1 (Beacon report): a hidden secret row that is locked (`$locked`, 1.17 `web_ui.reveal_in_input`) and whose
+     * Replace box is not ticked is left as submitted too, so a value typed into it is refused like on a visible locked
+     * row (422, "Tick “Replace the stored value” to change it.") instead of being dropped under a 302; it is never saved.
+     *
      * @param list<SettingField> $dependent provider-dependent fields
+     * @param list<string> $locked locked secret rows (1.17)
      */
-    public static function keepHiddenFields(FormEvent $event, array $dependent, bool $keepTypedSecrets = false): void
+    public static function keepHiddenFields(FormEvent $event, array $dependent, bool $keepTypedSecrets = false, array $locked = []): void
     {
         $data = $event->getData();
         if (!is_array($data)) {
@@ -310,10 +316,13 @@ final class SettingsSectionType extends AbstractType
                 continue;
             }
             if ($field->secret) {
-                // Only an explicit "clear" survives on a hidden secret (deletes the stored row, never writes a value).
-                $submitted          = $data[$field->name] ?? null;
-                $clear              = is_array($submitted) ? ($submitted[SecretFieldApplier::KEY_CLEAR] ?? null) : null;
-                $data[$field->name] = is_string($clear) && $form->get($field->name)->has(SecretFieldApplier::KEY_CLEAR) ? [SecretFieldApplier::KEY_CLEAR => $clear] : [];
+                // A locked row without its Replace box keeps what was typed: it is refused, never saved (1.18.1).
+                if (!in_array($field->name, $locked, true) || ($data[self::replaceKey($field->name)] ?? null) !== null) {
+                    // Only an explicit "clear" survives on a hidden secret (deletes the stored row, never writes a value).
+                    $submitted          = $data[$field->name] ?? null;
+                    $clear              = is_array($submitted) ? ($submitted[SecretFieldApplier::KEY_CLEAR] ?? null) : null;
+                    $data[$field->name] = is_string($clear) && $form->get($field->name)->has(SecretFieldApplier::KEY_CLEAR) ? [SecretFieldApplier::KEY_CLEAR => $clear] : [];
+                }
                 // 1.17: its expiry date row is hidden too: keep the stored date.
                 $expiry = SettingField::expiryKey($field->name);
                 if ($form->has($expiry)) {
