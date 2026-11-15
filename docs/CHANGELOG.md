@@ -36,6 +36,36 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.18.1.
+
+### Fixed
+
+- **A locked secret row hidden by its `visible_when` switch now refuses a typed value like a visible one** (Beacon
+  report). With `web_ui.reveal_in_input`, a value posted for a locked row without `<field>:replace` answered 422 when
+  the row was visible but 302 when its switch was off in the same POST: the value was dropped (the stored secret was
+  never overwritten) and the other fields were saved. Both now answer 422 with "Tick “Replace the stored value” to
+  change it." on that row and nothing saved, with `hidden_secrets: drop` and `keep_typed` alike (this also closes the
+  `keep_typed` residual of the 1.17 audit L1), and the `notice.hidden_secret_invalid` notice names the hidden row.
+  With Replace ticked the `hidden_secrets` mode decides as before; the clear box still deletes. The docs
+  (CONFIGURATION, SECURITY, USAGE, the `reveal_in_input` option info) now say so; the option row and info no longer
+  say the value is "ignored" or that only revealable rows are locked.
+- **Concurrent first expiry date** (1.17 audit I4). Two editors saving the first date of the same expiring secret at
+  the same moment gave one of them an HTTP 500 (unique key). The insert now runs in its own transaction, or a savepoint
+  inside the settings transaction, and on a unique violation the date is written over the other one with one
+  conditional UPDATE (last writer wins; an equal date keeps its announced thresholds) on MySQL / MariaDB, PostgreSQL
+  and SQLite.
+- **`SettingRowWriterInterface::writeRows()` keeps the expiry date of a secret rewritten byte for byte** (1.17 audit
+  D1-I1): a restore of identical rows no longer drops the reminder dates. Another value, or a deleted row, still
+  removes the date.
+- **Section test leak guard cost** (1.18 audit PU-D1-I1). The parts of every form of every secret are indexed once per
+  report or page view and each text is read once, instead of searching every part in every text: a 1.8 KB JSON
+  service-account secret against the largest report went from about 1.4 s to about 0.01 s. What is redacted does not
+  change.
+
+### Changed
+
+- Development lock: doctrine/orm 3.8.0 (the suite runs against the newest 3.8.x).
+
 ## [1.18.0] - 2026-11-14
 
 Target 1.18.0.

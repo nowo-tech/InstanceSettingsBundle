@@ -43,6 +43,23 @@
 
 ## Unreleased
 
+Target 1.18.1, from **1.18.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
+No schema change, no configuration change, no template change. What changes:
+
+- With `web_ui.reveal_in_input`, a value typed into a **locked secret row hidden by its `visible_when` switch** without
+  the Replace box now gets the same answer as on a visible row: HTTP 422 with "Tick “Replace the stored value” to
+  change it." on that row and nothing saved (it was a 302 that kept the stored secret and saved the other fields).
+  The `notice.hidden_secret_invalid` notice names the hidden row; `drop` sections now show it too in that case.
+  `SettingsSectionType::keepHiddenFields()` takes an optional fourth argument, the locked rows.
+- Two editors saving the first expiry date of the same secret at once no longer give one of them an HTTP 500: the
+  second date is written over the first.
+- `SettingRowWriterInterface::writeRows()` keeps the expiry date of a secret rewritten byte for byte.
+
 ## To 1.18.0
 
 From **1.17.0**:
@@ -159,6 +176,7 @@ What changes for everybody, flag or not:
   of an instance with one (secrets included or not) is refused as a whole by 1.4 – 1.16.
 - `SettingRowWriterInterface::writeRows()` removes the expiry date of every secret row it writes or deletes (1.17,
   only with `expiring_secrets.enabled`): set the date again with `SecretExpiryStoreInterface::write()` if you know it.
+  Since 1.18.1 a secret row rewritten with the value already stored keeps its date.
 - New optional trailing constructor arguments (`InstanceSettings`, `ConfigPortability`, `FallbackSeeder`,
   `SettingsSectionEmbedder`, `SettingsSectionRegistry`, `SettingField`, `SettingFallback`): code building them by hand
   keeps working. `SettingFallback::jsonSerialize()` adds `expiresOn` only when a date is set.
