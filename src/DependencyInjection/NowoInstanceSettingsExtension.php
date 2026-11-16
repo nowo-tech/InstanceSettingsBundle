@@ -70,6 +70,9 @@ use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowWriterInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
+use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeSource;
+use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeWriter;
+use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingTables;
 use Nowo\InstanceSettingsBundle\Secret\DoctrineEncryptSecretSealer;
 use Nowo\InstanceSettingsBundle\Secret\RevealRefusalLog;
 use Nowo\InstanceSettingsBundle\Secret\SecretRevealer;
@@ -101,6 +104,7 @@ use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
 use Nowo\InstanceSettingsBundle\Ui\SectionNavigation;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
+use Nowo\RuntimeSettingContract\Contract\RuntimeValueSourceInterface;
 use Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Resource\FileResource;
@@ -157,6 +161,18 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     /** Parameter set by prepend() with `doctrine.entity_manager` and the expiring secrets enabled (1.17). */
     public const DEDICATED_EXPIRY_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_expiry_mapping';
 
+    /** Doctrine mapping name of the opt-in runtime-setting entities (1.20, `runtime_setting.enabled: true`). */
+    public const RUNTIME_MAPPING = 'NowoInstanceSettingsRuntime';
+
+    /** Parameter set by prepend() (1.20): whether the runtime-setting entity mapping was prepended. */
+    public const RUNTIME_MAPPED_PARAMETER = 'nowo_instance_settings.runtime_setting.mapped';
+
+    /** Parameter set by prepend() with `doctrine.entity_manager` and the runtime settings enabled (1.20). */
+    public const DEDICATED_RUNTIME_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_runtime_mapping';
+
+    /** Parameter set by load() (1.20): `runtime_setting.enabled`. */
+    public const RUNTIME_ENABLED_PARAMETER = 'nowo_instance_settings.runtime_setting.enabled';
+
     /**
      * @param bool|null $brandContracts whether nowo-tech/brand-contracts is installed (null = detect; tests)
      * @param bool|null $uiKitErrorIllustrations whether UiKit's error illustration SPI (2.47) is installed (null = detect; tests)
@@ -200,6 +216,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // 1.17: the expiry table, opt-in the same way (hosts without expiring secrets keep the 1.16 schema).
             $expiryMapped = self::rawSwitch($rawConfigs, 'expiring_secrets');
             $container->setParameter(self::EXPIRY_MAPPED_PARAMETER, $expiryMapped);
+            // 1.20: the runtime-setting tables, opt-in the same way (with it off, migrations:diff stays empty).
+            $runtimeMapped = self::rawSwitch($rawConfigs, 'runtime_setting');
+            $container->setParameter(self::RUNTIME_MAPPED_PARAMETER, $runtimeMapped);
             // 1.11 (rule 6): with doctrine.entity_manager the bundle maps its entities on that manager only, through
             // DoctrineOrmMappingsPass + EntityManagerMappingPass (registered by the bundle class); nothing is
             // prepended to the default manager.
@@ -210,6 +229,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                 }
                 if ($expiryMapped) {
                     $container->setParameter(self::DEDICATED_EXPIRY_MAPPING_PARAMETER, true);
+                }
+                if ($runtimeMapped) {
+                    $container->setParameter(self::DEDICATED_RUNTIME_MAPPING_PARAMETER, true);
                 }
                 $this->prependFormKitProfile($container);
 
@@ -233,6 +255,15 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'is_bundle' => false,
                 ];
             }
+            if ($runtimeMapped) {
+                $mappings[self::RUNTIME_MAPPING] = [
+                    'type'      => 'attribute',
+                    'dir'       => __DIR__ . '/../RuntimeEntity',
+                    'prefix'    => 'Nowo\InstanceSettingsBundle\RuntimeEntity',
+                    'alias'     => 'NowoInstanceSettingsRuntime',
+                    'is_bundle' => false,
+                ];
+            }
             $container->prependExtensionConfig('doctrine', ['orm' => ['mappings' => $mappings]]);
         }
 
@@ -247,7 +278,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null}, runtime_setting: array{enabled: bool}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -293,6 +324,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->assertExpiryMapped($container, $expiry['enabled']);
         $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed'], self::revealNeedsRateLimiter($config), $expiry['enabled']);
         $this->registerExpiry($container, $expiry);
+        $this->registerRuntimeSettings($container, $config['runtime_setting']['enabled']);
         if ($filesEnabled && $config['files']['store'] === 'filesystem') {
             $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
         }
@@ -455,9 +487,53 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * 1.17: the expiry table is mapped in prepend() from the raw configs (like the files, audit IO-I10); a flag another
-     * extension prepends after this one would register the store without its entity.
+     * 1.20: the runtime-setting source and writer (`runtime_setting.enabled`). The contract ports are bound to them by
+     * RuntimeSettingPortsPass only when nothing else is; the settings repository bumps the section tokens.
      */
+    private function registerRuntimeSettings(ContainerBuilder $container, bool $enabled): void
+    {
+        $container->setParameter(self::RUNTIME_ENABLED_PARAMETER, $enabled);
+        if (!$enabled) {
+            return;
+        }
+        self::assertRuntimeSettingContract(interface_exists(RuntimeValueSourceInterface::class));
+        if ($container->hasParameter(self::RUNTIME_MAPPED_PARAMETER) && $container->getParameter(self::RUNTIME_MAPPED_PARAMETER) === false) {
+            throw new LogicException('NowoInstanceSettingsBundle: runtime_setting.enabled was set by a configuration prepended after this bundle, so the runtime-setting tables are not mapped. Set it in the host configuration (config/packages/nowo_instance_settings.yaml).');
+        }
+
+        $container->setDefinition(RuntimeSettingTables::class, new Definition(RuntimeSettingTables::class, [new Reference(SettingsEntityManager::class)]));
+        $container->getDefinition(DoctrineSettingValueRepository::class)->setArgument(5, new Reference(RuntimeSettingTables::class));
+        $container->setDefinition(InstanceSettingsRuntimeSource::class, new Definition(InstanceSettingsRuntimeSource::class, [
+            new Reference(RuntimeSettingTables::class),
+            new Reference(EncryptUtil::UTIL_NAME),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]));
+        $container->setDefinition(InstanceSettingsRuntimeWriter::class, new Definition(InstanceSettingsRuntimeWriter::class, [
+            new Reference(SettingValueRepositoryInterface::class),
+            new Reference(InstanceSettingsInterface::class),
+            new Reference(SettingsSectionRegistry::class),
+            new Reference(RuntimeSettingTables::class),
+            new Reference(InstanceSettingsRuntimeSource::class),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            // Audit QZ-L-3: a runtime write of an expiring secret keeps its date.
+            new Reference(SecretExpiryStoreInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]));
+    }
+
+    /**
+     * 1.20: `runtime_setting.enabled` needs nowo-tech/runtime-setting-contract (a `suggest` of the bundle).
+     *
+     * @internal
+     */
+    public static function assertRuntimeSettingContract(bool $installed): void
+    {
+        if (!$installed) {
+            throw new LogicException('NowoInstanceSettingsBundle: runtime_setting.enabled needs nowo-tech/runtime-setting-contract (composer require nowo-tech/runtime-setting-contract).');
+        }
+    }
+
     private function assertExpiryMapped(ContainerBuilder $container, bool $enabled): void
     {
         if ($enabled && $container->hasParameter(self::EXPIRY_MAPPED_PARAMETER) && $container->getParameter(self::EXPIRY_MAPPED_PARAMETER) === false) {
@@ -660,6 +736,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // 1.17 (audit L3): a secret written or deleted here loses the date of the previous one.
             $expiryStore,
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            // 1.20: the runtime-setting validation (RuntimeSettingPortsPass, audit QZ-L-2).
+            null,
         ]));
         $container->setAlias(SettingRowWriterInterface::class, RepositorySettingRowWriter::class)->setPublic(true);
 
@@ -714,6 +792,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             $expiryStore,
             new Reference(InstanceSettingsTransactionRunner::class),
+            // 1.20: the runtime-setting validation (RuntimeSettingPortsPass, audit QZ-L-2).
+            null,
         ]))->setPublic(true));
 
         $container->setDefinition(SeedFromFallbacksCommand::class, (new Definition(SeedFromFallbacksCommand::class, [
@@ -735,6 +815,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(AfterCommitEventDispatcher::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference(InstanceSettingsTransactionRunner::class),
+            // 1.20: the runtime-setting validation (RuntimeSettingPortsPass, audit QZ-L-2).
+            null,
         ]))->setPublic(true));
 
         $container->setDefinition(SeedCommand::class, (new Definition(SeedCommand::class, [
@@ -1269,6 +1351,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             'files.enabled'                  => $config['files']['enabled'] ?? null,
             'brand.enabled'                  => $config['brand']['enabled'] ?? null,
             'expiring_secrets.enabled'       => $config['expiring_secrets']['enabled'] ?? null,
+            'runtime_setting.enabled'        => $config['runtime_setting']['enabled'] ?? null,
         ];
         foreach ($switches as $path => $value) {
             if (!is_bool($value)) {

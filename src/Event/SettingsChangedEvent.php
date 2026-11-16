@@ -43,4 +43,7 @@ final readonly class SettingsChangedEvent
 
     /** Seeded once from the section fallbacks (`nowo:instance-settings:seed-from-fallbacks`, since 1.2.0). */
     public const ORIGIN_SEED = 'seed';
+
+    /** 1.20: written by the runtime-setting writer (`nowo:runtime-setting:*`, RuntimeSettingUpdater). */
+    public const ORIGIN_RUNTIME = 'runtime_setting';
 }

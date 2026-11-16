@@ -15,6 +15,7 @@ use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
+use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingAdminGuard;
 use Nowo\InstanceSettingsBundle\Section\SectionFallbackProviderInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
@@ -67,6 +68,9 @@ final readonly class FallbackSeeder
      * @param ClockInterface|null $clock `updated_at` of the inserted rows
      * @param SecretExpiryStoreInterface|null $expiryStore 1.17: stores the expiry date a secret fallback carries
      * @param InstanceSettingsTransactionRunner|null $runner 1.19: replays a transient failure of the outermost seed unit
+     * @param RuntimeSettingAdminGuard|null $runtimeSettings 1.20 (audit QZ-L-2): a fallback of a field registered as a
+     *                                                       runtime setting also passes that setting's validator, else
+     *                                                       it is skipped ({@see SeedReport::SKIP_RUNTIME_SETTING})
      */
     public function __construct(
         private SettingsSectionRegistry $registry,
@@ -79,6 +83,7 @@ final readonly class FallbackSeeder
         private ?ClockInterface $clock = null,
         private ?SecretExpiryStoreInterface $expiryStore = null,
         private ?InstanceSettingsTransactionRunner $runner = null,
+        private ?RuntimeSettingAdminGuard $runtimeSettings = null,
     ) {
     }
 
@@ -300,6 +305,9 @@ final readonly class FallbackSeeder
                 [$clean, $messages] = $this->normalizer->normalize($fields[$fallback->field], $fallback->value());
                 if ($messages !== [] || $clean === null) {
                     $reason = SeedReport::SKIP_INVALID;
+                } elseif (($this->runtimeSettings?->violations($name, [$fallback->field => $clean]) ?? []) !== []) {
+                    // 1.20 (audit QZ-L-2): refused by the validator of the registered runtime setting.
+                    $reason = SeedReport::SKIP_RUNTIME_SETTING;
                 } elseif ($fields[$fallback->field]->type === SettingType::Color && $clean === $fields[$fallback->field]->presetColor($context ??= $this->presetContext($name, $section, $stored))) {
                     // 1.12: a colour equal to its preset (default, or the colour of the fallback / default source value) is not seeded.
                     $reason = SeedFileSeeder::SKIP_DEFAULT;

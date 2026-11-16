@@ -20,6 +20,7 @@ use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\HttpKernel\Bundle\BundleInterface;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use Twig\Extra\TwigExtraBundle\TwigExtraBundle;
@@ -44,6 +45,8 @@ final class InstanceSettingsTestKernel extends Kernel
      *                                DoctrineBundle 3.4 `auto_discover_entities` does)
      * @param string|null $databaseUrl 1.19: a real database (tests/Database); null = in-memory SQLite
      * @param string|null $keyId 1.19: shares the encryption key of kernels on one database (null = this kernel's own)
+     * @param list<BundleInterface> $extraBundles 1.20: more bundles (NowoRuntimeSettingBundle)
+     * @param bool $workerNoReset 1.20: no services resetter (FrankenPHP worker mode, kernel reset false)
      */
     public function __construct(
         private readonly string $id,
@@ -54,12 +57,24 @@ final class InstanceSettingsTestKernel extends Kernel
         private readonly bool $hostDefaultDriver = false,
         private readonly ?string $databaseUrl = null,
         private readonly ?string $keyId = null,
+        private readonly array $extraBundles = [],
+        private readonly bool $workerNoReset = false,
     ) {
         parent::__construct('test', $debug);
     }
 
     protected function build(ContainerBuilder $container): void
     {
+        if ($this->workerNoReset) {
+            // 1.20: FrankenPHP worker mode with kernel reset false: no services resetter between requests.
+            $container->addCompilerPass(new class implements CompilerPassInterface {
+                public function process(ContainerBuilder $container): void
+                {
+                    $container->removeDefinition('messenger.listener.reset_services');
+                    $container->removeDefinition('services_resetter');
+                }
+            });
+        }
         if (!$this->hostDefaultDriver) {
             return;
         }
@@ -89,6 +104,8 @@ final class InstanceSettingsTestKernel extends Kernel
         yield new NowoFormKitBundle();
         yield new NowoUiKitBundle();
         yield new NowoInstanceSettingsBundle();
+        // 1.20: e.g. NowoRuntimeSettingBundle for the runtime-setting tests.
+        yield from $this->extraBundles;
     }
 
     public function getProjectDir(): string

@@ -10,6 +10,7 @@ use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\EntityManagerMappingPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\RuntimeSettingPortsPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SecretEncryptionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsSectionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\SettingsTesterPass;
@@ -86,6 +87,15 @@ final class NowoInstanceSettingsBundle extends Bundle
             [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
             NowoInstanceSettingsExtension::DEDICATED_EXPIRY_MAPPING_PARAMETER,
         ));
+        $container->addCompilerPass(DoctrineOrmMappingsPass::createAttributeMappingDriver(
+            [EntityManagerMappingPass::RUNTIME_ENTITY_NAMESPACE],
+            [__DIR__ . '/RuntimeEntity'],
+            [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
+            NowoInstanceSettingsExtension::DEDICATED_RUNTIME_MAPPING_PARAMETER,
+        ));
+        // 1.20: runtime-setting-contract ports bound to the instance settings only when nothing else is (before the
+        // contract's default-ports pass), and the admin validation of the registered settings.
+        $container->addCompilerPass(new RuntimeSettingPortsPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, RuntimeSettingPortsPass::PRIORITY);
         $container->addCompilerPass(new EntityManagerMappingPass(), PassConfig::TYPE_BEFORE_OPTIMIZATION, -10);
     }
 

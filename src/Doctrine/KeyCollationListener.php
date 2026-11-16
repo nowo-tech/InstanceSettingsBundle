@@ -16,6 +16,8 @@ use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\ExpiryEntity\SecretExpiry;
 use Nowo\InstanceSettingsBundle\FileEntity\SettingFile;
+use Nowo\InstanceSettingsBundle\RuntimeEntity\RuntimeSettingPrevious;
+use Nowo\InstanceSettingsBundle\RuntimeEntity\RuntimeSettingVersion;
 use Psr\Log\LoggerInterface;
 
 use function method_exists;
@@ -39,6 +41,9 @@ final readonly class KeyCollationListener
         SettingValue::class => ['section', 'name'],
         SecretExpiry::class => ['section', 'name'],
         SettingFile::class  => ['section', 'name'],
+        // 1.20 (runtime_setting.enabled; mapped only then, so nothing changes without it).
+        RuntimeSettingVersion::class  => ['section'],
+        RuntimeSettingPrevious::class => ['section', 'name'],
     ];
 
     /**

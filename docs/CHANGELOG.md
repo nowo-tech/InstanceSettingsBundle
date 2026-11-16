@@ -39,6 +39,60 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+Target 1.20.0.
+
+### Added
+
+- **Runtime settings backend (nowo-tech/runtime-setting-contract 1.0, opt-in: `runtime_setting.enabled`, default
+  `false`; the contract is suggested, not required).** A bundle setting that lives in `.env` can come from an instance
+  settings section instead, change live (`nowo:runtime-setting:*`, `RuntimeSettingUpdater`, the admin UI) and rotate
+  without downtime. Ids are `section.field`.
+  - `Runtime\InstanceSettingsRuntimeSource`: DBAL reads on every call (no identity map), secrets decrypted in the
+    entity's format, the previous value of a rotation only before its UTC expiry (an expired one is never decrypted; one
+    that does not decrypt is dropped with a warning). A current secret whose ciphertext does not decrypt (wrong or lost
+    key, tampered row) makes the read throw an exception without the value, which the resolver handles with the
+    setting's `on_error` (fail closed: unavailable); it does not read as unset (audit QZ-I-2). A stored secret without
+    its terminator reads as unset.
+  - `Runtime\InstanceSettingsRuntimeWriter`: one unit of work of the settings repository (section lock, own runner;
+    refused inside a caller's transaction), the value written through `InstanceSettings::save()` (the field's own rules
+    still apply; origin `SettingsChangedEvent::ORIGIN_RUNTIME`; after-commit event and audit line), rotation with the
+    stored form copied as the previous value (UTC expiry), the field's expired previous value purged, and a new section
+    version token even when the value did not change; `purgeExpired()` takes the section locks of the sections it
+    purges, in the lock order, before a conditional `DELETE` per section, and bumps the sections it touched (audit
+    QZ-L-1: no deadlock with a concurrent rotation on MySQL / MariaDB). After the commit an `info` line with actor,
+    fingerprints (none for secrets) and the kept expiry date.
+  - A runtime `set` / `rotate` of a 1.17 expiring secret keeps its stored expiry date, so the expiry warnings go on
+    (audit QZ-L-3); `unset` removes the secret and its date.
+  - The writer refuses a settings repository whose unit of work is not on the connection of the runtime-setting tables
+    (`RuntimeSettingNotWritable`, audit QZ-L-5).
+  - Section version tokens (`instance_setting_runtime_version`): every write path (form, API, import, seed, runtime
+    writer, purge) changes the token of its section in the same unit of work (`RuntimeSettingTables`, called by the
+    settings repository after its flush); the row is ensured with `ON DUPLICATE KEY` / `ON CONFLICT DO NOTHING`, then
+    updated, never an insert race. A write through the instance settings also drops the previous value of a rotation of
+    the written fields.
+  - The admin UI, the API, imports, the seed file, the fallback seeder and the raw row writer validate a registered
+    writable runtime setting with its own validator too (`RuntimeSettingAdminGuard`, same rules as the command; audits
+    QS-M-2, QZ-L-2): the seed file refuses the run (`invalid_value` with the setting's reason), the fallback seeder
+    skips the field (`SeedReport::SKIP_RUNTIME_SETTING`), `SettingRowWriterInterface::writeRows()` throws
+    `InvalidArgumentException` and writes nothing. Messages never carry the value.
+  - `RuntimeSettingPortsPass` binds the contract's source AND writer to the instance settings only when neither is bound
+    (never reads from one backend and writes to another, audit QT-I-2). With RuntimeEnvBundle's `runtime_setting.enabled`
+    on as well, the container build fails unless the host binds both ports itself, with a message on how to choose
+    (audit QZ-L-6).
+  - Tables mapped only with the feature on (`RuntimeEntity\RuntimeSettingVersion`, `RuntimeEntity\RuntimeSettingPrevious`,
+    with `doctrine.table_prefix` and the binary NO PAD key collation on MySQL / MariaDB): with it off, `migrations:diff`
+    stays empty.
+- Tests: the adopter tests of the contract on SQLite and, in the "Load readiness" CI job, on MySQL 8.4, MariaDB 11.4
+  and PostgreSQL 16 (kept-alive worker without the services resetter and a shared pool, every write path, rotation,
+  UTC, conditional purge, refusals), with two-connection tests of a purge against a rotation and of two first writes
+  of a section. The MariaDB 11.4 leg runs the whole `tests/Database` suite (audit QZ-I-4).
+
+### Documentation
+
+- HIGH-LOAD.md / USAGE.md: a runtime setting resolved inside a host transaction that wrote its section and then rolls
+  back can be served from the shared pool until `version_ttl` (audit QZ-L-4): resolve outside transactions that write
+  settings.
+
 ## [1.19.1] - 2026-11-15
 
 Target 1.19.1.

@@ -44,6 +44,9 @@ final class EntityManagerMappingPass implements CompilerPassInterface
     /** Namespace of the expiry entity (1.17, mapped with `expiring_secrets.enabled` only). */
     public const EXPIRY_ENTITY_NAMESPACE = 'Nowo\\InstanceSettingsBundle\\ExpiryEntity';
 
+    /** Namespace of the runtime-setting entities (1.20, mapped with `runtime_setting.enabled` only). */
+    public const RUNTIME_ENTITY_NAMESPACE = 'Nowo\\InstanceSettingsBundle\\RuntimeEntity';
+
     /**
      * @param bool $checkOnly only check that the manager exists (registered before the mapping passes, which would
      *                        otherwise fail on its missing driver chain with a less helpful message)
@@ -86,7 +89,7 @@ final class EntityManagerMappingPass implements CompilerPassInterface
             $maps  = false;
             foreach ($chain->getMethodCalls() as $call) {
                 $namespace = $call[0] === 'addDriver' ? ($call[1][1] ?? null) : null;
-                $isBundle  = is_string($namespace) && (str_starts_with($namespace, self::ENTITY_NAMESPACE) || str_starts_with($namespace, self::FILE_ENTITY_NAMESPACE) || str_starts_with($namespace, self::EXPIRY_ENTITY_NAMESPACE));
+                $isBundle  = is_string($namespace) && (str_starts_with($namespace, self::ENTITY_NAMESPACE) || str_starts_with($namespace, self::FILE_ENTITY_NAMESPACE) || str_starts_with($namespace, self::EXPIRY_ENTITY_NAMESPACE) || str_starts_with($namespace, self::RUNTIME_ENTITY_NAMESPACE));
                 if ($isBundle && $manager !== $name) {
                     continue;
                 }
@@ -102,6 +105,7 @@ final class EntityManagerMappingPass implements CompilerPassInterface
                     ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::ENTITY_NAMESPACE]],
                     ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::FILE_ENTITY_NAMESPACE]],
                     ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::EXPIRY_ENTITY_NAMESPACE]],
+                    ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::RUNTIME_ENTITY_NAMESPACE]],
                 );
             }
 

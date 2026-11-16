@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [Opt in: runtime settings (`runtime_setting.enabled`)](#opt-in-runtime-settings-runtime_settingenabled)
 - [To 1.19.1](#to-1191)
   - [To 1.19.1](#to-1191-1)
 - [To 1.19.0](#to-1190)
@@ -47,6 +48,44 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+Target 1.20.0. Nothing changes until you opt in: without `runtime_setting.enabled` no service, table or schema change
+is added (`migrations:diff` stays empty).
+
+### Opt in: runtime settings (`runtime_setting.enabled`)
+
+1. `composer require nowo-tech/runtime-setting-contract` and register its Symfony bundle
+   (`Nowo\RuntimeSettingContract\Bridge\Symfony\NowoRuntimeSettingBundle`).
+2. Enable it in the host configuration (not in a prepended one):
+
+   ```yaml
+   nowo_instance_settings:
+       runtime_setting:
+           enabled: true
+   nowo_runtime_setting:
+       cache_pool: cache.app      # recommended in production
+       version_ttl: 5
+   ```
+
+3. Generate and run a migration: `instance_setting_runtime_version` (section, token) and
+   `instance_setting_runtime_previous` (section, name, value, secret_value, expires_at UTC; unique (section, name),
+   index on expires_at), with your `doctrine.table_prefix`. Turning the feature off again makes the next diff propose
+   dropping them (that also deletes rotated-out secrets).
+4. Point the adopting bundles at a section field: `runtime.<setting>.key: <section>.<field>` with `source: db_then_env`
+   (or `db`). The section field and the runtime setting must agree on the secret flag.
+5. Schedule `nowo:runtime-setting:purge` (cron, Scheduler, a message): a write purges only its own field's expired
+   previous value; the sweep is the purge command.
+6. A custom `SettingValueRepositoryInterface` (not `DoctrineSettingValueRepository`) does not change the section tokens
+   on its writes: workers then see admin changes only after a runtime-setting write or `version_ttl` with no pool. It
+   must also run its unit of work on the connection of the bundle's entity manager: runtime-setting writes refuse a
+   repository on another connection (the token would commit apart from the value).
+7. Seed files, fallbacks and `SettingRowWriterInterface::writeRows()` now validate registered runtime settings with
+   their validators: a seed or a restore with a value the setting refuses fails (seed file, row writer) or skips the
+   field (fallback seeder).
+
+If RuntimeEnvBundle is installed with its own `runtime_setting.enabled`, bind both contract ports yourself
+(`nowo_runtime_setting.source` / `writer`): the container build fails otherwise, with a message naming the services
+to choose from. InstanceSettings never binds one port without the other.
 
 ## To 1.19.1
 

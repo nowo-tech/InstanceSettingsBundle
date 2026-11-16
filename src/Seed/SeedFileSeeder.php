@@ -22,6 +22,7 @@ use Nowo\InstanceSettingsBundle\File\ProcessedImage;
 use Nowo\InstanceSettingsBundle\File\SettingFileStoreInterface;
 use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
+use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingAdminGuard;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
@@ -127,6 +128,8 @@ final readonly class SeedFileSeeder
      * @param string $baseDir directory every seed path must resolve into (`seed.base_dir`)
      * @param string|null $defaultFile seed file used when none is given (`seed.file`)
      * @param SettingFileStoreInterface|null $fileStore image storage (null: image fields cannot be seeded)
+     * @param RuntimeSettingAdminGuard|null $runtimeSettings 1.20 (audit QZ-L-2): a value of a field registered as a
+     *                                                       runtime setting also passes that setting's validator
      *
      * @throws InvalidArgumentException when `$baseDir` is not a local directory path (1.7.1: an `%env(...)%` value is
      *                                  only known here; a blank one would make `realpath()` confine to the current
@@ -146,6 +149,7 @@ final readonly class SeedFileSeeder
         private ?EventDispatcherInterface $dispatcher = null,
         private ?ClockInterface $clock = null,
         private ?InstanceSettingsTransactionRunner $runner = null,
+        private ?RuntimeSettingAdminGuard $runtimeSettings = null,
     ) {
         if (!PathGuard::isLocalPath($baseDir)) {
             throw new InvalidArgumentException(sprintf('Instance settings seed: seed.base_dir must be a local directory path, got "%s".', $baseDir));
@@ -367,8 +371,12 @@ final readonly class SeedFileSeeder
                 // 1.12: a colour equal to its preset is not stored (as on save).
                 $clean = null;
             }
+            // 1.20 (audit QZ-L-2): a registered runtime setting refuses what its own validator refuses (reason, no value).
+            $runtime = $clean === null ? [] : $this->runtimeSettings?->violations($section, [$name => $clean]) ?? [];
             if ($messages !== []) {
                 $errors[] = SeedFileException::line($key, SeedFileException::INVALID_VALUE);
+            } elseif ($runtime !== []) {
+                $errors[] = SeedFileException::line($key, SeedFileException::INVALID_VALUE, 'The value is refused by the runtime setting ' . $key . ': ' . implode('; ', $runtime[$name] ?? []) . '.');
             } elseif ($clean === null) {
                 $skipped[$key] = $this->isBlank($raw) ? SeedReport::SKIP_EMPTY : self::SKIP_DEFAULT;
             } elseif (isset($stored[$name])) {

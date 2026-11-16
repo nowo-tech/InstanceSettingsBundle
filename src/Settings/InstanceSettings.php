@@ -28,6 +28,7 @@ use Nowo\InstanceSettingsBundle\File\StoredSettingFile;
 use Nowo\InstanceSettingsBundle\Repository\SectionLock;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Repository\StoredSecretStateInterface;
+use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingAdminGuard;
 use Nowo\InstanceSettingsBundle\Section\ImageSpec;
 use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
@@ -92,6 +93,7 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
      * @param SecretExpiryStoreInterface|null $expiryStore expiry dates of the expiring secrets (1.17; required to save a
      *                                                     section that declares one)
      * @param string $snapshotKey keys the fingerprints of {@see self::snapshot()} (1.19: `%kernel.secret%`)
+     * @param RuntimeSettingAdminGuard|null $runtimeSettings 1.20: the validators of the registered runtime settings
      */
     public function __construct(
         private readonly SettingValueRepositoryInterface $repository,
@@ -106,6 +108,7 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
         private readonly SettingFileUrls $fileUrls = new SettingFileUrls(),
         private readonly ?SecretExpiryStoreInterface $expiryStore = null,
         private readonly string $snapshotKey = '',
+        private readonly ?RuntimeSettingAdminGuard $runtimeSettings = null,
     ) {
     }
 
@@ -348,6 +351,10 @@ final class InstanceSettings implements InstanceSettingsInterface, SnapshotSetti
             if ($clean === null) {
                 $required[$field->name] = $value;
             }
+        }
+        // 1.20: a registered runtime setting also passes its own validator (same rules as the runtime-setting command).
+        foreach ($this->runtimeSettings?->violations($section, $normalized) ?? [] as $name => $messages) {
+            $violations[$name] = [...($violations[$name] ?? []), ...$messages];
         }
         if ($violations !== []) {
             throw new InvalidSettingValueException($section, $violations);
