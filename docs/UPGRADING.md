@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.20.0](#to-1200)
   - [Opt in: runtime settings (`runtime_setting.enabled`)](#opt-in-runtime-settings-runtime_settingenabled)
 - [To 1.19.1](#to-1191)
   - [To 1.19.1](#to-1191-1)
@@ -48,6 +49,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.20.0
+
+From **1.19.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 Target 1.20.0. Nothing changes until you opt in: without `runtime_setting.enabled` no service, table or schema change
 is added (`migrations:diff` stays empty).
