@@ -40,6 +40,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- README: `## Screenshots` moved to the mid-body slot after `## Usage` (REQ-DOCS-019)
+- Spec Kit: the 115 `src/` files added since the 2026-11-02 baseline review are mapped in `code-inventory.md`, with six new area requirements in `spec.md` (REQ-SPECKIT-001 / REQ-SPECKIT-003)
+
 ## [1.20.0] - 2026-11-16
 
 Target 1.20.0.
