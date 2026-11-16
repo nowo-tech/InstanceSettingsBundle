@@ -249,16 +249,16 @@
         },
         {
             "name": "doctrine/doctrine-bundle",
-            "version": "2.19.3",
+            "version": "2.19.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/doctrine/DoctrineBundle.git",
-                "reference": "1038b1e17af048b31a4e444c5848b8cf20309e46"
+                "reference": "672ea4d2ad6e3514ae7c725074a5abda44e6226c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/doctrine/DoctrineBundle/zipball/1038b1e17af048b31a4e444c5848b8cf20309e46",
-                "reference": "1038b1e17af048b31a4e444c5848b8cf20309e46",
+                "url": "https://api.github.com/repos/doctrine/DoctrineBundle/zipball/672ea4d2ad6e3514ae7c725074a5abda44e6226c",
+                "reference": "672ea4d2ad6e3514ae7c725074a5abda44e6226c",
                 "shasum": ""
             },
             "require": {
@@ -353,7 +353,7 @@
             ],
             "support": {
                 "issues": "https://github.com/doctrine/DoctrineBundle/issues",
-                "source": "https://github.com/doctrine/DoctrineBundle/tree/2.19.3"
+                "source": "https://github.com/doctrine/DoctrineBundle/tree/2.19.4"
             },
             "funding": [
                 {
@@ -369,7 +369,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-10-29T07:28:53+00:00"
+            "time": "2026-10-29T12:07:16+00:00"
         },
         {
             "name": "doctrine/event-manager",
@@ -940,16 +940,16 @@
         },
         {
             "name": "nowo-tech/doctrine-encrypt-bundle",
-            "version": "v2.10.1",
+            "version": "v2.12.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/DoctrineEncryptBundle.git",
-                "reference": "c6290632a051f8d0158b5f78d662c98c60b59cfe"
+                "reference": "22e2f6cd925264c0f9230a856247861532fb6609"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/DoctrineEncryptBundle/zipball/c6290632a051f8d0158b5f78d662c98c60b59cfe",
-                "reference": "c6290632a051f8d0158b5f78d662c98c60b59cfe",
+                "url": "https://api.github.com/repos/nowo-tech/DoctrineEncryptBundle/zipball/22e2f6cd925264c0f9230a856247861532fb6609",
+                "reference": "22e2f6cd925264c0f9230a856247861532fb6609",
                 "shasum": ""
             },
             "require": {
@@ -1037,7 +1037,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-31T21:17:02+00:00"
+            "time": "2026-11-11T14:41:37+00:00"
         },
         {
             "name": "nowo-tech/form-kit-bundle",
@@ -1406,16 +1406,16 @@
         },
         {
             "name": "paragonie/constant_time_encoding",
-            "version": "v3.1.3",
+            "version": "v3.1.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/paragonie/constant_time_encoding.git",
-                "reference": "d5b01a39b3415c2cd581d3bd3a3575c1ebbd8e77"
+                "reference": "5efef6e6cb43e088ccab7d0c1e2f2ab25b9e8b54"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/paragonie/constant_time_encoding/zipball/d5b01a39b3415c2cd581d3bd3a3575c1ebbd8e77",
-                "reference": "d5b01a39b3415c2cd581d3bd3a3575c1ebbd8e77",
+                "url": "https://api.github.com/repos/paragonie/constant_time_encoding/zipball/5efef6e6cb43e088ccab7d0c1e2f2ab25b9e8b54",
+                "reference": "5efef6e6cb43e088ccab7d0c1e2f2ab25b9e8b54",
                 "shasum": ""
             },
             "require": {
@@ -1471,7 +1471,7 @@
                 "issues": "https://github.com/paragonie/constant_time_encoding/issues",
                 "source": "https://github.com/paragonie/constant_time_encoding"
             },
-            "time": "2025-09-24T15:06:41+00:00"
+            "time": "2026-11-06T20:31:19+00:00"
         },
         {
             "name": "paragonie/halite",
