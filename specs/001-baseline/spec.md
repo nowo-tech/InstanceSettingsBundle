@@ -149,3 +149,14 @@ composer igor
 make release-check
 make test-e2e
 ```
+
+### Requirements added by the inventory sweep (2026-11-16)
+
+Areas introduced by releases after the baseline review; each requirement names the area and what its main source does (class docblock).
+
+- **FR-BRAND-001** `src/Brand/`: The `appearance` settings section of the brand bridge (spec 220 §3.1, §6): the preset per mode, seven colours per mode, corner style, border strength and fixed footer.
+- **FR-EMBED-001** `src/Embed/`: How a host page embeds settings sections (1.6, IS-1): which sections its nav shows, the host route of each section (tab links and the redirect after a save), and optional layout, template and header overrides.
+- **FR-EXPIRY-001** `src/Expiry/`: Database store of the expiry dates (table `instance_setting_secret_expiry`, 1.17).
+- **FR-FILE-001** `src/File/`: Runs a callback in a database transaction of the setting repository and, for a StagedSettingFileStoreInterface, in a file unit around it: the file changes are applied only once the transaction committed, discarded when it rolled back (1.7, audit JG-M1).
+- **FR-SECTIONTEST-001** `src/SectionTest/`: Doctrine storage of the section test state (1.18): rows of the settings table (`instance_setting_value`, with `doctrine.table_prefix`) under the reserved sections, written through the bundle's private entity manager (rule 6).
+- **FR-TRANSACTION-001** `src/Transaction/`: 1.19 (Beacon spec 239): the runner of every write unit of the settings store, registered as `nowo_instance_settings.transaction_runner` and injected into the bundle's services by its class.

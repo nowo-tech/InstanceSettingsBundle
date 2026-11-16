@@ -12,21 +12,6 @@ This bundle is **FrankenPHP worker mode friendly**.
 
 Reads cost one query per request and are memoized for the current main request only, so a saved change applies on the next request in every worker, also when the kernel is not reset between requests. See [docs/FRANKENPHP-WORKER-AUDIT.md](docs/FRANKENPHP-WORKER-AUDIT.md).
 
-## Screenshots
-
-<table>
-  <tr>
-    <td align="center" width="50%">
-      <img src="docs/images/demo/settings-section.webp" alt="Mailer section of the settings UI: tabs per section, sender fields and an encrypted transport DSN shown only as saved" />
-      <br /><sub>One tab per section; the encrypted DSN is never rendered back</sub>
-    </td>
-    <td align="center" width="50%">
-      <img src="docs/images/demo/settings-portability.webp" alt="Import / export page: download a versioned JSON envelope, optionally with sealed secrets, and an all-or-nothing import with dry run" />
-      <br /><sub>Versioned export (secrets sealed on request) and all-or-nothing import</sub>
-    </td>
-  </tr>
-</table>
-
 ## Features
 
 - **Sections** — implement `SettingsSectionInterface` (or extend `AbstractSettingsSection`) and declare fields with types, defaults, labels, constraints and flags; autoconfigured, ordered by `#[AsSettingsSection(priority:)]`. Bundles such as a mailer or an SMS kit contribute their own section without depending on each other.
@@ -124,6 +109,21 @@ Every key, its default and its validation are documented in [docs/CONFIGURATION.
 ## Usage
 
 Contributing a section (the API a mailer or an SMS bundle builds on), typed getters, reacting to changes, secrets, export / import and portability providers: [docs/USAGE.md](docs/USAGE.md).
+
+## Screenshots
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/images/demo/settings-section.webp" alt="Mailer section of the settings UI: tabs per section, sender fields and an encrypted transport DSN shown only as saved" />
+      <br /><sub>One tab per section; the encrypted DSN is never rendered back</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/images/demo/settings-portability.webp" alt="Import / export page: download a versioned JSON envelope, optionally with sealed secrets, and an all-or-nothing import with dry run" />
+      <br /><sub>Versioned export (secrets sealed on request) and all-or-nothing import</sub>
+    </td>
+  </tr>
+</table>
 
 ## Demo
 
