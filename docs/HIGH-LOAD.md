@@ -206,18 +206,29 @@ With `runtime_setting.enabled` (nowo-tech/runtime-setting-contract):
   `INSERT … ON CONFLICT DO NOTHING` (PostgreSQL / SQLite), then updated: two first writes of a section serialise.
 - **Locks.** A runtime-setting write takes the section write lock (as a save does), so writers of one section queue;
   writers of different sections do not wait for each other. It purges only its own field's expired previous value; the
-  table-wide sweep is `purgeExpired()` (one conditional `DELETE` on the indexed expiry).
+  table-wide sweep is `purgeExpired()`: it reads the sections with expired values (no lock), takes their section locks
+  in the lock order, then deletes with one conditional `DELETE` per section. Taking the section lock first is what
+  keeps it from deadlocking with a rotation of the same section on MySQL / MariaDB (audit QZ-L-1); a value that
+  expires meanwhile waits for the next run.
 - **Own transaction.** The writer refuses to run inside a transaction you opened (also Messenger's
   `doctrine_transaction` middleware): the contract publishes the change when the writer returns.
 - **Reads** go through DBAL on every call (token and value from the same connection): no identity map can serve an
   old value under a new token.
+- **Resolve outside write transactions** (audit QZ-L-4). Inside a transaction of yours, the source sees that
+  transaction's own uncommitted rows and token. If you save a section, resolve one of its runtime settings in the same
+  transaction and then roll back, the resolver has already cached the rolled-back value in the shared pool under a
+  token that is never published; that worker can serve it until `version_ttl` passes (other workers are not affected).
+  Resolve runtime settings before or after the transactions that write settings, never inside them.
+- **One connection.** The settings repository and the runtime-setting tables must share a connection; the writer
+  refuses a repository whose unit of work runs elsewhere (audit QZ-L-5).
 - **UTC.** Rotation expiries are stored as UTC wall-clock time, whatever the PHP timezone of the CLI and the workers.
 
 ## Tests
 
 `tests/Database` plays two requests in one process on a real database (a peer kernel on its own connection, run between
 a page load and its submit, or right before the first write of the other request). Every test there fails on 1.18.1.
-The CI job "Load readiness" runs it on MySQL 8.4 and PostgreSQL 16, with DBAL 4 and DBAL 3:
+The CI job "Load readiness" runs it on MySQL 8.4 and PostgreSQL 16, with DBAL 4 and DBAL 3, and (1.20) on MariaDB 11.4
+with DBAL 4:
 
 ```bash
 IS_TEST_DATABASE_URL='mysql://root@127.0.0.1:3306/is_test?serverVersion=8.4.0&charset=utf8mb4' \

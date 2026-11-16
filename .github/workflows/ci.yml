@@ -164,7 +164,7 @@ jobs:
         run: |
           composer show doctrine/dbal | grep -E '^versions'
           if [ "${{ matrix.database }}" = 'MariaDB 11.4' ]; then
-            vendor/bin/phpunit --no-coverage --fail-on-skipped tests/Database/RuntimeSettingDatabaseTest.php
+            vendor/bin/phpunit --no-coverage --fail-on-skipped tests/Database
             exit 0
           fi
           vendor/bin/phpunit --no-coverage --fail-on-skipped tests/Database

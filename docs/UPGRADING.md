@@ -76,11 +76,16 @@ is added (`migrations:diff` stays empty).
 5. Schedule `nowo:runtime-setting:purge` (cron, Scheduler, a message): a write purges only its own field's expired
    previous value; the sweep is the purge command.
 6. A custom `SettingValueRepositoryInterface` (not `DoctrineSettingValueRepository`) does not change the section tokens
-   on its writes: workers then see admin changes only after a runtime-setting write or `version_ttl` with no pool.
+   on its writes: workers then see admin changes only after a runtime-setting write or `version_ttl` with no pool. It
+   must also run its unit of work on the connection of the bundle's entity manager: runtime-setting writes refuse a
+   repository on another connection (the token would commit apart from the value).
+7. Seed files, fallbacks and `SettingRowWriterInterface::writeRows()` now validate registered runtime settings with
+   their validators: a seed or a restore with a value the setting refuses fails (seed file, row writer) or skips the
+   field (fallback seeder).
 
-If RuntimeEnvBundle is installed with its own `runtime_setting.enabled`, bind the contract ports yourself
-(`nowo_runtime_setting.source` / `writer`): the first bundle that binds them wins, and InstanceSettings never binds one
-without the other.
+If RuntimeEnvBundle is installed with its own `runtime_setting.enabled`, bind both contract ports yourself
+(`nowo_runtime_setting.source` / `writer`): the container build fails otherwise, with a message naming the services
+to choose from. InstanceSettings never binds one port without the other.
 
 ## To 1.19.1
 

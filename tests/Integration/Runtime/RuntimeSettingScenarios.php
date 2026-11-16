@@ -8,18 +8,33 @@ use DateInterval;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\RetryableException;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
+use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Doctrine\Persistence\ManagerRegistry;
+use InvalidArgumentException;
 use Nowo\InstanceSettingsBundle\Doctrine\SequenceId;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Exception\InvalidSettingValueException;
+use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
+use Nowo\InstanceSettingsBundle\Repository\SettingRowWriterInterface;
+use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
+use Nowo\InstanceSettingsBundle\Repository\StoredSettingRow;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeSource;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeWriter;
 use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingTables;
+use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
+use Nowo\InstanceSettingsBundle\Seed\SeedFileException;
+use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
+use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Tests\Database\RuntimeSettingDatabaseTest;
+use Nowo\InstanceSettingsBundle\Tests\Database\Support\HookState;
+use Nowo\InstanceSettingsBundle\Tests\Database\Support\StatementHook;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ChatFixtureSection;
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\GeneralFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\MailerFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\RuntimeSettingProbeController;
@@ -42,6 +57,7 @@ use Nowo\RuntimeSettingContract\Contract\RuntimeValueSourceInterface;
 use Nowo\RuntimeSettingContract\Contract\Validator\IntRange;
 use Nowo\RuntimeSettingContract\Contract\Validator\SingleLineString;
 use Nowo\RuntimeSettingContract\Contract\Validator\Unbounded;
+use Nowo\TransactionContract\TransientStorageFailure;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 use Symfony\Component\Clock\MockClock;
@@ -332,6 +348,154 @@ abstract class RuntimeSettingScenarios extends TestCase
         self::assertNull($stored->previous);
     }
 
+    /**
+     * Audit QZ-L-1, two connections: the purge holds the section lock before it deletes, so a rotation of the same section
+     * waits for it (1.20.0-rc: the purge took a range lock on the previous values first and deadlocked with the rotation
+     * on MySQL / MariaDB). The peer rotation runs right before the purge's DELETE and gives up after its lock timeout.
+     */
+    public function testAPurgeHoldsTheSectionLockBeforeItDeletes(): void
+    {
+        $admin   = $this->kernel(true, true);
+        $peer    = $this->kernel(false);
+        $updater = $this->updater($admin);
+        $updater->set('chat.webhook_secret', 'REDACTED-TEST-1', 'cli:test');
+        $updater->rotate('chat.webhook_secret', 'REDACTED-TEST-2', new DateInterval('PT1H'), 'cli:test');
+        $this->lockTimeout($peer, 1);
+        $failure = null;
+        $this->hook($admin)->arm('/^\s*DELETE\b.*\binstance_setting_runtime_previous\b/is', function () use ($peer, &$failure): void {
+            try {
+                $this->updater($peer)->rotate('chat.webhook_secret', 'REDACTED-TEST-3', new DateInterval('PT1H'), 'cli:peer');
+            } catch (Throwable $e) {
+                $failure = $e;
+            }
+        });
+        $writer = $this->service($admin, InstanceSettingsRuntimeWriter::class);
+        self::assertInstanceOf(InstanceSettingsRuntimeWriter::class, $writer);
+
+        self::assertSame(1, $writer->purgeExpired(new DateTimeImmutable('2026-11-16 14:00:00', new DateTimeZone('UTC'))));
+
+        self::assertSame(1, $this->hook($admin)->fired);
+        self::assertInstanceOf(Throwable::class, $failure, 'the rotation waited for the section lock the purge held');
+        self::assertTrue($this->isLockWait($failure), $failure::class . ': ' . $failure->getMessage());
+        $this->updater($peer)->rotate('chat.webhook_secret', 'REDACTED-TEST-3', new DateInterval('PT1H'), 'cli:peer');
+        $source = $this->service($admin, InstanceSettingsRuntimeSource::class);
+        self::assertInstanceOf(InstanceSettingsRuntimeSource::class, $source);
+        $stored = $source->read($this->registryDefinition($admin, 'chat.webhook_secret')->id);
+        self::assertSame(['REDACTED-TEST-3', 'REDACTED-TEST-2'], [$stored?->current, $stored?->previous]);
+        self::assertSame(0, $writer->purgeExpired(new DateTimeImmutable('2026-11-16 12:30:00', new DateTimeZone('UTC'))), 'nothing expired: nothing locked or bumped');
+    }
+
+    /**
+     * Audit QZ-I-6, two connections: two first runtime writes of a section (no token row yet) both succeed, each with its
+     * own token; the last one wins.
+     */
+    public function testTwoFirstWritesOfASectionBothSucceed(): void
+    {
+        $admin  = $this->kernel(true, true);
+        $peer   = $this->kernel(false);
+        $tables = $this->service($admin, RuntimeSettingTables::class);
+        self::assertInstanceOf(RuntimeSettingTables::class, $tables);
+        $first = null;
+        $this->hook($admin)->arm('/^\s*INSERT\b.*\binstance_setting_value\b/is', function () use ($peer, &$first): void {
+            $first = $this->updater($peer)->set('chat.retention_days', '40', 'cli:peer');
+        });
+
+        $second = $this->updater($admin)->set('chat.retention_days', '45', 'cli:test');
+
+        self::assertSame(1, $this->hook($admin)->fired);
+        self::assertInstanceOf(RuntimeSettingChange::class, $first);
+        self::assertNotSame($first->version, $second->version);
+        self::assertSame($second->version, $tables->token('chat'));
+        self::assertSame(45, $this->settings($admin)->getInt('chat.retention_days'));
+    }
+
+    /**
+     * Audit QZ-L-2: the seed file and the raw row writer validate a registered runtime setting too.
+     */
+    public function testTheSeedFileAndTheRowWriterUseTheRuntimeValidator(): void
+    {
+        $admin  = $this->kernel(true);
+        $seeder = $this->service($admin, SeedFileSeeder::class);
+        self::assertInstanceOf(SeedFileSeeder::class, $seeder);
+
+        try {
+            $seeder->seed(['schema' => SeedFileSeeder::SCHEMA, 'version' => SeedFileSeeder::VERSION, 'settings' => ['chat' => ['retention_days' => 5000]]], $admin->getProjectDir());
+            self::fail('Expected SeedFileException.');
+        } catch (SeedFileException $e) {
+            self::assertStringContainsString('chat.retention_days: invalid_value (The value is refused by the runtime setting chat.retention_days: must be between 1 and 1000.)', $e->getMessage());
+        }
+
+        $writer = $this->service($admin, SettingRowWriterInterface::class);
+        self::assertInstanceOf(SettingRowWriterInterface::class, $writer);
+
+        try {
+            $writer->writeRows([
+                new StoredSettingRow('chat', 'retention_days', 5000, false, null, new DateTimeImmutable()),
+                new StoredSettingRow('chat', 'webhook_secret', null, true, "REDACTED-TEST\nsecond line", new DateTimeImmutable()),
+            ]);
+            self::fail('Expected InvalidArgumentException.');
+        } catch (InvalidArgumentException $e) {
+            self::assertStringContainsString('chat.retention_days: must be between 1 and 1000', $e->getMessage());
+            self::assertStringContainsString('chat.webhook_secret: refused by the validator', $e->getMessage());
+            self::assertStringNotContainsString('REDACTED-TEST', $e->getMessage(), 'never the value');
+        }
+        self::assertSame(0, (int) $this->connection($admin)->fetchOne("SELECT COUNT(*) FROM instance_setting_value WHERE section = 'chat'"), 'nothing written');
+    }
+
+    /**
+     * Audit QZ-L-3: a runtime set / rotate of a 1.17 expiring secret keeps its expiry date (the warnings go on); unset
+     * removes the secret and its date.
+     */
+    public function testARuntimeWriteKeepsTheExpiryDateOfAnExpiringSecret(): void
+    {
+        $admin = $this->kernel(true);
+        $this->settings($admin)->save('providers', ['api_key' => 'REDACTED-TEST-A', 'api_key:expires_on' => '2027-01-31']);
+        $store = $this->service($admin, SecretExpiryStoreInterface::class);
+        self::assertInstanceOf(SecretExpiryStoreInterface::class, $store);
+        $updater = $this->updater($admin);
+
+        $updater->rotate('providers.api_key', 'REDACTED-TEST-B', new DateInterval('PT1H'), 'cli:test');
+        self::assertSame('2027-01-31', $store->findBySection('providers')['api_key']->expiresOn->format('Y-m-d'));
+        $updater->set('providers.api_key', 'REDACTED-TEST-C', 'cli:test');
+        self::assertSame('2027-01-31', $store->findBySection('providers')['api_key']->expiresOn->format('Y-m-d'));
+        self::assertSame('REDACTED-TEST-C', $this->settings($admin)->getSecret('providers.api_key'));
+
+        $updater->unset('providers.api_key', 'cli:test');
+        self::assertArrayNotHasKey('api_key', $store->findBySection('providers'));
+    }
+
+    /**
+     * Audit QZ-L-5: a settings repository whose unit of work is not a transaction of the tables' connection is refused.
+     */
+    public function testARepositoryOnAnotherConnectionIsRefused(): void
+    {
+        $admin      = $this->kernel(true);
+        $repository = $this->createMock(SettingValueRepositoryInterface::class);
+        $repository->method('transactional')->willReturnCallback(static fn (callable $unit): mixed => $unit());
+        $tables   = $this->service($admin, RuntimeSettingTables::class);
+        $source   = $this->service($admin, InstanceSettingsRuntimeSource::class);
+        $settings = $this->service($admin, InstanceSettingsInterface::class);
+        $registry = $this->service($admin, SettingsSectionRegistry::class);
+        self::assertInstanceOf(RuntimeSettingTables::class, $tables);
+        self::assertInstanceOf(InstanceSettingsRuntimeSource::class, $source);
+        self::assertInstanceOf(InstanceSettingsInterface::class, $settings);
+        self::assertInstanceOf(SettingsSectionRegistry::class, $registry);
+        $writer  = new InstanceSettingsRuntimeWriter($repository, $settings, $registry, $tables, $source);
+        $context = new RuntimeSettingWriteContext('cli:test', new RuntimeValueFingerprinter('test-fingerprint-key-0123456789'));
+
+        foreach ([
+            fn (): mixed => $writer->set($this->registryDefinition($admin, 'chat.retention_days'), '45', $context),
+            static fn (): mixed => $writer->purgeExpired(new DateTimeImmutable()),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('Expected RuntimeSettingNotWritable.');
+            } catch (RuntimeSettingNotWritable $e) {
+                self::assertStringContainsString('on another connection', $e->getMessage());
+            }
+        }
+    }
+
     protected function connection(InstanceSettingsTestKernel $kernel): Connection
     {
         $doctrine = $this->service($kernel, 'doctrine');
@@ -342,19 +506,27 @@ abstract class RuntimeSettingScenarios extends TestCase
         return $manager->getConnection();
     }
 
-    private function kernel(bool $createSchema): InstanceSettingsTestKernel
+    /**
+     * @param bool $hook this kernel's connection runs {@see StatementHook}
+     */
+    private function kernel(bool $createSchema, bool $hook = false): InstanceSettingsTestKernel
     {
         $pool   = $this->poolDirectory();
         $kernel = new InstanceSettingsTestKernel(
-            $this->run . '_' . count($this->kernels),
-            static function (ContainerConfigurator $container) use ($pool): void {
-                $container->extension('nowo_instance_settings', ['runtime_setting' => ['enabled' => true]]);
+            $this->run . '_' . count($this->kernels) . ($hook ? '_hook' : ''),
+            static function (ContainerConfigurator $container) use ($pool, $hook): void {
+                $container->extension('nowo_instance_settings', ['runtime_setting' => ['enabled' => true], 'expiring_secrets' => ['enabled' => true, 'timezone' => 'UTC']]);
                 $container->extension('nowo_runtime_setting', ['cache_pool' => 'test.shared_pool', 'version_ttl' => 1, 'fingerprint_key' => 'test-fingerprint-key-0123456789', 'command' => ['enabled' => true]]);
                 $services = $container->services();
                 $services->defaults()->autowire()->autoconfigure();
                 $services->set(MailerFixtureSection::class);
                 $services->set(GeneralFixtureSection::class);
                 $services->set(ChatFixtureSection::class);
+                $services->set(ExpiringFixtureSection::class);
+                if ($hook) {
+                    $services->set(HookState::class)->public();
+                    $services->set(StatementHook::class)->tag('doctrine.middleware');
+                }
                 $services->set(RuntimeSettingProbeController::class)->public();
                 $services->set('test.shared_pool', FilesystemAdapter::class)->args(['runtime_setting', 0, $pool]);
                 $services->set('nowo_runtime_setting.clock', MockClock::class)->args(['2026-11-16 12:00:00', 'UTC'])->public();
@@ -376,6 +548,9 @@ abstract class RuntimeSettingScenarios extends TestCase
                     ->tag(RuntimeSettingsConfiguration::DEFINITION_TAG);
                 $services->set('test.definition.page_size', RuntimeSettingDefinition::class)
                     ->args(['general.page_size', RuntimeSettingType::Int, RuntimeSettingSource::Db, RuntimeSettingErrorPolicy::FailClosed, false, service('test.unbounded')])
+                    ->tag(RuntimeSettingsConfiguration::DEFINITION_TAG);
+                $services->set('test.definition.api_key', RuntimeSettingDefinition::class)
+                    ->args(['providers.api_key', RuntimeSettingType::String, RuntimeSettingSource::Db, RuntimeSettingErrorPolicy::FailClosed, true, service('test.single_line')])
                     ->tag(RuntimeSettingsConfiguration::DEFINITION_TAG);
                 $services->set('test.definition.welcome', RuntimeSettingDefinition::class)
                     ->args(['chat.welcome', RuntimeSettingType::String, RuntimeSettingSource::DbThenEnv, RuntimeSettingErrorPolicy::FailClosed, false, service('test.unbounded'), 'Hello'])
@@ -406,6 +581,44 @@ abstract class RuntimeSettingScenarios extends TestCase
         }
 
         return $kernel;
+    }
+
+    private function hook(InstanceSettingsTestKernel $kernel): HookState
+    {
+        $hook = $this->service($kernel, HookState::class);
+        self::assertInstanceOf(HookState::class, $hook);
+
+        return $hook;
+    }
+
+    /**
+     * Makes a lock wait of the kernel's settings connection give up after `$seconds`.
+     */
+    private function lockTimeout(InstanceSettingsTestKernel $kernel, int $seconds): void
+    {
+        $tables = $this->service($kernel, RuntimeSettingTables::class);
+        self::assertInstanceOf(RuntimeSettingTables::class, $tables);
+        $connection = $tables->connection();
+        $platform   = $connection->getDatabasePlatform();
+        $connection->executeStatement(match (true) {
+            $platform instanceof AbstractMySQLPlatform => 'SET SESSION innodb_lock_wait_timeout = ' . $seconds,
+            $platform instanceof PostgreSQLPlatform    => "SET lock_timeout = '" . ($seconds * 1000) . "ms'",
+            default                                    => 'PRAGMA busy_timeout = ' . ($seconds * 1000),
+        });
+    }
+
+    /**
+     * Whether a failure is (or wraps) a lock wait given up / a transient storage failure.
+     */
+    private function isLockWait(Throwable $failure): bool
+    {
+        for ($e = $failure; $e instanceof Throwable; $e = $e->getPrevious()) {
+            if ($e instanceof RetryableException || $e instanceof TransientStorageFailure) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function poolDirectory(): string

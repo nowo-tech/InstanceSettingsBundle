@@ -37,9 +37,13 @@ use function substr;
  * - **Reads** go through DBAL on every call, on the connection of the bundle's private manager (never an identity map,
  *   audit QS-L-1); the version token and the value come from the same connection. Rows are re-checked byte for byte.
  * - **Values**: a plain row is its JSON scalar, as a string (`true` / `false`, `30`, `0.5`, text); a secret row is
- *   decrypted (DoctrineEncrypt default profile, the entity's format) and loses its terminator; a secret that does not
- *   decrypt to a terminated value (lost key) is unset, like {@see SettingValue::getSecret()}. No row = unset (the
- *   contract then applies the configured env value or the bundle default, not the section field default).
+ *   decrypted (DoctrineEncrypt default profile, the entity's format) and loses its terminator; a stored secret without
+ *   its terminator is unset, like {@see SettingValue::getSecret()}. A ciphertext that does not decrypt (a wrong or lost
+ *   key, a tampered row) makes {@see self::read()} throw the cipher's exception, which carries no value: the resolver
+ *   applies the setting's `on_error` policy (fail closed: unavailable; fallback: the configured value). No row = unset
+ *   (the contract then applies the configured env value or the bundle default, not the section field default).
+ * - **Transactions** (audit QZ-L-4): a read inside a host transaction sees that transaction's own uncommitted rows and
+ *   token; resolve runtime settings outside the transactions that write the settings (see HIGH-LOAD.md).
  * - **Previous value** of a rotation: returned only before its UTC expiry; an expired one is never decrypted, and one
  *   that does not decrypt is dropped with a warning (class only), so the current value is still served.
  *

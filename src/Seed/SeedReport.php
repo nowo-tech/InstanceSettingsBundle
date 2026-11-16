@@ -31,6 +31,9 @@ final readonly class SeedReport
     /** A second fallback for the same field (the first one wins). */
     public const SKIP_DUPLICATE = 'duplicate';
 
+    /** 1.20 (audit QZ-L-2): the fallback is refused by the validator of the field's registered runtime setting. */
+    public const SKIP_RUNTIME_SETTING = 'runtime_setting';
+
     /**
      * @param list<string> $sections examined sections (those implementing the fallback interface)
      * @param list<string> $seeded `<section>.<field>` keys written (or that would be written in a dry run)

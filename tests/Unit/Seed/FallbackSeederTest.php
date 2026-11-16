@@ -13,6 +13,7 @@ use LogicException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Event\SettingsChangedEvent;
 use Nowo\InstanceSettingsBundle\Exception\UnknownSettingException;
+use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingAdminGuard;
 use Nowo\InstanceSettingsBundle\Section\SettingFallback;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
@@ -24,6 +25,11 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\SeedFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Support\InMemorySettingValueRepository;
 use Nowo\InstanceSettingsBundle\Tests\Support\RacingRepository;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingDispatcher;
+use Nowo\RuntimeSettingContract\Contract\RuntimeSettingDefinition;
+use Nowo\RuntimeSettingContract\Contract\RuntimeSettingRegistry;
+use Nowo\RuntimeSettingContract\Contract\RuntimeSettingSource;
+use Nowo\RuntimeSettingContract\Contract\RuntimeSettingType;
+use Nowo\RuntimeSettingContract\Contract\Validator\IntRange;
 use PDO;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\AbstractLogger;
@@ -147,6 +153,19 @@ final class FallbackSeederTest extends TestCase
         self::assertSame(['relay.enabled'], $report->seeded);
         self::assertSame([], $report->secrets);
         self::assertNull($this->settings->getSecret('relay.token'), 'a secret is never stored in clear');
+    }
+
+    /**
+     * 1.20 (audit QZ-L-2): a fallback refused by the validator of the field's registered runtime setting is skipped.
+     */
+    public function testAFallbackRefusedByItsRuntimeSettingIsSkipped(): void
+    {
+        $guard  = new RuntimeSettingAdminGuard(new RuntimeSettingRegistry([new RuntimeSettingDefinition('relay.port', RuntimeSettingType::Int, RuntimeSettingSource::Db, validator: new IntRange(1, 1024))]));
+        $report = (new FallbackSeeder($this->registry, $this->repository, $this->settings, dispatcher: $this->dispatcher, runtimeSettings: $guard))->seed(['relay']);
+
+        self::assertSame(SeedReport::SKIP_RUNTIME_SETTING, $report->skipped['relay.port'] ?? null);
+        self::assertNotContains('relay.port', $report->seeded);
+        self::assertContains('relay.host', $report->seeded);
     }
 
     public function testSectionsWithoutFallbacksAndUnknownSections(): void

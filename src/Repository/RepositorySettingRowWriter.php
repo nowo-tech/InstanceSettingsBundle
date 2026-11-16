@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Repository;
 use InvalidArgumentException;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
+use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingAdminGuard;
 use Psr\Clock\ClockInterface;
 use Symfony\Component\Clock\NativeClock;
 
@@ -15,6 +16,7 @@ use function array_map;
 use function count;
 use function explode;
 use function hash_equals;
+use function implode;
 use function sprintf;
 use function strval;
 
@@ -29,11 +31,14 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
      * @param SecretExpiryStoreInterface|null $expiryStore 1.17 (audit L3): the expiry date of a secret row written or
      *                                                     deleted here is removed in the same transaction (its date
      *                                                     belonged to the previous secret)
+     * @param RuntimeSettingAdminGuard|null $runtimeSettings 1.20 (audit QZ-L-2): a row of a field registered as a runtime
+     *                                                       setting also passes that setting's validator
      */
     public function __construct(
         private SettingValueRepositoryInterface $repository,
         private ?SecretExpiryStoreInterface $expiryStore = null,
         private ?ClockInterface $clock = null,
+        private ?RuntimeSettingAdminGuard $runtimeSettings = null,
     ) {
     }
 
@@ -70,6 +75,34 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
     }
 
     /**
+     * 1.20 (audit QZ-L-2): refuses the whole write when a row of a registered runtime setting fails that setting's
+     * validator (the reason only, never the value).
+     *
+     * @param array<string, array{save?: array<string, StoredSettingRow>, remove?: array<string, true>}> $plans
+     *
+     * @throws InvalidArgumentException
+     */
+    private function assertRuntimeSettings(array $plans): void
+    {
+        if (!$this->runtimeSettings instanceof RuntimeSettingAdminGuard) {
+            return;
+        }
+        $problems = [];
+        foreach ($plans as $section => $plan) {
+            $values = [];
+            foreach ($plan['save'] ?? [] as $name => $row) {
+                $values[$name] = $row->isSecret ? $row->secret() : $row->value;
+            }
+            foreach ($this->runtimeSettings->violations((string) $section, $values) as $name => $messages) {
+                $problems[] = sprintf('%s.%s: %s', $section, $name, implode('; ', $messages));
+            }
+        }
+        if ($problems !== []) {
+            throw new InvalidArgumentException('Instance setting rows refused by their runtime setting validators: ' . implode(' | ', $problems) . '.');
+        }
+    }
+
+    /**
      * Inserts / replaces and deletes the rows in one transaction of the repository.
      */
     public function writeRows(array $save, array $remove = []): void
@@ -91,6 +124,7 @@ final readonly class RepositorySettingRowWriter implements SettingRowWriterInter
         if ($plans === []) {
             return;
         }
+        $this->assertRuntimeSettings($plans);
 
         // @igor-ignore - The closure runs synchronously inside the transaction and is not stored.
         $this->repository->transactional(function () use ($plans): void {

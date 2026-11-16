@@ -487,10 +487,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     }
 
     /**
-     * 1.17: the expiry table is mapped in prepend() from the raw configs (like the files, audit IO-I10); a flag another
-     * extension prepends after this one would register the store without its entity.
-     */
-    /**
      * 1.20: the runtime-setting source and writer (`runtime_setting.enabled`). The contract ports are bound to them by
      * RuntimeSettingPortsPass only when nothing else is; the settings repository bumps the section tokens.
      */
@@ -521,6 +517,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(InstanceSettingsRuntimeSource::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            // Audit QZ-L-3: a runtime write of an expiring secret keeps its date.
+            new Reference(SecretExpiryStoreInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]));
     }
 
@@ -738,6 +736,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // 1.17 (audit L3): a secret written or deleted here loses the date of the previous one.
             $expiryStore,
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            // 1.20: the runtime-setting validation (RuntimeSettingPortsPass, audit QZ-L-2).
+            null,
         ]));
         $container->setAlias(SettingRowWriterInterface::class, RepositorySettingRowWriter::class)->setPublic(true);
 
@@ -792,6 +792,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             $expiryStore,
             new Reference(InstanceSettingsTransactionRunner::class),
+            // 1.20: the runtime-setting validation (RuntimeSettingPortsPass, audit QZ-L-2).
+            null,
         ]))->setPublic(true));
 
         $container->setDefinition(SeedFromFallbacksCommand::class, (new Definition(SeedFromFallbacksCommand::class, [
@@ -813,6 +815,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference(AfterCommitEventDispatcher::class),
             new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             new Reference(InstanceSettingsTransactionRunner::class),
+            // 1.20: the runtime-setting validation (RuntimeSettingPortsPass, audit QZ-L-2).
+            null,
         ]))->setPublic(true));
 
         $container->setDefinition(SeedCommand::class, (new Definition(SeedCommand::class, [

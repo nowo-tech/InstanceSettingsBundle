@@ -27,7 +27,11 @@ interface SettingRowWriterInterface
      * @param list<StoredSettingRow> $save rows to insert or replace
      * @param list<string> $remove `section.field` keys of the rows to delete
      *
-     * @throws InvalidArgumentException for a secret row without its secret (unserialized or undecryptable) or a malformed key
+     * 1.20: with `runtime_setting.enabled` and NowoRuntimeSettingBundle, a row of a field registered as a writable runtime
+     * setting must also pass that setting's validator; otherwise nothing is written (audit QZ-L-2).
+     *
+     * @throws InvalidArgumentException for a secret row without its secret (unserialized or undecryptable), a malformed key,
+     *                                  or (1.20) a row refused by its runtime setting's validator
      */
     public function writeRows(array $save, array $remove = []): void;
 }

@@ -1346,7 +1346,19 @@ workers see the change within `version_ttl`, without a restart.
 - **Rotation**: `rotate` keeps the old value (encrypted, as stored) until `--keep-previous`; `candidates()` accepts both
   inside the window. Schedule `nowo:runtime-setting:purge`.
 - **Transactions**: the writer refuses to run inside a transaction you opened (a Messenger handler under
-  `doctrine_transaction`, a `wrapInTransaction()`): change runtime settings outside those units.
+  `doctrine_transaction`, a `wrapInTransaction()`): change runtime settings outside those units. Resolve them outside
+  transactions that write settings too: a value read inside a transaction that later rolls back can be served from the
+  shared pool until `version_ttl` ([HIGH-LOAD](HIGH-LOAD.md#runtime-settings-120)).
+- **Every save path validates**: admin UI, API, import, the seed file (refused with `invalid_value` and the setting's
+  reason), the fallback seeder (field skipped as `runtime_setting`) and `SettingRowWriterInterface` (refused with
+  `InvalidArgumentException`, nothing written).
+- **Expiring secrets** (1.17 `expires: true`): `set` and `rotate` keep the stored expiry date (the audit line names it),
+  so the expiry warnings go on. When the new credential expires on another day, change the date in the admin UI or with
+  `save('<section>', ['<field>:expires_on' => 'YYYY-MM-DD'])`. `unset` removes the secret and its date.
+- **Decryption failure**: a current secret that does not decrypt (wrong or lost key) is not "unset": the read throws an
+  exception without the value and the resolver applies the setting's `on_error`.
+- **With RuntimeEnvBundle**: when both bundles enable `runtime_setting`, bind `nowo_runtime_setting.source` and
+  `writer` yourself (to one backend, or to a routing source and writer of your own); the build fails otherwise.
 
 ### Example: Beacon chat retention and per-IP rate limits
 

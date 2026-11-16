@@ -180,31 +180,36 @@ final readonly class RuntimeSettingTables
     }
 
     /**
-     * Deletes the previous values that expired at `$now` (UTC), of one field or of the whole table (a conditional
-     * `DELETE`); returns how many rows went and the sections touched.
+     * The sections with a previous value expired at `$now` (UTC), sorted (a plain, non-locking read: the purge then takes
+     * their section locks in this order, audit QZ-L-1).
      *
-     * @return array{0: int, 1: list<string>}
+     * @return list<string>
      */
-    public function purge(DateTimeImmutable $now, ?string $section = null, ?string $name = null): array
+    public function expiredSections(DateTimeImmutable $now): array
     {
-        $connection = $this->connection();
-        $table      = $this->previousTable();
-        $where      = 'expires_at <= ?';
-        $params     = [self::utc($now)];
-        $types      = [Types::DATETIME_IMMUTABLE];
-        if ($section !== null) {
-            $where .= ' AND section = ? AND name = ?';
-            $params[] = $section;
-            $params[] = (string) $name;
-            $types[]  = Types::STRING;
+        /** @var list<string> $sections */
+        $sections = $this->connection()->fetchFirstColumn(sprintf('SELECT DISTINCT section FROM %s WHERE expires_at <= ?', $this->previousTable()), [self::utc($now)], [Types::DATETIME_IMMUTABLE]);
+        sort($sections, SORT_STRING);
+
+        return $sections;
+    }
+
+    /**
+     * Deletes the previous values of `$section` (of its field `$name` only when given) that expired at `$now` (UTC), with a
+     * conditional `DELETE`; returns how many rows went. Callers hold the section lock.
+     */
+    public function purge(DateTimeImmutable $now, string $section, ?string $name = null): int
+    {
+        $where  = 'section = ? AND expires_at <= ?';
+        $params = [$section, self::utc($now)];
+        $types  = [Types::STRING, Types::DATETIME_IMMUTABLE];
+        if ($name !== null) {
+            $where .= ' AND name = ?';
+            $params[] = $name;
             $types[]  = Types::STRING;
         }
 
-        /** @var list<string> $sections */
-        $sections = $connection->fetchFirstColumn(sprintf('SELECT DISTINCT section FROM %s WHERE %s', $table, $where), $params, $types);
-        $deleted  = $sections === [] ? 0 : (int) $connection->executeStatement(sprintf('DELETE FROM %s WHERE %s', $table, $where), $params, $types);
-
-        return [$deleted, $sections];
+        return (int) $this->connection()->executeStatement(sprintf('DELETE FROM %s WHERE %s', $this->previousTable(), $where), $params, $types);
     }
 
     /**

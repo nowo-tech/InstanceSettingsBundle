@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\Runtime;
 
 use DateTimeImmutable;
+use LogicException;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\RuntimeSettingPortsPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
+use Nowo\InstanceSettingsBundle\Repository\RepositorySettingRowWriter;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeSource;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeWriter;
 use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingAdminGuard;
 use Nowo\InstanceSettingsBundle\RuntimeEntity\RuntimeSettingPrevious;
 use Nowo\InstanceSettingsBundle\RuntimeEntity\RuntimeSettingVersion;
+use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
+use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\RuntimeSettingContract\Contract\RuntimeSettingDefinition;
 use Nowo\RuntimeSettingContract\Contract\RuntimeSettingRegistry;
@@ -69,11 +73,55 @@ final class RuntimeSettingAdminGuardTest extends TestCase
 
         $guarded = $this->enabled();
         $guarded->register(RuntimeSettingRegistry::class, stdClass::class);
-        $guarded->setDefinition(InstanceSettings::class, new Definition(InstanceSettings::class, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]));
+        $guarded->setDefinition(InstanceSettings::class, new Definition(InstanceSettings::class, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, null]));
+        $guarded->setDefinition(SeedFileSeeder::class, new Definition(SeedFileSeeder::class, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, null]));
+        $guarded->setDefinition(FallbackSeeder::class, new Definition(FallbackSeeder::class, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, null]));
+        $guarded->setDefinition(RepositorySettingRowWriter::class, new Definition(RepositorySettingRowWriter::class, [1, 2, 3, null]));
         (new RuntimeSettingPortsPass())->process($guarded);
         self::assertSame(RuntimeSettingAdminGuard::class, (string) $guarded->getDefinition(InstanceSettings::class)->getArgument(12));
+        self::assertSame(RuntimeSettingAdminGuard::class, (string) $guarded->getDefinition(SeedFileSeeder::class)->getArgument(13));
+        self::assertSame(RuntimeSettingAdminGuard::class, (string) $guarded->getDefinition(FallbackSeeder::class)->getArgument(10));
+        self::assertSame(RuntimeSettingAdminGuard::class, (string) $guarded->getDefinition(RepositorySettingRowWriter::class)->getArgument(3));
 
         (new RuntimeSettingPortsPass())->process(new ContainerBuilder());
+    }
+
+    /**
+     * Audit QZ-L-6: with RuntimeEnvBundle's runtime settings on too, the host binds both ports or the build fails.
+     */
+    public function testWithRuntimeEnvBundleTooTheHostMustBindBothPorts(): void
+    {
+        foreach ([[], [RuntimeValueSourceInterface::class], [RuntimeSettingWriterInterface::class]] as $bound) {
+            $container = $this->enabled();
+            $container->setParameter(RuntimeSettingPortsPass::RUNTIME_ENV_ENABLED_PARAMETER, true);
+            foreach ($bound as $port) {
+                $container->register('host.port', stdClass::class);
+                $container->setAlias($port, 'host.port');
+            }
+
+            try {
+                (new RuntimeSettingPortsPass())->process($container);
+                self::fail('Expected LogicException.');
+            } catch (LogicException $e) {
+                self::assertStringContainsString('both enable runtime_setting', $e->getMessage());
+                self::assertStringContainsString(InstanceSettingsRuntimeSource::class, $e->getMessage());
+                self::assertStringContainsString('RuntimeEnvSettingStore', $e->getMessage());
+            }
+        }
+
+        $chosen = $this->enabled();
+        $chosen->setParameter(RuntimeSettingPortsPass::RUNTIME_ENV_ENABLED_PARAMETER, true);
+        $chosen->register('host.router', stdClass::class);
+        $chosen->setAlias(RuntimeValueSourceInterface::class, 'host.router');
+        $chosen->setAlias(RuntimeSettingWriterInterface::class, 'host.router');
+        (new RuntimeSettingPortsPass())->process($chosen);
+        self::assertSame('host.router', (string) $chosen->getAlias(RuntimeValueSourceInterface::class));
+
+        $envOff = $this->enabled();
+        $envOff->setParameter(RuntimeSettingPortsPass::RUNTIME_ENV_ENABLED_PARAMETER, false);
+        (new RuntimeSettingPortsPass())->process($envOff);
+        self::assertSame(InstanceSettingsRuntimeSource::class, (string) $envOff->getAlias(RuntimeValueSourceInterface::class));
+        self::assertGreaterThan(10, RuntimeSettingPortsPass::PRIORITY, 'before RuntimeEnvBundle\'s pass (priority 10)');
     }
 
     public function testRuntimeEntities(): void
