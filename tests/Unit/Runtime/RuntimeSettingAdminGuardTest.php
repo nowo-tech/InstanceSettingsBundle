@@ -26,6 +26,7 @@ use Nowo\RuntimeSettingContract\Contract\RuntimeValueSourceInterface;
 use Nowo\RuntimeSettingContract\Contract\Validator\IntRange;
 use Nowo\RuntimeSettingContract\Contract\Validator\SingleLineString;
 use PHPUnit\Framework\TestCase;
+use ReflectionClassConstant;
 use stdClass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
@@ -121,7 +122,7 @@ final class RuntimeSettingAdminGuardTest extends TestCase
         $envOff->setParameter(RuntimeSettingPortsPass::RUNTIME_ENV_ENABLED_PARAMETER, false);
         (new RuntimeSettingPortsPass())->process($envOff);
         self::assertSame(InstanceSettingsRuntimeSource::class, (string) $envOff->getAlias(RuntimeValueSourceInterface::class));
-        self::assertGreaterThan(10, RuntimeSettingPortsPass::PRIORITY, 'before RuntimeEnvBundle\'s pass (priority 10)');
+        self::assertGreaterThan(10, (new ReflectionClassConstant(RuntimeSettingPortsPass::class, 'PRIORITY'))->getValue(), 'before RuntimeEnvBundle\'s pass (priority 10)');
     }
 
     public function testRuntimeEntities(): void
