@@ -2,9 +2,9 @@
 
 **Baseline spec**: [`spec.md`](spec.md)  
 **Package**: `nowo-tech/instance-settings-bundle`  
-**Last audited**: 2026-11-16 (sweep: 2026-11-02 baseline + later sources)
+**Last audited**: 2026-11-17
 
-Scope: every file under `src/`. Audit command: `find src -type f | wc -l` → **67**.
+Scope: every file under `src/`. Audit command: `git ls-files src | wc -l` → **205**.
 
 ## Bundle and dependency injection
 
@@ -124,7 +124,7 @@ New files of [004](../004-image-fields/spec.md):
 | Source file | Spec section | Requirement IDs |
 | --- | --- | --- |
 | `src/Section/ImageSpec.php` | [004](../004-image-fields/spec.md) | FR-001 |
-| `src/Entity/SettingFile.php` | [004](../004-image-fields/spec.md) | FR-004 |
+| `src/FileEntity/SettingFile.php` | [004](../004-image-fields/spec.md) | FR-004 |
 | `src/File/DoctrineSettingFileStore.php` | [004](../004-image-fields/spec.md) | FR-004, FR-008 |
 | `src/File/EncodedImage.php` | [004](../004-image-fields/spec.md) | FR-002 |
 | `src/File/GdSupport.php` | [004](../004-image-fields/spec.md) | FR-002 |
@@ -294,6 +294,6 @@ These 115 `src/` files were added by releases after the last review. Each row ma
 
 ## Totals
 
-- Mapped files: **115** of the 205 files under `src/` (the table was not refreshed for several releases before 1.20; a full re-audit is pending).
+- Mapped files: **205** of the 205 files under `src/` (re-audited 2026-11-17).
 - FR-RS-001..005 (1.20, runtime settings): source, writer, section version tokens, admin guard, ports binding; see the linked docs.
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

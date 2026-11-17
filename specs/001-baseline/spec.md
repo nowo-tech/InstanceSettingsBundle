@@ -124,7 +124,7 @@ route exists; the `nowo_instance_settings` loader import mounts them under `web_
 - **SC-002**: PHPStan level 8 with FrankenPHP rulesets, `ignoreErrors: []`, 0 errors; Igor 0 KO.
 - **SC-003**: `AdminUiTest` proves US-3…US-7 in a real kernel (SecurityBundle, Doctrine on SQLite, DoctrineEncrypt Halite); `RoutesOptInTest` proves US-8; `InvalidConfigurationTest` the fail-closed checks; `PageContractTest` the UiKit page contract.
 - **SC-004**: Demo Playwright e2e green (`make test-e2e`).
-- **SC-005**: Code inventory maps **59/59** files under `src/`.
+- **SC-005**: Code inventory maps **205/205** files under `src/`.
 
 ---
 

@@ -44,6 +44,7 @@ All notable changes to this project are documented here. The format follows
 
 - README: `## Screenshots` moved to the mid-body slot after `## Usage` (REQ-DOCS-019)
 - Spec Kit: the 115 `src/` files added since the 2026-11-02 baseline review are mapped in `code-inventory.md`, with six new area requirements in `spec.md` (REQ-SPECKIT-001 / REQ-SPECKIT-003)
+- Spec Kit: inventory header, totals and the `SettingFile` path recounted from `git ls-files src` (205/205 units, REQ-SPECKIT-001 / REQ-SPECKIT-003)
 
 ## [1.20.0] - 2026-11-16
 
