@@ -41,6 +41,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Conflict codes (REQ-RUNTIME-003 rule 6):** a lock conflict on a route of the bundle carries `CONFLICT_001` (nothing
+  committed, with `Retry-After`) or `CONFLICT_002` (an earlier write unit of the same request committed, or the commit
+  outcome is unknown; no `Retry-After`), as the `code` key of the JSON answers (next to the unchanged `error` key) and the
+  `X-Conflict-Code` header of every answer. A section form conflict (`SettingsConflictException`) carries the bundle's
+  own code `SETTINGS_CHANGED`, never a `CONFLICT_*` code
+- `conflict_response.status` (409 or 503) and `conflict_response.retry_after`; unset, they follow
+  nowo-tech/transaction-doctrine's `conflict_response` when its Symfony bundle is registered
+- The bundle's runner counts its outermost commits in a `CommitLedger` (`nowo_instance_settings.commit_ledger`), read by
+  difference per request to tell `CONFLICT_001` from `CONFLICT_002`
+- `docs/CONCURRENCY.md`: write paths, controls, conflict answers, codes, host options and residual risks
+- Load readiness: two-connection tests for the 409 `CONFLICT_001` answer, the 503 host option and the `CONFLICT_002`
+  answer after a committed unit; the job now runs MariaDB 11.4 with DBAL 3 too
+
+### Changed
+
+- **A lock conflict on the bundle's routes answers 409 instead of 503** (REQ-RUNTIME-003 rule 6). Set
+  `conflict_response.status: 503` to keep the 1.19–1.21 status (see UPGRADING)
+- **A unique constraint violation is no longer mapped to 409**: the bundle's expected "only one" races are caught where
+  they happen or serialised by the section lock, so one that reaches the kernel is a real error (500)
+- A lost savepoint with no deadlock behind it on a bundle route answers 409 `CONFLICT_002` instead of a 500
+- `nowo-tech/transaction-doctrine` ^1.5 (was ^1.1)
+
 ## [1.21.0] - 2026-11-18
 
 ### Added

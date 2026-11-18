@@ -26,6 +26,7 @@
 - [Runtime settings (1.20)](#runtime-settings-120)
 - [Expiring secrets (1.17)](#expiring-secrets-117)
   - [Default expiry notifier (1.21, `expiring_secrets.notify`)](#default-expiry-notifier-121-expiring_secretsnotify)
+- [Conflict answer (1.22)](#conflict-answer-122)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
 - [Profiles](#profiles)
@@ -119,6 +120,9 @@ nowo_instance_settings:
             retention_days: 90         # purge-expiry-notices deletes markers of older dates
             channels: { mail: auto, notify_kit: auto }   # auto | on | off
             notify_kit: { recipient_type: user, category: instance_settings, declare_category: true }
+    conflict_response:                 # 1.22: lock conflicts on the bundle's routes (REQ-RUNTIME-003)
+        status: null                   # 409 | 503; null = transaction-doctrine's conflict_response, else 409
+        retry_after: null              # Retry-After of CONFLICT_001 without a hint; null = transaction-doctrine's, else 1
 ```
 
 Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled`, `brand.enabled`, `expiring_secrets.enabled` (1.17) and `expiring_secrets.notify.enabled` (1.21) must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
@@ -985,6 +989,22 @@ Host channels: any service implementing `Expiry\Notify\ExpiryNoticeChannelInterf
 `nowo_instance_settings.expiry_channel`). The build fails when the notifier has no channel; two channels with one
 `name()` fail the first run. The routes and the template pair are checked by a required cache warmer
 (`ExpiryNoticeConfigurationCheck`).
+
+## Conflict answer (1.22)
+
+```yaml
+nowo_instance_settings:
+    conflict_response:
+        status: null        # 409 (default) or 503
+        retry_after: null   # seconds; null = follow transaction-doctrine, else 1
+```
+
+A deadlock, lock wait timeout or serialization failure on a route of the bundle answers **409** with a conflict code:
+`CONFLICT_001` and `Retry-After` when nothing of the request was committed, `CONFLICT_002` without `Retry-After` when
+part of it was. With both options null the bundle follows `nowo_transaction_doctrine.conflict_response` when
+nowo-tech/transaction-doctrine's Symfony bundle is registered (one answer for the whole application), else 409 with
+`Retry-After: 1`. Set `status: 503` to keep the 1.19–1.21 status. Codes, shapes and write paths:
+[CONCURRENCY](CONCURRENCY.md).
 
 ## FormKit profile
 

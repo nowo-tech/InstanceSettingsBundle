@@ -15,6 +15,7 @@ use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKer
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
 use Nowo\InstanceSettingsBundle\Transaction\InstanceSettingsTransactionRunner;
 use Nowo\TransactionContract\TransientStorageFailure;
+use Nowo\TransactionDoctrine\WriteUnit\CommitLedger;
 use RuntimeException;
 use Symfony\Component\Clock\MockClock;
 
@@ -45,6 +46,31 @@ final class InstanceSettingsTransactionRunnerTest extends KernelTestCase
         self::assertSame('done', $result);
         self::assertSame('"Run"', $this->connection($kernel)->fetchOne("SELECT value FROM instance_setting_value WHERE name = 'site_name'"));
         self::assertFalse($this->connection($kernel)->isTransactionActive());
+    }
+
+    public function testTheLedgerCountsOnlyOutermostCommits(): void
+    {
+        $kernel  = $this->bootKernel();
+        $manager = $this->manager($kernel);
+        $ledger  = new CommitLedger();
+        $runner  = new InstanceSettingsTransactionRunner($manager, ledger: $ledger);
+
+        $runner->run(static fn (): null => null);
+        self::assertSame(1, $ledger->count(), 'an outermost unit that commits is counted');
+
+        $manager->get()->getConnection()->transactional(static function () use ($runner): void {
+            $runner->run(static fn (): null => null);
+        });
+        self::assertSame(1, $ledger->count(), 'a unit inside a transaction of the caller is not a commit');
+
+        try {
+            $runner->run(static function (): never {
+                throw new DeadlockException(self::driverException(), null);
+            });
+        } catch (TransientStorageFailure) {
+            // Expected.
+        }
+        self::assertSame(1, $ledger->count(), 'a failed unit is not a commit');
     }
 
     public function testATransientStorageErrorBecomesATransientFailureAndNothingStaysPending(): void

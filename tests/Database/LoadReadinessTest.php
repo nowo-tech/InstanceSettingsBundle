@@ -16,8 +16,14 @@ use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use Nowo\InstanceSettingsBundle\Settings\SectionSnapshot;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SeedFixtureSection;
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\TwoUnitWriteController;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
+use Nowo\InstanceSettingsBundle\Transaction\StorageFailureListener;
+use Nowo\TransactionDoctrine\ConflictCode;
+use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use Throwable;
+
+use function json_decode;
 
 /**
  * 1.19 (Beacon spec 239): the races of the settings write paths, on a real database. Each test plays two requests in one
@@ -290,10 +296,11 @@ final class LoadReadinessTest extends DatabaseTestCase
     }
 
     /**
-     * R7 — a transient failure on a route of the bundle answers 503 with Retry-After (1.18.1: 500); the storage error is
-     * only the previous exception of a fixed-message ServiceUnavailableHttpException.
+     * R7 — a lock conflict on a route of the bundle answers 409 + Retry-After + CONFLICT_001 (1.18.1: 500; 1.19-1.21:
+     * 503); the storage error is only the previous exception of a fixed-message HttpException, nothing is stored, and the
+     * connection is usable afterwards.
      */
-    public function testALockWaitOnTheSectionPageAnswers503(): void
+    public function testALockWaitOnTheSectionPageAnswers409RetrySafe(): void
     {
         $kernel = $this->boot();
         $peer   = $this->boot();
@@ -308,9 +315,92 @@ final class LoadReadinessTest extends DatabaseTestCase
         });
 
         $response = $client->getResponse();
-        self::assertSame(503, $response->getStatusCode());
+        self::assertSame(409, $response->getStatusCode());
         self::assertSame('1', $response->headers->get('Retry-After'));
+        self::assertSame(ConflictCode::RETRY_SAFE, $response->headers->get(StorageFailureListener::CODE_HEADER));
         self::assertSame('Stored', $this->stored($kernel, 'general', 'site_name'));
+        self::assertFalse($this->connection($kernel)->isTransactionActive(), 'no transaction of the bundle stays open');
+        $this->settings($kernel)->save('general', ['site_name' => 'After']);
+        self::assertSame('After', $this->stored($kernel, 'general', 'site_name'), 'the connection is usable afterwards');
+    }
+
+    /**
+     * R7, host option — `conflict_response.status: 503` keeps the 1.19-1.21 status, with the same code and Retry-After.
+     */
+    public function testAHostCanKeepThe503(): void
+    {
+        $kernel = $this->boot(['conflict_response' => ['status' => 503, 'retry_after' => 4]]);
+        $peer   = $this->boot();
+        $this->settings($kernel)->save('general', ['site_name' => 'Stored']);
+        $client = $this->client($kernel);
+        $form   = $client->request('GET', '/admin/settings/sections/general')->filter('form[name="settings_section"]')->form();
+
+        $this->lockTimeout($kernel, 1);
+        $this->connection($peer)->transactional(static function ($blocker) use ($client, $form): void {
+            $blocker->fetchAllAssociative('SELECT id FROM instance_setting_value WHERE section = ? AND name = ? FOR UPDATE', ['general', 'site_name']);
+            $client->submit($form, ['settings_section[site_name]' => 'Mine']);
+        });
+
+        $response = $client->getResponse();
+        self::assertSame(503, $response->getStatusCode());
+        self::assertSame(ConflictCode::RETRY_SAFE, $response->headers->get(StorageFailureListener::CODE_HEADER));
+        self::assertNotNull($response->headers->get('Retry-After'));
+        self::assertSame('Stored', $this->stored($kernel, 'general', 'site_name'));
+    }
+
+    /**
+     * R7, partial commit — a request whose first write unit committed and whose second one meets a lock conflict answers
+     * 409 + CONFLICT_002 without Retry-After (a blind retry would repeat the first write); the first write stays, the
+     * second one is not stored, the connection is usable afterwards.
+     */
+    public function testALockConflictAfterACommittedUnitAnswers409Committed(): void
+    {
+        $kernel = $this->boot(
+            services: [TwoUnitWriteController::class => TwoUnitWriteController::class],
+            routes: static function (RoutingConfigurator $routes): void {
+                $routes->add('two_units', '/two-units')->controller(TwoUnitWriteController::class)->methods(['POST']);
+            },
+        );
+        $peer = $this->boot();
+        // Both sections exist before the race: the first unit then locks only rows of its own section (no gap of the
+        // blocked one, also under REPEATABLE READ on MariaDB).
+        $this->settings($kernel)->save('general', ['site_name' => 'Stored']);
+        $this->settings($kernel)->save('mailer', ['from_name' => 'Before']);
+        $client = $this->client($kernel);
+
+        $this->lockTimeout($kernel, 1);
+        $this->connection($peer)->transactional(static function ($blocker) use ($client): void {
+            $blocker->fetchAllAssociative('SELECT id FROM instance_setting_value WHERE section = ? AND name = ? FOR UPDATE', ['general', 'site_name']);
+            $client->request('POST', '/two-units', server: ['HTTP_ACCEPT' => 'application/json']);
+        });
+
+        $response = $client->getResponse();
+        self::assertSame(409, $response->getStatusCode());
+        self::assertNull($response->headers->get('Retry-After'));
+        self::assertSame(ConflictCode::COMMITTED, $response->headers->get(StorageFailureListener::CODE_HEADER));
+        self::assertSame(['error' => 'conflict', 'code' => ConflictCode::COMMITTED], json_decode((string) $response->getContent(), true));
+        self::assertSame('Committed', $this->stored($kernel, 'mailer', 'from_name'), 'the first unit is committed');
+        self::assertSame('Stored', $this->stored($kernel, 'general', 'site_name'), 'the second unit is not');
+        $this->settings($kernel)->save('general', ['site_name' => 'After']);
+        self::assertSame('After', $this->stored($kernel, 'general', 'site_name'), 'the connection is usable afterwards');
+    }
+
+    /**
+     * R7, retry — the same two-unit request without contention succeeds: a retry of a CONFLICT_001 answer is safe.
+     */
+    public function testTheTwoUnitRequestSucceedsWithoutContention(): void
+    {
+        $kernel = $this->boot(
+            services: [TwoUnitWriteController::class => TwoUnitWriteController::class],
+            routes: static function (RoutingConfigurator $routes): void {
+                $routes->add('two_units', '/two-units')->controller(TwoUnitWriteController::class)->methods(['POST']);
+            },
+        );
+        $client = $this->client($kernel);
+        $client->request('POST', '/two-units', server: ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertSame(200, $client->getResponse()->getStatusCode());
+        self::assertSame('Second', $this->stored($kernel, 'general', 'site_name'));
     }
 
     /**

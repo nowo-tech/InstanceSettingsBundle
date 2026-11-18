@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [Lock conflicts answer 409 + CONFLICT codes](#lock-conflicts-answer-409--conflict-codes)
 - [To 1.21.0](#to-1210)
   - [Opt in: the default expiry notifier (`expiring_secrets.notify`)](#opt-in-the-default-expiry-notifier-expiring_secretsnotify)
 - [To 1.20.0](#to-1200)
@@ -51,6 +52,38 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+### Lock conflicts answer 409 + CONFLICT codes
+
+```bash
+composer update nowo-tech/instance-settings-bundle nowo-tech/transaction-doctrine
+```
+
+`nowo-tech/transaction-doctrine` ^1.5 is required (was ^1.1). No migration.
+
+What changes on the bundle's routes (REQ-RUNTIME-003 rule 6, see [CONCURRENCY](CONCURRENCY.md)):
+
+| Failure | 1.19–1.21 | Now |
+| --- | --- | --- |
+| Deadlock, lock wait timeout, serialization failure (nothing committed) | 503 + `Retry-After` | **409** + `Retry-After`, code `CONFLICT_001` |
+| Same, after an earlier write unit of the request committed | 503 + `Retry-After` | **409**, no `Retry-After`, code `CONFLICT_002` |
+| Lost savepoint with no deadlock behind it | 500 | 409, no `Retry-After`, code `CONFLICT_002` |
+| Unique constraint violation | 409 | **not mapped** (500: a bug, the bundle catches its expected races) |
+| Section form conflict (`SettingsConflictException`) | 409 | 409, code `SETTINGS_CHANGED` |
+
+- JSON answers (reveal, test) keep the `error` key (`conflict`, or `unavailable` with status 503) and gain `code`.
+- Every answer carries the code in the `X-Conflict-Code` header.
+- A client or monitor that retried on 503 should retry on 409 with `CONFLICT_001` (and reload, not retry, on
+  `CONFLICT_002`). To keep 503:
+
+  ```yaml
+  nowo_instance_settings:
+      conflict_response:
+          status: 503
+  ```
+
+  When nowo-tech/transaction-doctrine's Symfony bundle is registered and these options are unset, the bundle follows
+  `nowo_transaction_doctrine.conflict_response`.
 
 ## To 1.21.0
 

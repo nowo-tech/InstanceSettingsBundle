@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nowo\InstanceSettingsBundle\Tests\Database;
 
+use Closure;
 use Composer\InstalledVersions;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
@@ -65,8 +66,9 @@ abstract class DatabaseTestCase extends TestCase
      * @param array<string, mixed> $config nowo_instance_settings configuration
      * @param array<string, string> $services extra service id => class (autoconfigured, public)
      * @param bool $hook this kernel's connection runs {@see StatementHook}
+     * @param (Closure(RoutingConfigurator): void)|null $routes extra routes (the bundle's routes are always imported)
      */
-    protected function boot(array $config = [], array $services = [], bool $hook = false): InstanceSettingsTestKernel
+    protected function boot(array $config = [], array $services = [], bool $hook = false, ?Closure $routes = null): InstanceSettingsTestKernel
     {
         $id     = (string) preg_replace('/\W+/', '_', static::class . '_' . $this->name() . '_' . count($this->kernels));
         $kernel = new InstanceSettingsTestKernel(
@@ -87,8 +89,11 @@ abstract class DatabaseTestCase extends TestCase
                     $defaults->set(StatementHook::class)->tag('doctrine.middleware');
                 }
             },
-            static function (RoutingConfigurator $routes): void {
-                $routes->import('.', 'nowo_instance_settings');
+            static function (RoutingConfigurator $configurator) use ($routes): void {
+                $configurator->import('.', 'nowo_instance_settings');
+                if ($routes instanceof Closure) {
+                    $routes($configurator);
+                }
             },
             databaseUrl: (string) getenv('IS_TEST_DATABASE_URL'),
             keyId: 'database-shared',

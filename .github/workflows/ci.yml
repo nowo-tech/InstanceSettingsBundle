@@ -94,12 +94,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        database: ['MySQL 8.4', 'PostgreSQL 16']
+        # 1.22 (REQ-RUNTIME-003): every server with DBAL 4 and DBAL 3 (MariaDB had DBAL 4 only since 1.20).
+        database: ['MySQL 8.4', 'MariaDB 11.4', 'PostgreSQL 16']
         dbal: ['4', '3']
-        include:
-          # 1.20: the runtime-setting adopter tests (tests/Database) on MariaDB too.
-          - database: 'MariaDB 11.4'
-            dbal: '4'
 
     services:
       mysql:

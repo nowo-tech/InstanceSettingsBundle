@@ -118,6 +118,8 @@ use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
 use Nowo\NotifyKitBundle\Contract\NotifierInterface;
 use Nowo\RuntimeSettingContract\Contract\RuntimeValueSourceInterface;
+use Nowo\TransactionDoctrine\Symfony\Conflict\ConflictResponsePolicy;
+use Nowo\TransactionDoctrine\WriteUnit\CommitLedger;
 use Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Resource\FileResource;
@@ -197,6 +199,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 
     /** Parameter set by prepend() with `doctrine.entity_manager` and the runtime settings enabled (1.20). */
     public const DEDICATED_RUNTIME_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_runtime_mapping';
+
+    /** The commit ledger of the bundle's runner (1.22): outermost commits, read by difference by the conflict answer. */
+    public const COMMIT_LEDGER_ID = 'nowo_instance_settings.commit_ledger';
 
     /** Parameter set by load() (1.20): `runtime_setting.enabled`. */
     public const RUNTIME_ENABLED_PARAMETER = 'nowo_instance_settings.runtime_setting.enabled';
@@ -325,7 +330,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, retention_days: int, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}}, runtime_setting: array{enabled: bool}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, retention_days: int, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}}, runtime_setting: array{enabled: bool}, conflict_response: array{status: int|null, retry_after: int|null}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -374,6 +379,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->assertNoticeMapped($container, $expiry['notify']['enabled']);
         $this->registerExpiryNotifier($container, $expiry, $config['security']['access_roles'], $webUi);
         $this->registerRuntimeSettings($container, $config['runtime_setting']['enabled']);
+        $this->registerConflictResponse($container, $config['conflict_response']);
         if ($filesEnabled && $config['files']['store'] === 'filesystem') {
             $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
         }
@@ -386,6 +392,29 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $this->registerBrand($container, $config['brand']);
             $this->registerErrorIllustrations($container, $config['brand'], $config['files']['store']);
         }
+    }
+
+    /**
+     * 1.22 (REQ-RUNTIME-003 rule 6): the conflict answer of the bundle's routes ({@see StorageFailureListener}). Without
+     * `conflict_response` options it follows nowo-tech/transaction-doctrine's `conflict_response` when that bundle is
+     * registered (one status for the whole application), else 409 with `Retry-After: 1`.
+     *
+     * @param array{status: int|null, retry_after: int|null} $options
+     */
+    private function registerConflictResponse(ContainerBuilder $container, array $options): void
+    {
+        $policy = $options['status'] === null && $options['retry_after'] === null
+            ? new Reference(ConflictResponsePolicy::class, ContainerInterface::NULL_ON_INVALID_REFERENCE)
+            : new Definition(ConflictResponsePolicy::class, [
+                $options['status'] ?? ConflictResponsePolicy::STATUS_CONFLICT,
+                $options['retry_after'] ?? ConflictResponsePolicy::DEFAULT_RETRY_AFTER,
+            ]);
+        $container->setDefinition(StorageFailureListener::class, (new Definition(StorageFailureListener::class, [
+            $policy,
+            new Reference(self::COMMIT_LEDGER_ID),
+        ]))
+            ->addTag('kernel.event_listener', ['event' => KernelEvents::REQUEST, 'method' => 'onRequest', 'priority' => StorageFailureListener::REQUEST_PRIORITY])
+            ->addTag('kernel.event_listener', ['event' => KernelEvents::EXCEPTION, 'method' => 'onException', 'priority' => StorageFailureListener::PRIORITY]));
     }
 
     /**
@@ -871,12 +900,14 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
 
         // 1.19 (Beacon spec 239): the bundle's own runner (one attempt; runRetrying() for the outermost console units),
         // injected by its class: never a runner the application binds to the transaction contract.
+        // 1.22 (REQ-RUNTIME-003 rule 6): the runner counts its outermost commits, so a lock conflict after a committed
+        // unit of the same request answers CONFLICT_002.
+        $container->setDefinition(self::COMMIT_LEDGER_ID, new Definition(CommitLedger::class));
         $container->setDefinition(InstanceSettingsTransactionRunner::class, new Definition(InstanceSettingsTransactionRunner::class, [
             new Reference(SettingsEntityManager::class),
+            '$ledger' => new Reference(self::COMMIT_LEDGER_ID),
         ]));
         $container->setAlias(InstanceSettingsTransactionRunner::SERVICE_ID, InstanceSettingsTransactionRunner::class);
-        $container->setDefinition(StorageFailureListener::class, (new Definition(StorageFailureListener::class))
-            ->addTag('kernel.event_listener', ['event' => KernelEvents::EXCEPTION, 'method' => 'onException', 'priority' => StorageFailureListener::PRIORITY]));
         $container->setDefinition(KeyCollationListener::class, (new Definition(KeyCollationListener::class, [
             new Reference('doctrine'),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),

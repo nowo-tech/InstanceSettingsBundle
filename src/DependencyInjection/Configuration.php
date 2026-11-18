@@ -16,6 +16,7 @@ use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Ui\SectionGroupTabs;
 use Nowo\InstanceSettingsBundle\Ui\SectionNavigation;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
+use Nowo\TransactionDoctrine\Symfony\Conflict\ConflictResponsePolicy;
 use Symfony\Component\Config\Definition\Builder\ArrayNodeDefinition;
 use Symfony\Component\Config\Definition\Builder\TreeBuilder;
 use Symfony\Component\Config\Definition\ConfigurationInterface;
@@ -376,6 +377,25 @@ final class Configuration implements ConfigurationInterface
                 ->end()
                 ->append($this->brandNode())
                 ->append($this->expiringSecretsNode())
+                ->arrayNode('conflict_response')
+                    ->info('1.22 (REQ-RUNTIME-003): answer of a lock conflict (deadlock, lock wait timeout, serialization failure) on the bundle\'s routes. Unset: nowo-tech/transaction-doctrine\'s conflict_response when that bundle is registered, else 409 with Retry-After 1.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->integerNode('status')
+                            ->info('409 (default, CONFLICT_001 / CONFLICT_002) or 503 (the 1.19-1.21 answer). Null: follow transaction-doctrine, else 409.')
+                            ->defaultNull()
+                            ->validate()
+                                ->ifTrue(static fn (mixed $v): bool => $v !== null && !in_array($v, ConflictResponsePolicy::STATUSES, true))
+                                ->thenInvalid('nowo_instance_settings.conflict_response.status must be 409 or 503, got %s.')
+                            ->end()
+                        ->end()
+                        ->integerNode('retry_after')
+                            ->info('Retry-After seconds of a CONFLICT_001 answer when the failure carries no hint. Null: follow transaction-doctrine, else 1.')
+                            ->defaultNull()
+                            ->min(0)
+                        ->end()
+                    ->end()
+                ->end()
                 ->arrayNode('runtime_setting')
                     ->info('1.20: nowo-tech/runtime-setting-contract source and writer over the settings (section.field ids), with section version tokens and rotation. Needs nowo-tech/runtime-setting-contract. Maps instance_setting_runtime_version and instance_setting_runtime_previous: off by default, no schema change.')
                     ->addDefaultsIfNotSet()

@@ -8,6 +8,7 @@ use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\TransactionContract\TransactionRunnerInterface;
 use Nowo\TransactionContract\TransientStorageFailure;
 use Nowo\TransactionDoctrine\DoctrineTransactionRunner;
+use Nowo\TransactionDoctrine\WriteUnit\CommitLedger;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\NativeClock;
 
@@ -33,9 +34,14 @@ use function random_int;
  * - nothing the unit persisted, changed or scheduled for deletion stays pending in the private manager (audit QM-M1):
  *   it is cleared (or detached from), and a manager the ORM closed in a failed flush is created again on its next use;
  * - a transient failure (deadlock, lock wait timeout, serialization failure, lost savepoint) surfaces as
- *   {@see TransientStorageFailure} with a Retry-After hint (503 on the bundle's routes); anything else is rethrown.
+ *   {@see TransientStorageFailure} with a Retry-After hint (409 `CONFLICT_001` on the bundle's routes, see
+ *   {@see StorageFailureListener}); anything else is rethrown.
  *
- * {@see self::run()} makes one attempt (HTTP writes: the client retries after the 503). {@see self::runRetrying()} replays
+ * 1.22 (REQ-RUNTIME-003 rule 6): every OUTERMOST unit that commits is counted in the {@see CommitLedger}, so a later
+ * unit of the same request that meets a lock conflict answers `CONFLICT_002` (part of the request is committed, no
+ * Retry-After) instead of inviting a blind retry.
+ *
+ * {@see self::run()} makes one attempt (HTTP writes: the client retries after the 409). {@see self::runRetrying()} replays
  * a transient failure a few times with full-jitter backoff, only when it is the OUTERMOST transaction (console seeds,
  * replayable background units): the side effects of the unit (events, log lines, file writes) are held until the
  * outermost commit and dropped with a rolled-back attempt, so a replay never duplicates nor loses them.
@@ -61,12 +67,14 @@ final readonly class InstanceSettingsTransactionRunner implements TransactionRun
      * @param int|null $retryAfterSeconds Retry-After hint of the {@see TransientStorageFailure}; null for none
      * @param int $backoffBaseMilliseconds upper bound of the first backoff of {@see self::runRetrying()} (0 = no wait)
      * @param ClockInterface|null $clock waits the backoff (null = the system clock; a mock clock in tests)
+     * @param CommitLedger|null $ledger counts the outermost commits (1.22; null = not counted)
      */
     public function __construct(
         private SettingsEntityManager $entityManager,
         private ?int $retryAfterSeconds = 1,
         private int $backoffBaseMilliseconds = self::BACKOFF_BASE_MILLISECONDS,
         private ?ClockInterface $clock = null,
+        private ?CommitLedger $ledger = null,
     ) {
     }
 
@@ -79,7 +87,14 @@ final readonly class InstanceSettingsTransactionRunner implements TransactionRun
     {
         // The private manager of this call (a closed one is created again): transaction-doctrine's ORM runner without a
         // registry clears it after a storage failure, and forgets what a refused unit loaded or wrote.
-        return DoctrineTransactionRunner::forEntityManager($this->entityManager->get(), null, null, $this->retryAfterSeconds)->run($operation);
+        $entityManager = $this->entityManager->get();
+        $outermost     = !$entityManager->getConnection()->isTransactionActive();
+        $result        = DoctrineTransactionRunner::forEntityManager($entityManager, null, null, $this->retryAfterSeconds)->run($operation);
+        if ($outermost) {
+            $this->ledger?->record();
+        }
+
+        return $result;
     }
 
     /**
