@@ -59,12 +59,12 @@ final readonly class StatementHook implements Middleware
                         return parent::query($sql);
                     }
 
-                    public function exec(string $sql): int|string
+                    public function exec(string $sql): int
                     {
-                        // 1.21: savepoint statements go through exec().
+                        // 1.21: savepoint statements go through exec(). `int` fits DBAL 3 (int) and DBAL 4 (int|string).
                         $this->hook->fire($sql);
 
-                        return parent::exec($sql);
+                        return (int) parent::exec($sql);
                     }
                 };
             }
