@@ -16,6 +16,7 @@ settings scaffold and fill no block of their own. Contract test: `tests/Integrat
 - [Unique pages](#unique-pages)
 - [Per-page overrides](#per-page-overrides)
 - [Overriding templates (REQ-TWIG-001)](#overriding-templates-req-twig-001)
+- [E-mails (1.21)](#e-mails-121)
 - [Bundle partials and assets](#bundle-partials-and-assets)
 - [Translations](#translations)
 - [Allowed exceptions](#allowed-exceptions)
@@ -78,6 +79,15 @@ overrides one block, e.g. a custom rendering of one section:
 See [USAGE.md — Overriding templates](USAGE.md#overriding-templates-req-twig-001) for the freeze rule, the recovery
 procedure and the `<subpath>` table (`settings/section.html.twig`, `settings/portability.html.twig`). Prefer
 `nowo_ui_kit.layouts.admin`, the UiKit theme and `web_ui.templates.<page>` over full-file forks.
+
+## E-mails (1.21)
+
+The default expiry notifier (`expiring_secrets.notify`) renders `expiry/notice.html.twig` and `expiry/notice.txt.twig`
+(`notify.mail_template` without the suffix). Variables: `credential` (translated setting label), `expires_on`
+(`YYYY-MM-DD`), `days_left`, `days_ago`, `expired`, `threshold`, `link` (absolute URL or null), `locale` and
+`translation_domain`; texts `secret_expiry_notice.*`. Override them in
+`templates/bundles/NowoInstanceSettingsBundle/expiry/` or point `notify.mail_template` at your own pair; never add a
+secret. Self-contained HTML with inline styles (no UiKit page shell: mail clients do not load it).
 
 ## Bundle partials and assets
 

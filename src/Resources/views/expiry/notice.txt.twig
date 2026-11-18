@@ -1,0 +1,14 @@
+{#
+ # Expiry reminder e-mail, text part (1.21, KIT-88). Same variables as notice.html.twig; no secret among them.
+ #}
+{%- set params = {'%credential%': credential, '%date%': expires_on, '%days%': expired ? days_ago : days_left} -%}
+{{ (expired ? 'secret_expiry_notice.heading_expired' : 'secret_expiry_notice.heading_expiring')|trans(params, translation_domain, locale) }}
+
+{{ (expired ? 'secret_expiry_notice.body_expired' : (days_left == 0 ? 'secret_expiry_notice.body_today' : 'secret_expiry_notice.body_expiring'))|trans(params, translation_domain, locale) }}
+{% if link %}
+
+{{ 'secret_expiry_notice.action'|trans({}, translation_domain, locale) }}: {{ link }}
+{% endif %}
+
+--
+{{ 'secret_expiry_notice.footer'|trans({}, translation_domain, locale) }}

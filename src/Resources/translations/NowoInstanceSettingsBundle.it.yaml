@@ -177,6 +177,19 @@ secret_expiry:
   warning_expired: "Scaduto il %date% (%days% giorno/i fa). Sostituisci il segreto e aggiorna questa data."
   notice_expiring: "«%field%» scade il %date% (tra %days% giorno/i)."
   notice_expired: "«%field%» è scaduto il %date% (%days% giorno/i fa)."
+secret_expiry_notice:
+  subject_expiring: "%credential% scade il %date%"
+  subject_expired: "%credential% è scaduto il %date%"
+  heading_expiring: "Una credenziale salvata scade a breve"
+  heading_expired: "Una credenziale salvata è scaduta"
+  body_expiring: "La credenziale salvata «%credential%» scade il %date% (tra %days% giorno/i). Creane una nuova presso il fornitore, sostituiscila nelle impostazioni e indica la nuova data di scadenza, altrimenti il servizio che la usa smetterà di funzionare."
+  body_today: "La credenziale salvata «%credential%» scade oggi (%date%). Creane una nuova presso il fornitore, sostituiscila nelle impostazioni e indica la nuova data di scadenza, altrimenti il servizio che la usa smetterà di funzionare."
+  body_expired: "La credenziale salvata «%credential%» è scaduta il %date% (%days% giorno/i fa). Il servizio che la usa potrebbe non connettersi più: creane una nuova presso il fornitore e sostituiscila nelle impostazioni con la nuova data di scadenza."
+  action: "Apri le impostazioni"
+  footer: "Ricevi questo promemoria perché gestisci questa applicazione. Non contiene mai la credenziale stessa."
+  notify_category: "Impostazioni"
+  notify_expiring: "%credential% scade il %date%"
+  notify_expired: "%credential% è scaduto il %date%"
 test:
   button: 'Prova'
   button_group: 'Prova %group%'

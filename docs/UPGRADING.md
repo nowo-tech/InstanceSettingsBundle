@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [Opt in: the default expiry notifier (`expiring_secrets.notify`)](#opt-in-the-default-expiry-notifier-expiring_secretsnotify)
 - [To 1.20.0](#to-1200)
   - [Opt in: runtime settings (`runtime_setting.enabled`)](#opt-in-runtime-settings-runtime_settingenabled)
 - [To 1.19.1](#to-1191)
@@ -49,6 +50,39 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+Target 1.21.0, from **1.20.0**. Nothing changes until you opt in: without `expiring_secrets.notify.enabled` no service,
+table or schema change is added (`migrations:diff` stays empty).
+
+### Opt in: the default expiry notifier (`expiring_secrets.notify`)
+
+1. It needs `expiring_secrets.enabled: true` (1.17). Enable it in the host configuration (not in a prepended one):
+   the sent-marker table is mapped in the bundle's prepend step, and a flag prepended later fails the build.
+2. Implement `Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipientProviderInterface` (your active users holding
+   any of the roles) and set `notify.recipient_provider` to its service id.
+3. Pick the channels: with nowo-tech/mail-kit-bundle registered the mail goes out by default (`channels.mail: auto`);
+   without MailKit set `channels.mail: on` and a sender (`notify.mail_from`). With nowo-tech/notify-kit-bundle
+   (>= 0.1.1) registered, the bell is on by default; its category `instance_settings` is declared by the bundle
+   (`notify.notify_kit.declare_category: false` if you declare it yourself). A service implementing
+   `ExpiryNoticeChannelInterface` is a channel too.
+4. Generate and run a migration: `instance_setting_secret_expiry_notice` (`notice_key` CHAR(64) primary key, section,
+   name, expires_on, threshold, channel, recipient, sent_at), with your `doctrine.table_prefix`, on
+   `doctrine.entity_manager` when set.
+5. Set `framework.router.default_uri` so the links in the mails are absolute URLs of your site when the command runs
+   from cron.
+6. A host listener of `SecretExpiryThresholdReachedEvent` that sent the same reminders (Symfony Beacon's
+   `SecretExpiryReminder`) must go, or the people get them twice. See the Beacon example in
+   [USAGE](USAGE.md#example-symfony-beacon-without-secretexpiryreminder).
+
+7. `ExpiryRecipient::$canOpenSettings` defaults to **false** (fail closed): pass `true` for the people who may open the
+   settings, or they get `fallback_link_route` (or no link). An address that is not RFC 5322 is refused when the
+   recipient is built: filter with `ExpiryRecipient::isValidEmail()` and pass `null` instead.
+8. Schedule `nowo:instance-settings:purge-expiry-notices` (weekly is enough; `notify.retention_days`, default 90).
+9. A wrong `mail_from` fails the container build; a missing `link_route`, `fallback_link_route` or template fails
+   `cache:clear` / `cache:warmup`.
+
+The check schedule is unchanged: `nowo:instance-settings:check-expiring-secrets` once a day. The bundle now requires
+`egulias/email-validator` ^4.0 (already installed wherever symfony/mailer is).
 
 ## To 1.20.0
 

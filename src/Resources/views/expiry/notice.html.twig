@@ -1,0 +1,29 @@
+{#
+ # Expiry reminder e-mail, HTML part (1.21, KIT-88). Override it in templates/bundles/NowoInstanceSettingsBundle/expiry/,
+ # or point expiring_secrets.notify.mail_template at your own pair (.html.twig + .txt.twig).
+ #
+ # Variables: credential (translated setting label), expires_on (YYYY-MM-DD), days_left (0 on the day, negative once
+ # expired), days_ago, expired (bool), threshold, link (absolute URL or null), locale (or null), translation_domain.
+ # There is no secret among them: never add one.
+ #}
+{%- set params = {'%credential%': credential, '%date%': expires_on, '%days%': expired ? days_ago : days_left} -%}
+<!DOCTYPE html>
+<html lang="{{ locale ?? 'en' }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ (expired ? 'secret_expiry_notice.subject_expired' : 'secret_expiry_notice.subject_expiring')|trans(params, translation_domain, locale) }}</title>
+</head>
+<body style="margin:0;padding:24px;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1f2933;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px;">
+<tr><td style="padding:24px;">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;">{{ (expired ? 'secret_expiry_notice.heading_expired' : 'secret_expiry_notice.heading_expiring')|trans(params, translation_domain, locale) }}</h1>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.5;">{{ (expired ? 'secret_expiry_notice.body_expired' : (days_left == 0 ? 'secret_expiry_notice.body_today' : 'secret_expiry_notice.body_expiring'))|trans(params, translation_domain, locale) }}</p>
+{% if link %}
+<p style="margin:0 0 16px;"><a href="{{ link }}" style="display:inline-block;padding:10px 18px;background:#1f6feb;color:#ffffff;text-decoration:none;border-radius:6px;font-size:15px;">{{ 'secret_expiry_notice.action'|trans({}, translation_domain, locale) }}</a></p>
+{% endif %}
+<p style="margin:16px 0 0;font-size:12px;line-height:1.5;color:#616e7c;">{{ 'secret_expiry_notice.footer'|trans({}, translation_domain, locale) }}</p>
+</td></tr>
+</table>
+</body>
+</html>

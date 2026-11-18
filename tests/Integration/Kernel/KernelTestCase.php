@@ -21,6 +21,7 @@ use Symfony\Component\DomCrawler\Field\ChoiceFormField;
 use Symfony\Component\DomCrawler\Field\FileFormField;
 use Symfony\Component\DomCrawler\Form;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpKernel\Bundle\BundleInterface;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
 use function count;
@@ -49,8 +50,11 @@ abstract class KernelTestCase extends TestCase
      * @param Closure(RoutingConfigurator): void|null $routes routes (default: the bundle loader)
      * @param array<string, array<string, mixed>> $extensions other extension configs (e.g. nowo_ui_kit)
      * @param bool $hostDefaultDriver catch-all default driver on the host's default manager (DoctrineBundle 3.4 auto-discovery)
+     * @param list<BundleInterface> $extraBundles 1.21: more bundles (NowoNotifyKitBundle)
+     * @param string|null $databaseUrl 1.21: a shared database (two "servers" on one SQLite file); null = in-memory
+     * @param bool $createSchema 1.21: create the schema (false for the second kernel on a shared database)
      */
-    protected function bootKernel(array $config = [], array $services = [], array $without = [], ?Closure $routes = null, bool $debug = false, bool $fixtures = true, array $extensions = [], bool $hostDefaultDriver = false): InstanceSettingsTestKernel
+    protected function bootKernel(array $config = [], array $services = [], array $without = [], ?Closure $routes = null, bool $debug = false, bool $fixtures = true, array $extensions = [], bool $hostDefaultDriver = false, array $extraBundles = [], ?string $databaseUrl = null, bool $createSchema = true): InstanceSettingsTestKernel
     {
         $id     = (string) preg_replace('/\W+/', '_', static::class . '_' . $this->name() . '_' . count($this->kernels));
         $kernel = new InstanceSettingsTestKernel(
@@ -76,6 +80,8 @@ abstract class KernelTestCase extends TestCase
             $without,
             $debug,
             $hostDefaultDriver,
+            $databaseUrl,
+            extraBundles: $extraBundles,
         );
         $this->kernels[] = $kernel;
         $kernel->boot();
@@ -83,7 +89,7 @@ abstract class KernelTestCase extends TestCase
         $doctrine = $kernel->getContainer()->get('doctrine');
         self::assertInstanceOf(ManagerRegistry::class, $doctrine);
         $entityManager = $doctrine->getManager();
-        if ($entityManager instanceof EntityManagerInterface) {
+        if ($createSchema && $entityManager instanceof EntityManagerInterface) {
             (new SchemaTool($entityManager))->createSchema($entityManager->getMetadataFactory()->getAllMetadata());
         }
 

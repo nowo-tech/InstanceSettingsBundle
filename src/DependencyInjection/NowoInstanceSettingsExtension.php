@@ -25,6 +25,7 @@ use Nowo\InstanceSettingsBundle\Brand\InstanceBrandProvider;
 use Nowo\InstanceSettingsBundle\Command\CheckExpiringSecretsCommand;
 use Nowo\InstanceSettingsBundle\Command\ExportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\ImportSettingsCommand;
+use Nowo\InstanceSettingsBundle\Command\PurgeExpiryNoticesCommand;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
@@ -37,12 +38,22 @@ use Nowo\InstanceSettingsBundle\Doctrine\SettingsEntityManager;
 use Nowo\InstanceSettingsBundle\Doctrine\TablePrefixListener;
 use Nowo\InstanceSettingsBundle\Embed\SettingsSectionEmbedder;
 use Nowo\InstanceSettingsBundle\Event\AfterCommitEventDispatcher;
+use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
 use Nowo\InstanceSettingsBundle\Event\SettingsPendingEventsInterface;
 use Nowo\InstanceSettingsBundle\EventListener\InstanceSettingsAccessListener;
 use Nowo\InstanceSettingsBundle\EventListener\WorkerBoundaryResetListener;
 use Nowo\InstanceSettingsBundle\Expiry\DoctrineSecretExpiryStore;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecrets;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecretSourceInterface;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\DoctrineExpiryNoticeStore;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeChannelInterface;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeConfigurationCheck;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeLinks;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeStoreInterface;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\MailExpiryNoticeChannel;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\NotifyKitExpiryNoticeChannel;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\NotifyKitExpiryTypeProvider;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\SecretExpiryNotifier;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryChecker;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryStoreInterface;
 use Nowo\InstanceSettingsBundle\File\DoctrineSettingFileStore;
@@ -70,6 +81,7 @@ use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowWriterInterface;
 use Nowo\InstanceSettingsBundle\Repository\SettingValueRepositoryInterface;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRouteLoader;
+use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeSource;
 use Nowo\InstanceSettingsBundle\Runtime\InstanceSettingsRuntimeWriter;
 use Nowo\InstanceSettingsBundle\Runtime\RuntimeSettingTables;
@@ -104,6 +116,7 @@ use Nowo\InstanceSettingsBundle\Ui\SectionLayout;
 use Nowo\InstanceSettingsBundle\Ui\SectionNavigation;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
+use Nowo\NotifyKitBundle\Contract\NotifierInterface;
 use Nowo\RuntimeSettingContract\Contract\RuntimeValueSourceInterface;
 use Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -120,10 +133,16 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\KernelEvents;
+use Symfony\Component\Mailer\MailerInterface;
+use Symfony\Component\Mime\Address;
+use Throwable;
 
+use function array_diff;
 use function array_filter;
 use function array_key_exists;
 use function array_keys;
+use function array_values;
+use function implode;
 use function in_array;
 use function interface_exists;
 use function is_array;
@@ -161,6 +180,15 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     /** Parameter set by prepend() with `doctrine.entity_manager` and the expiring secrets enabled (1.17). */
     public const DEDICATED_EXPIRY_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_expiry_mapping';
 
+    /** Doctrine mapping name of the opt-in sent-marker entity (1.21, `expiring_secrets.notify.enabled: true`). */
+    public const NOTICE_MAPPING = 'NowoInstanceSettingsExpiryNotice';
+
+    /** Parameter set by prepend() (1.21): whether the sent-marker entity mapping was prepended. */
+    public const NOTICE_MAPPED_PARAMETER = 'nowo_instance_settings.expiring_secrets.notify.mapped';
+
+    /** Parameter set by prepend() with `doctrine.entity_manager` and the expiry notifier enabled (1.21). */
+    public const DEDICATED_NOTICE_MAPPING_PARAMETER = 'nowo_instance_settings.doctrine.dedicated_notice_mapping';
+
     /** Doctrine mapping name of the opt-in runtime-setting entities (1.20, `runtime_setting.enabled: true`). */
     public const RUNTIME_MAPPING = 'NowoInstanceSettingsRuntime';
 
@@ -176,10 +204,14 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     /**
      * @param bool|null $brandContracts whether nowo-tech/brand-contracts is installed (null = detect; tests)
      * @param bool|null $uiKitErrorIllustrations whether UiKit's error illustration SPI (2.47) is installed (null = detect; tests)
+     * @param bool|null $mailer whether symfony/mailer is installed (1.21 expiry notifier; null = detect; tests)
+     * @param bool|null $notifyKit whether nowo-tech/notify-kit-bundle is installed (1.21 expiry notifier; null = detect; tests)
      */
     public function __construct(
         private readonly ?bool $brandContracts = null,
         private readonly ?bool $uiKitErrorIllustrations = null,
+        private readonly ?bool $mailer = null,
+        private readonly ?bool $notifyKit = null,
     ) {
     }
 
@@ -219,6 +251,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             // 1.20: the runtime-setting tables, opt-in the same way (with it off, migrations:diff stays empty).
             $runtimeMapped = self::rawSwitch($rawConfigs, 'runtime_setting');
             $container->setParameter(self::RUNTIME_MAPPED_PARAMETER, $runtimeMapped);
+            // 1.21: the sent-marker table of the expiry notifier, opt-in the same way.
+            $noticeMapped = $this->rawNotifySwitch($rawConfigs);
+            $container->setParameter(self::NOTICE_MAPPED_PARAMETER, $noticeMapped);
             // 1.11 (rule 6): with doctrine.entity_manager the bundle maps its entities on that manager only, through
             // DoctrineOrmMappingsPass + EntityManagerMappingPass (registered by the bundle class); nothing is
             // prepended to the default manager.
@@ -232,6 +267,9 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                 }
                 if ($runtimeMapped) {
                     $container->setParameter(self::DEDICATED_RUNTIME_MAPPING_PARAMETER, true);
+                }
+                if ($noticeMapped) {
+                    $container->setParameter(self::DEDICATED_NOTICE_MAPPING_PARAMETER, true);
                 }
                 $this->prependFormKitProfile($container);
 
@@ -264,6 +302,15 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'is_bundle' => false,
                 ];
             }
+            if ($noticeMapped) {
+                $mappings[self::NOTICE_MAPPING] = [
+                    'type'      => 'attribute',
+                    'dir'       => __DIR__ . '/../ExpiryNoticeEntity',
+                    'prefix'    => 'Nowo\InstanceSettingsBundle\ExpiryNoticeEntity',
+                    'alias'     => 'NowoInstanceSettingsExpiryNotice',
+                    'is_bundle' => false,
+                ];
+            }
             $container->prependExtensionConfig('doctrine', ['orm' => ['mappings' => $mappings]]);
         }
 
@@ -278,7 +325,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null}, runtime_setting: array{enabled: bool}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, retention_days: int, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}}, runtime_setting: array{enabled: bool}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -324,6 +371,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $this->assertExpiryMapped($container, $expiry['enabled']);
         $this->registerStore($container, $config['doctrine'], $filesEnabled, $config['seed'], self::revealNeedsRateLimiter($config), $expiry['enabled']);
         $this->registerExpiry($container, $expiry);
+        $this->assertNoticeMapped($container, $expiry['notify']['enabled']);
+        $this->registerExpiryNotifier($container, $expiry, $config['security']['access_roles'], $webUi);
         $this->registerRuntimeSettings($container, $config['runtime_setting']['enabled']);
         if ($filesEnabled && $config['files']['store'] === 'filesystem') {
             $this->assertFilesDirectoryNotPublic($container, $config['files']['directory'], $config['brand']['public_dir']);
@@ -581,6 +630,152 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setDefinition(CheckExpiringSecretsCommand::class, (new Definition(CheckExpiringSecretsCommand::class, [
             new Reference(SecretExpiryChecker::class),
         ]))->addTag('console.command', ['command' => CheckExpiringSecretsCommand::NAME]));
+    }
+
+    /**
+     * Fails when `expiring_secrets.notify.enabled` was turned on by a configuration prepended after this extension (the
+     * sent-marker table would not be mapped).
+     */
+    private function assertNoticeMapped(ContainerBuilder $container, bool $enabled): void
+    {
+        if ($enabled && $container->hasParameter(self::NOTICE_MAPPED_PARAMETER) && $container->getParameter(self::NOTICE_MAPPED_PARAMETER) === false) {
+            throw new LogicException('NowoInstanceSettingsBundle: expiring_secrets.notify.enabled was set by a configuration prepended after this bundle, so the sent-marker table is not mapped. Set it in the host configuration (config/packages/nowo_instance_settings.yaml).');
+        }
+    }
+
+    /**
+     * The default expiry notifier (1.21, KIT-88), only with `expiring_secrets.notify.enabled: true`: the sent-marker
+     * store, the links, the mail channel (MailKit / symfony/mailer), the NotifyKit channel and its types, the
+     * autoconfiguration of host channels and the listener of {@see SecretExpiryThresholdReachedEvent}.
+     *
+     * @param array{enabled: bool, thresholds: list<int>, timezone: string|null, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, retention_days: int, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}} $expiry
+     * @param list<string> $accessRoles `security.access_roles` (the default recipients' roles)
+     */
+    private function registerExpiryNotifier(ContainerBuilder $container, array $expiry, array $accessRoles, bool $webUi): void
+    {
+        $notify = $expiry['notify'];
+        if (!$notify['enabled']) {
+            return;
+        }
+        if (!$expiry['enabled']) {
+            throw new LogicException('NowoInstanceSettingsBundle: expiring_secrets.notify.enabled needs expiring_secrets.enabled: true (the reminders are sent for the stored expiry dates).');
+        }
+        if ($notify['recipient_provider'] === null || trim($notify['recipient_provider']) === '') {
+            throw new InvalidConfigurationException('nowo_instance_settings.expiring_secrets.notify.recipient_provider must be the id of a service implementing ExpiryRecipientProviderInterface (the bundle has no user model to find the recipients).');
+        }
+        $unknown = array_diff($notify['days'], $expiry['thresholds']);
+        if ($unknown !== []) {
+            throw new InvalidConfigurationException(sprintf('nowo_instance_settings.expiring_secrets.notify.days must be among expiring_secrets.thresholds (%s); %s never fire(s).', implode(', ', $expiry['thresholds']), implode(', ', $unknown)));
+        }
+        $roles = $notify['roles'] !== [] ? $notify['roles'] : $accessRoles;
+        if ($roles === []) {
+            throw new InvalidConfigurationException('nowo_instance_settings.expiring_secrets.notify.roles is empty and so is security.access_roles: name the roles whose holders receive the reminders.');
+        }
+        $bundles = $container->hasParameter('kernel.bundles') ? $container->getParameter('kernel.bundles') : [];
+        $bundles = is_array($bundles) ? $bundles : [];
+        $mail    = $this->channelOn($notify['channels']['mail'], $this->mailer ?? interface_exists(MailerInterface::class), isset($bundles['NowoMailKitBundle']), 'mail', 'symfony/mailer');
+        $bell    = $this->channelOn($notify['channels']['notify_kit'], ($this->notifyKit ?? interface_exists(NotifierInterface::class)) && isset($bundles['NowoNotifyKitBundle']), true, 'notify_kit', 'nowo-tech/notify-kit-bundle (NowoNotifyKitBundle registered)');
+        // Host channels (a bell of its own, SMS, chat): any ExpiryNoticeChannelInterface service. ExpiryNoticeChannelPass
+        // fails the build when there is none at all.
+        $container->registerForAutoconfiguration(ExpiryNoticeChannelInterface::class)->addTag(NowoInstanceSettingsBundle::EXPIRY_CHANNEL_TAG);
+        if ($notify['mail_from'] !== null) {
+            try {
+                Address::create($notify['mail_from']);
+            } catch (Throwable $e) {
+                throw new InvalidConfigurationException(sprintf('nowo_instance_settings.expiring_secrets.notify.mail_from must be an e-mail address such as "noreply@example.com" or "App <noreply@example.com>" (%s).', $e::class), $e->getCode(), $e);
+            }
+        }
+        $translator = new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE);
+        $linkRoute  = $notify['link_route'] ?? ($webUi ? InstanceSettingsRoutes::SECTION : null);
+
+        $container->setDefinition(DoctrineExpiryNoticeStore::class, new Definition(DoctrineExpiryNoticeStore::class, [new Reference(SettingsEntityManager::class)]));
+        $container->setAlias(ExpiryNoticeStoreInterface::class, DoctrineExpiryNoticeStore::class)->setPublic(true);
+        $container->setDefinition(ExpiryNoticeLinks::class, new Definition(ExpiryNoticeLinks::class, [
+            new Reference('router'),
+            $linkRoute,
+            $notify['fallback_link_route'],
+        ]));
+        // L3: the routes and the template pair are checked when the cache is built (the routes are unknown before).
+        $container->setDefinition(ExpiryNoticeConfigurationCheck::class, (new Definition(ExpiryNoticeConfigurationCheck::class, [
+            new Reference('router'),
+            new Reference('twig', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            array_values(array_filter([$linkRoute, $notify['fallback_link_route']], static fn (?string $route): bool => $route !== null)),
+            $mail ? $notify['mail_template'] : null,
+        ]))->setPublic(true)->addTag('kernel.cache_warmer'));
+        $container->setDefinition(PurgeExpiryNoticesCommand::class, (new Definition(PurgeExpiryNoticesCommand::class, [
+            new Reference(ExpiryNoticeStoreInterface::class),
+            $notify['retention_days'],
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            $expiry['timezone'],
+        ]))->addTag('console.command', ['command' => PurgeExpiryNoticesCommand::NAME]));
+
+        if ($mail) {
+            $container->setDefinition(MailExpiryNoticeChannel::class, (new Definition(MailExpiryNoticeChannel::class, [
+                new Reference(MailerInterface::class),
+                new Reference('twig'),
+                new Reference(ExpiryNoticeLinks::class),
+                $notify['mail_template'],
+                $translator,
+                $notify['mail_from'],
+            ]))->addTag(NowoInstanceSettingsBundle::EXPIRY_CHANNEL_TAG));
+        }
+        if ($bell) {
+            $container->setDefinition(NotifyKitExpiryNoticeChannel::class, (new Definition(NotifyKitExpiryNoticeChannel::class, [
+                new Reference(NotifierInterface::class),
+                new Reference(ExpiryNoticeLinks::class),
+                $notify['notify_kit']['recipient_type'],
+                $translator,
+            ]))->addTag(NowoInstanceSettingsBundle::EXPIRY_CHANNEL_TAG));
+            $container->setDefinition(NotifyKitExpiryTypeProvider::class, (new Definition(NotifyKitExpiryTypeProvider::class, [
+                $notify['notify_kit']['category'],
+                $notify['notify_kit']['declare_category'],
+            ]))->addTag('nowo_notify_kit.type_provider'));
+        }
+
+        $container->setDefinition(SecretExpiryNotifier::class, (new Definition(SecretExpiryNotifier::class, [
+            new Reference($notify['recipient_provider']),
+            new Reference(ExpiryNoticeStoreInterface::class),
+            new TaggedIteratorArgument(NowoInstanceSettingsBundle::EXPIRY_CHANNEL_TAG),
+            array_values($notify['days']),
+            array_values($roles),
+            new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->setPublic(true)->addTag('kernel.event_listener', ['event' => SecretExpiryThresholdReachedEvent::class, 'method' => '__invoke']));
+    }
+
+    /**
+     * Whether a notifier channel is on: `off` never, `on` when installed (else a clear error), `auto` when installed
+     * and its bundle is registered.
+     */
+    private function channelOn(string $mode, bool $installed, bool $registered, string $channel, string $requirement): bool
+    {
+        if ($mode === 'off') {
+            return false;
+        }
+        if ($mode === 'on' && !$installed) {
+            throw new LogicException(sprintf('NowoInstanceSettingsBundle: expiring_secrets.notify.channels.%s is on but %s is not installed.', $channel, $requirement));
+        }
+
+        return $installed && ($mode === 'on' || $registered);
+    }
+
+    /**
+     * Whether the raw configs enable `expiring_secrets.notify` (1.21): the last literal `enabled` wins, like
+     * {@see self::rawSwitch()}.
+     *
+     * @param array<array<string, mixed>> $configs
+     */
+    private function rawNotifySwitch(array $configs): bool
+    {
+        $enabled = false;
+        foreach ($configs as $config) {
+            $notify = is_array($config['expiring_secrets'] ?? null) ? ($config['expiring_secrets']['notify'] ?? null) : null;
+            if (is_array($notify) && array_key_exists('enabled', $notify)) {
+                $enabled = $notify['enabled'] === true;
+            }
+        }
+
+        return $enabled;
     }
 
     /**
@@ -1344,14 +1539,15 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
     {
         /** @var array<string, array<string, mixed>> $config */
         $switches = [
-            'web_ui.enabled'                 => $config['web_ui']['enabled'] ?? null,
-            'security.allow_unauthenticated' => $config['security']['allow_unauthenticated'] ?? null,
-            'portability.web_ui'             => $config['portability']['web_ui'] ?? null,
-            'portability.sealed_secrets'     => $config['portability']['sealed_secrets'] ?? null,
-            'files.enabled'                  => $config['files']['enabled'] ?? null,
-            'brand.enabled'                  => $config['brand']['enabled'] ?? null,
-            'expiring_secrets.enabled'       => $config['expiring_secrets']['enabled'] ?? null,
-            'runtime_setting.enabled'        => $config['runtime_setting']['enabled'] ?? null,
+            'web_ui.enabled'                  => $config['web_ui']['enabled'] ?? null,
+            'security.allow_unauthenticated'  => $config['security']['allow_unauthenticated'] ?? null,
+            'portability.web_ui'              => $config['portability']['web_ui'] ?? null,
+            'portability.sealed_secrets'      => $config['portability']['sealed_secrets'] ?? null,
+            'files.enabled'                   => $config['files']['enabled'] ?? null,
+            'brand.enabled'                   => $config['brand']['enabled'] ?? null,
+            'expiring_secrets.enabled'        => $config['expiring_secrets']['enabled'] ?? null,
+            'expiring_secrets.notify.enabled' => $config['expiring_secrets']['notify']['enabled'] ?? null,
+            'runtime_setting.enabled'         => $config['runtime_setting']['enabled'] ?? null,
         ];
         foreach ($switches as $path => $value) {
             if (!is_bool($value)) {

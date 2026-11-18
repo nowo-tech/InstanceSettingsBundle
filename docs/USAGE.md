@@ -21,6 +21,8 @@
 - [Writing settings from code](#writing-settings-from-code)
 - [Secrets](#secrets)
   - [Expiring secrets (1.17)](#expiring-secrets-117)
+  - [Default expiry notifier (1.21)](#default-expiry-notifier-121)
+    - [Example: Symfony Beacon without SecretExpiryReminder](#example-symfony-beacon-without-secretexpiryreminder)
 - [Image fields](#image-fields)
   - [Crop step (1.8)](#crop-step-18)
   - [Image input box and cards (1.12)](#image-input-box-and-cards-112)
@@ -676,7 +678,7 @@ threshold: the threshold is recorded before the event is dispatched, so a proces
 skips it (the next smaller threshold still fires); a listener that throws releases it for the next run, which then
 re-runs every listener of that event.
 
-The bundle sends nothing itself: the host turns the event into its own reminders. Symfony Beacon sends a bell
+Without the 1.21 notifier ([below](#default-expiry-notifier-121)) the bundle sends nothing itself: the host turns the event into its own reminders. Symfony Beacon sends a bell
 notification and an e-mail:
 
 ```php
@@ -717,6 +719,235 @@ otherwise: it is never attached to the unrelated secret the target already store
 key). A secret written or deleted through `SettingRowWriterInterface`, or seeded from a fallback without a date, loses
 the date row of the previous secret; set the new date with `save()` or `SecretExpiryStoreInterface::write()`. The seed file
 (`nowo:instance-settings:seed`) never holds secrets, so it carries no dates.
+
+### Default expiry notifier (1.21)
+
+The 1.17 event leaves the reminders to the host. Since 1.21 the bundle can send them itself (KIT-88, from the Symfony
+Beacon re-audit): an e-mail and / or a bell notification to the people holding `notify.roles`, at `notify.days` before
+the date, **once per secret, threshold and recipient**. Off by default; with it off nothing changes (no table, no
+service).
+
+```yaml
+# config/packages/nowo_instance_settings.yaml
+nowo_instance_settings:
+    expiring_secrets:
+        enabled: true
+        notify:
+            enabled: true                       # maps instance_setting_secret_expiry_notice: add the migration (UPGRADING)
+            days: [30, 7, 1, 0]                 # each one of expiring_secrets.thresholds
+            roles: [ROLE_MANAGER, ROLE_DEVELOPER]   # [] = security.access_roles
+            recipient_provider: App\Settings\ExpiryRecipients
+            # mail_template: '@NowoInstanceSettingsBundle/expiry/notice'   # + .html.twig / .txt.twig
+            # mail_from: null                   # MailKit fills the sender from its settings
+            # link_route: null                  # the section's settings page; gets the "section" parameter
+            # fallback_link_route: null         # for recipients who cannot open the settings
+            # channels: { mail: auto, notify_kit: auto }
+```
+
+**Recipients.** The bundle has no user model: the host lists its active users holding any of the roles, as
+framework-free value objects. Read them on every call (worker mode):
+
+```php
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipient;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipientProviderInterface;
+
+final readonly class ExpiryRecipients implements ExpiryRecipientProviderInterface
+{
+    public function __construct(private UserRepository $users)
+    {
+    }
+
+    public function expiryRecipients(array $roles): iterable
+    {
+        foreach ($this->users->findActiveWithAnyRole($roles) as $user) {
+            yield new ExpiryRecipient(
+                id: (string) $user->getId(),           // stable: the reminder is sent once per id
+                // null = no mail (the bell only); an address that is not RFC 5322 throws, so check it first
+                email: ExpiryRecipient::isValidEmail($user->getEmail()) ? $user->getEmail() : null,
+                locale: $user->getLocale(),             // the mail and the bell texts; null = default locale
+                canOpenSettings: $user->hasRole('ROLE_DEVELOPER'),   // default false (fail closed) = fallback_link_route
+            );
+        }
+    }
+}
+```
+
+**Channels** (all optional bridges, like the brand and runtime-setting bridges: nothing is required by
+`composer.json`):
+
+| Channel | `auto` (default) | `on` | What is sent |
+| --- | --- | --- | --- |
+| `mail` | nowo-tech/mail-kit-bundle registered | symfony/mailer installed (set `mail_from` or a mailer-wide sender) | `MailExpiryNoticeChannel`: the HTML + text templates, through the application `MailerInterface` — MailKit's when it is installed (runtime DSN, sender, brand, sent-mail log) |
+| `notify_kit` | nowo-tech/notify-kit-bundle (>= 0.1.1) registered | the same, or the build fails | `NotifyKitExpiryNoticeChannel`: one in-app notification per person, types `instance_settings.secret_expiring` / `instance_settings.secret_expired` (declared by `NotifyKitExpiryTypeProvider`, category `notify.notify_kit.category`), recipient type `notify.notify_kit.recipient_type` |
+| host | any service implementing `Expiry\Notify\ExpiryNoticeChannelInterface` (autoconfigured) | — | whatever the host delivers: its own bell, an SMS, a chat message |
+
+`off` turns a built-in channel off. The build fails when the notifier has no channel at all.
+
+**Once, also under load.** Each reminder (secret, date, threshold, channel, recipient) is claimed in
+`instance_setting_secret_expiry_notice` **before** it is sent: the primary key is a SHA-256 of those values, so a
+second run, a parallel cron run on another server, a restarted worker or a retried run finds it taken and sends
+nothing. A delivery that throws releases its claim, the other recipients still get theirs, and the notifier throws
+`ExpiryNoticeFailedException`: the command exits with code 1, the threshold stays open, and the next run sends only the
+missing reminders. Because the threshold stays open, that next run dispatches the event again to **every** listener
+of `SecretExpiryThresholdReachedEvent`, not only to the notifier: a host listener next to it must be idempotent too.
+A delivery that no retry can fix — an address the mailer refuses (`RfcComplianceException`), or any
+`PermanentExpiryNoticeFailureException` a host channel throws — keeps its marker and is logged as a warning, never
+retried. A release that fails after a failed delivery (the database went away) leaves that reminder marked and logs
+it as lost (`critical`); the other recipients are still sent. A process killed between the claim and the send (OOM)
+skips that one reminder (at most once, as for the 1.17 threshold). A new date (a renewed secret) starts over. Two
+channels with the same `name()` are refused (a name identifies the markers of one channel).
+
+**Build-time checks.** `mail_from` must be an address when the container is built; `link_route`,
+`fallback_link_route` (and, for the default link, the bundle routes) and the template pair must exist when the cache is
+warmed (`ExpiryNoticeConfigurationCheck`, a required cache warmer: `cache:clear` / `cache:warmup` fail on a typo).
+
+**Retention.** The markers hold an opaque recipient id. Schedule
+`nowo:instance-settings:purge-expiry-notices` (it deletes the markers of expiry dates more than
+`notify.retention_days`, default 90, in the past; `--days=N` overrides it):
+
+```cron
+30 3 * * 0 cd /srv/app && php bin/console nowo:instance-settings:purge-expiry-notices --no-interaction
+```
+
+**What a mail contains.** The translated field label, the expiry date, the days left (or since), and the link built
+with `link_route` (absolute; in a console run the host comes from `framework.router.default_uri`). Never the secret,
+nor any part of it: the event carries none, and the templates receive only `credential` (the label), `expires_on`,
+`days_left`, `days_ago`, `expired`, `threshold`, `link`, `locale` and `translation_domain`. The label is escaped in the
+HTML part and line breaks are removed from the subject. Texts in the seven shipped locales (`secret_expiry_notice.*`
+in the `NowoInstanceSettingsBundle` domain), in the recipient's locale.
+
+**Templates.** Override `@NowoInstanceSettingsBundle/expiry/notice.html.twig` and `notice.txt.twig` in
+`templates/bundles/NowoInstanceSettingsBundle/expiry/`, or point `notify.mail_template` at your own pair (without the
+suffix). Do not add a secret to them.
+
+**Running it.** The same daily command as 1.17 runs the notifier (it listens to `SecretExpiryThresholdReachedEvent`):
+
+```cron
+# crontab: every day at 08:00
+0 8 * * * cd /srv/app && php bin/console nowo:instance-settings:check-expiring-secrets --no-interaction
+```
+
+or a Symfony Scheduler entry:
+
+```php
+use Symfony\Component\Console\Messenger\RunCommandMessage;
+use Symfony\Component\Scheduler\RecurringMessage;
+
+RecurringMessage::cron('0 8 * * *', new RunCommandMessage('nowo:instance-settings:check-expiring-secrets --no-interaction'));
+```
+
+Other listeners of the event keep working next to the notifier.
+
+#### Example: Symfony Beacon without `SecretExpiryReminder`
+
+Beacon's `App\Shared\Settings\Expiry\SecretExpiryReminder` (a bell notice and an e-mail to every active manager,
+developer and administrator, developers linked to the section, managers to the start page) becomes configuration, a
+recipient provider and — until Beacon's inbox runs on NotifyKit — a small channel for its own inbox:
+
+```yaml
+# config/packages/nowo_instance_settings.yaml
+nowo_instance_settings:
+    expiring_secrets:
+        enabled: true
+        thresholds: [30, 7, 1, 0]
+        warning_days: 30
+        notify:
+            enabled: true
+            days: [30, 7, 1, 0]
+            roles: [ROLE_MANAGER, ROLE_DEVELOPER]          # administrators hold ROLE_DEVELOPER
+            recipient_provider: App\Shared\Settings\Expiry\ExpiryRecipients
+            fallback_link_route: app_home_redirect         # managers cannot open Development
+            channels: { mail: auto, notify_kit: auto }     # MailKit is installed: mail; NotifyKit once adopted
+```
+
+```php
+namespace App\Shared\Settings\Expiry;
+
+use App\Identity\Repository\UserRepository;
+use App\Identity\Security\SystemRole;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipient;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipientProviderInterface;
+
+final readonly class ExpiryRecipients implements ExpiryRecipientProviderInterface
+{
+    public function __construct(private UserRepository $users)
+    {
+    }
+
+    public function expiryRecipients(array $roles): iterable
+    {
+        $byId = [];
+        foreach ($roles as $role) {
+            foreach ($this->users->findByPlatformRole(SystemRole::from($role)) as $user) {
+                $byId[(int) $user->getId()] = $user;
+            }
+        }
+        ksort($byId);
+        foreach ($byId as $user) {
+            $email = ExpiryRecipient::isValidEmail($user->getEmail()) ? $user->getEmail() : null;
+            yield new ExpiryRecipient((string) $user->getId(), $email, $user->getPreferredLocale(), SystemRole::Developer->heldBy($user->getRoles()));
+        }
+    }
+}
+```
+
+```php
+namespace App\Shared\Settings\Expiry;
+
+use App\Identity\Repository\UserRepository;
+use App\Notifications\Inbox\NotificationInbox;
+use App\Notifications\Inbox\NotificationType;
+use Doctrine\ORM\EntityManagerInterface;
+use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeChannelInterface;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeLinks;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipient;
+use Symfony\Contracts\Translation\TranslatorInterface;
+
+/** Beacon's own bell until the inbox runs on NotifyKit (then: delete this class, notify_kit: auto does it). */
+final readonly class InboxExpiryChannel implements ExpiryNoticeChannelInterface
+{
+    public function __construct(
+        private UserRepository $users,
+        private NotificationInbox $inbox,
+        private EntityManagerInterface $entityManager,
+        private TranslatorInterface $translator,
+        private ExpiryNoticeLinks $links,
+    ) {
+    }
+
+    public function name(): string
+    {
+        return 'beacon_inbox';
+    }
+
+    public function supports(ExpiryRecipient $recipient): bool
+    {
+        return true;
+    }
+
+    public function send(SecretExpiryThresholdReachedEvent $event, ExpiryRecipient $recipient): void
+    {
+        $user = $this->users->find((int) $recipient->id) ?? throw new \RuntimeException('Unknown recipient.');
+        $credential = $this->translator->trans($event->label, [], $event->translationDomain, $recipient->locale);
+        $this->inbox->record(
+            $user,
+            $event->isExpired() ? NotificationType::SECRET_EXPIRED : NotificationType::SECRET_EXPIRING,
+            null,
+            null,
+            'secret:' . $event->key() . ':' . $event->expiresOn . ':' . $event->threshold,
+            $this->links->link($event, $recipient, false) ?? '/',
+            ['target' => $credential . ' (' . $event->expiresOn . ')'],
+        );
+        $this->entityManager->flush();
+    }
+}
+```
+
+Then delete `SecretExpiryReminder`, and the `secret_expiring` / `secret_expired` rows of `EmailTemplateCatalog` once the
+bundle mail (or an override of its templates with Beacon's branded layout) replaces them. `MaintenanceSchedule` keeps
+its `'0 8 * * *' => 'nowo:instance-settings:check-expiring-secrets --no-interaction'` entry unchanged; add
+`'30 3 * * 0' => 'nowo:instance-settings:purge-expiry-notices --no-interaction'` for the marker retention.
 
 ## Image fields
 

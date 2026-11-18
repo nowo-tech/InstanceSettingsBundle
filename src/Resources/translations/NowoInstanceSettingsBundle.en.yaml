@@ -177,6 +177,19 @@ secret_expiry:
   warning_expired: "Expired on %date% (%days% day(s) ago). Replace the secret and update this date."
   notice_expiring: "“%field%” expires on %date% (in %days% day(s))."
   notice_expired: "“%field%” expired on %date% (%days% day(s) ago)."
+secret_expiry_notice:
+  subject_expiring: "%credential% expires on %date%"
+  subject_expired: "%credential% expired on %date%"
+  heading_expiring: "A stored credential expires soon"
+  heading_expired: "A stored credential has expired"
+  body_expiring: "The stored credential “%credential%” expires on %date% (in %days% day(s)). Create a new one at the provider, then replace it in the settings and set its new expiry date, or the service that uses it stops working."
+  body_today: "The stored credential “%credential%” expires today (%date%). Create a new one at the provider, then replace it in the settings and set its new expiry date, or the service that uses it stops working."
+  body_expired: "The stored credential “%credential%” expired on %date% (%days% day(s) ago). The service that uses it may no longer connect: create a new one at the provider and replace it in the settings with its new expiry date."
+  action: "Open the settings"
+  footer: "You receive this reminder because you manage this application. It never contains the credential itself."
+  notify_category: "Settings"
+  notify_expiring: "%credential% expires on %date%"
+  notify_expired: "%credential% expired on %date%"
 test:
   button: 'Test'
   button_group: 'Test %group%'

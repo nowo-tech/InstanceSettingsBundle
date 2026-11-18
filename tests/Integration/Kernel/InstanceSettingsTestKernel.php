@@ -142,6 +142,8 @@ final class InstanceSettingsTestKernel extends Kernel
             'session'               => ['storage_factory_id' => 'session.storage.factory.mock_file'],
             'translator'            => ['default_path' => '%kernel.project_dir%/tests/Fixtures/translations', 'fallbacks' => ['en']],
             'router'                => ['utf8' => true],
+            // 1.21: the expiry notifier's mail channel (sent to the null transport, kept by the message logger).
+            'mailer' => ['dsn' => 'null://null'],
         ]);
         $container->extension('twig', ['strict_variables' => true]);
         $container->extension('doctrine', [

@@ -177,6 +177,19 @@ secret_expiry:
   warning_expired: "A expiré le %date% (il y a %days% jour(s)). Remplacez le secret et mettez cette date à jour."
   notice_expiring: "« %field% » expire le %date% (dans %days% jour(s))."
   notice_expired: "« %field% » a expiré le %date% (il y a %days% jour(s))."
+secret_expiry_notice:
+  subject_expiring: "%credential% expire le %date%"
+  subject_expired: "%credential% a expiré le %date%"
+  heading_expiring: "Un identifiant enregistré expire bientôt"
+  heading_expired: "Un identifiant enregistré a expiré"
+  body_expiring: "L’identifiant enregistré « %credential% » expire le %date% (dans %days% jour(s)). Créez-en un nouveau chez le fournisseur, remplacez-le dans les paramètres et indiquez sa nouvelle date d’expiration, sinon le service qui l’utilise cessera de fonctionner."
+  body_today: "L’identifiant enregistré « %credential% » expire aujourd’hui (%date%). Créez-en un nouveau chez le fournisseur, remplacez-le dans les paramètres et indiquez sa nouvelle date d’expiration, sinon le service qui l’utilise cessera de fonctionner."
+  body_expired: "L’identifiant enregistré « %credential% » a expiré le %date% (il y a %days% jour(s)). Le service qui l’utilise ne se connecte peut-être plus : créez-en un nouveau chez le fournisseur et remplacez-le dans les paramètres avec sa nouvelle date d’expiration."
+  action: "Ouvrir les paramètres"
+  footer: "Vous recevez ce rappel parce que vous gérez cette application. Il ne contient jamais l’identifiant lui-même."
+  notify_category: "Paramètres"
+  notify_expiring: "%credential% expire le %date%"
+  notify_expired: "%credential% a expiré le %date%"
 test:
   button: 'Tester'
   button_group: 'Tester %group%'

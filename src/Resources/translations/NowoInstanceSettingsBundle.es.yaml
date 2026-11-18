@@ -177,6 +177,19 @@ secret_expiry:
   warning_expired: "Caducó el %date% (hace %days% día(s)). Sustituye el secreto y actualiza esta fecha."
   notice_expiring: "“%field%” caduca el %date% (dentro de %days% día(s))."
   notice_expired: "“%field%” caducó el %date% (hace %days% día(s))."
+secret_expiry_notice:
+  subject_expiring: "%credential% caduca el %date%"
+  subject_expired: "%credential% caducó el %date%"
+  heading_expiring: "Una credencial guardada caduca pronto"
+  heading_expired: "Una credencial guardada ha caducado"
+  body_expiring: "La credencial guardada «%credential%» caduca el %date% (dentro de %days% día(s)). Crea una nueva en el proveedor, sustitúyela en la configuración e indica su nueva fecha de caducidad, o el servicio que la usa dejará de funcionar."
+  body_today: "La credencial guardada «%credential%» caduca hoy (%date%). Crea una nueva en el proveedor, sustitúyela en la configuración e indica su nueva fecha de caducidad, o el servicio que la usa dejará de funcionar."
+  body_expired: "La credencial guardada «%credential%» caducó el %date% (hace %days% día(s)). Puede que el servicio que la usa ya no conecte: crea una nueva en el proveedor y sustitúyela en la configuración con su nueva fecha de caducidad."
+  action: "Abrir la configuración"
+  footer: "Recibes este aviso porque gestionas esta aplicación. Nunca incluye la credencial."
+  notify_category: "Configuración"
+  notify_expiring: "%credential% caduca el %date%"
+  notify_expired: "%credential% caducó el %date%"
 test:
   button: 'Probar'
   button_group: 'Probar %group%'
