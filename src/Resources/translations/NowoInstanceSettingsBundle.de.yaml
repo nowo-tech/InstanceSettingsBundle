@@ -177,6 +177,19 @@ secret_expiry:
   warning_expired: "Am %date% abgelaufen (vor %days% Tag(en)). Ersetzen Sie das Geheimnis und aktualisieren Sie dieses Datum."
   notice_expiring: "„%field%“ läuft am %date% ab (in %days% Tag(en))."
   notice_expired: "„%field%“ ist am %date% abgelaufen (vor %days% Tag(en))."
+secret_expiry_notice:
+  subject_expiring: "%credential% läuft am %date% ab"
+  subject_expired: "%credential% ist am %date% abgelaufen"
+  heading_expiring: "Ein gespeicherter Zugangsschlüssel läuft bald ab"
+  heading_expired: "Ein gespeicherter Zugangsschlüssel ist abgelaufen"
+  body_expiring: "Der gespeicherte Zugangsschlüssel „%credential%“ läuft am %date% ab (in %days% Tag(en)). Erstellen Sie beim Anbieter einen neuen, ersetzen Sie ihn in den Einstellungen und tragen Sie das neue Ablaufdatum ein, sonst funktioniert der Dienst, der ihn nutzt, nicht mehr."
+  body_today: "Der gespeicherte Zugangsschlüssel „%credential%“ läuft heute ab (%date%). Erstellen Sie beim Anbieter einen neuen, ersetzen Sie ihn in den Einstellungen und tragen Sie das neue Ablaufdatum ein, sonst funktioniert der Dienst, der ihn nutzt, nicht mehr."
+  body_expired: "Der gespeicherte Zugangsschlüssel „%credential%“ ist am %date% abgelaufen (vor %days% Tag(en)). Der Dienst, der ihn nutzt, verbindet sich möglicherweise nicht mehr: Erstellen Sie beim Anbieter einen neuen und ersetzen Sie ihn in den Einstellungen mit seinem neuen Ablaufdatum."
+  action: "Einstellungen öffnen"
+  footer: "Sie erhalten diese Erinnerung, weil Sie diese Anwendung verwalten. Sie enthält nie den Zugangsschlüssel selbst."
+  notify_category: "Einstellungen"
+  notify_expiring: "%credential% läuft am %date% ab"
+  notify_expired: "%credential% ist am %date% abgelaufen"
 test:
   button: 'Testen'
   button_group: '%group% testen'

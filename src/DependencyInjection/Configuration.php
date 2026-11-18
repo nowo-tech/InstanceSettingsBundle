@@ -433,6 +433,78 @@ final class Configuration implements ConfigurationInterface
                         ->thenInvalid('nowo_instance_settings.expiring_secrets.timezone must be a timezone identifier such as "Europe/Madrid", got %s.')
                     ->end()
                 ->end()
+                ->append($this->expiryNotifyNode())
+            ->end();
+
+        return $node;
+    }
+
+    /**
+     * `expiring_secrets.notify` (1.21, KIT-88): the default expiry notifier (mail through MailKit, the NotifyKit bell).
+     */
+    private function expiryNotifyNode(): ArrayNodeDefinition
+    {
+        $node = (new TreeBuilder('notify'))->getRootNode();
+        $node
+            ->info('Default expiry notifier (1.21): a mail and / or a NotifyKit bell notification to the people holding notify.roles at notify.days before a stored secret expires, once per secret, threshold and recipient. Off by default. Needs expiring_secrets.enabled.')
+            ->addDefaultsIfNotSet()
+            ->children()
+                ->booleanNode('enabled')
+                    ->info('Registers the notifier and maps its sent-marker table (instance_setting_secret_expiry_notice). Off by default: no schema change. Literal boolean only.')
+                    ->defaultFalse()
+                ->end()
+                ->arrayNode('days')
+                    ->info('Thresholds that notify (each one of expiring_secrets.thresholds); 0 = on the day and once expired.')
+                    ->integerPrototype()->min(0)->max(3650)->end()
+                    ->defaultValue([30, 7, 1, 0])
+                    ->validate()
+                        ->ifTrue(static fn (array $v): bool => $v === [] || count($v) !== count(array_unique($v)))
+                        ->thenInvalid('nowo_instance_settings.expiring_secrets.notify.days must be a non-empty list of distinct day counts, got %s.')
+                    ->end()
+                ->end()
+                ->arrayNode('roles')
+                    ->info('Roles whose holders receive the reminders, passed to the recipient provider. Empty = security.access_roles (the people who open the settings).')
+                    ->scalarPrototype()->cannotBeEmpty()->end()
+                    ->defaultValue([])
+                ->end()
+                ->scalarNode('recipient_provider')
+                    ->info('Service id implementing Expiry\\Notify\\ExpiryRecipientProviderInterface: the active users holding any of the roles (the bundle has no user model). Required when enabled.')
+                    ->defaultNull()
+                ->end()
+                ->scalarNode('mail_template')
+                    ->info('Twig template of the reminder mail without the suffix: <mail_template>.html.twig and <mail_template>.txt.twig.')
+                    ->defaultValue('@NowoInstanceSettingsBundle/expiry/notice')
+                    ->cannotBeEmpty()
+                ->end()
+                ->scalarNode('mail_from')
+                    ->info('From address of the reminder mail. Null = the mailer\'s (MailKit fills it from its settings).')
+                    ->defaultNull()
+                ->end()
+                ->scalarNode('link_route')
+                    ->info('Route of the link (gets the "section" parameter). Null = the section\'s settings page (no link without web_ui).')
+                    ->defaultNull()
+                ->end()
+                ->scalarNode('fallback_link_route')
+                    ->info('Route (no parameters) of the link for recipients who cannot open the settings (ExpiryRecipient::$canOpenSettings false). Null = no link.')
+                    ->defaultNull()
+                ->end()
+                ->arrayNode('channels')
+                    ->info('auto: mail when nowo-tech/mail-kit-bundle is installed, the bell when nowo-tech/notify-kit-bundle is; on: required (mail needs symfony/mailer); off: never.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->enumNode('mail')->values(['auto', 'on', 'off'])->defaultValue('auto')->end()
+                        ->enumNode('notify_kit')->values(['auto', 'on', 'off'])->defaultValue('auto')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('notify_kit')
+                    ->info('NotifyKit bell channel options.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('recipient_type')->info('NotifyKit recipient type of ExpiryRecipient ids.')->defaultValue('user')->cannotBeEmpty()->end()
+                        ->scalarNode('category')->info('NotifyKit category of the two types.')->defaultValue('instance_settings')->cannotBeEmpty()->end()
+                        ->booleanNode('declare_category')->info('Declare the category (false: the host declares it).')->defaultTrue()->end()
+                    ->end()
+                ->end()
             ->end();
 
         return $node;

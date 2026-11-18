@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+  - [Opt in: the default expiry notifier (`expiring_secrets.notify`)](#opt-in-the-default-expiry-notifier-expiring_secretsnotify)
 - [To 1.20.0](#to-1200)
   - [Opt in: runtime settings (`runtime_setting.enabled`)](#opt-in-runtime-settings-runtime_settingenabled)
 - [To 1.19.1](#to-1191)
@@ -49,6 +50,31 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+Target 1.21.0, from **1.20.0**. Nothing changes until you opt in: without `expiring_secrets.notify.enabled` no service,
+table or schema change is added (`migrations:diff` stays empty).
+
+### Opt in: the default expiry notifier (`expiring_secrets.notify`)
+
+1. It needs `expiring_secrets.enabled: true` (1.17). Enable it in the host configuration (not in a prepended one):
+   the sent-marker table is mapped in the bundle's prepend step, and a flag prepended later fails the build.
+2. Implement `Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipientProviderInterface` (your active users holding
+   any of the roles) and set `notify.recipient_provider` to its service id.
+3. Pick the channels: with nowo-tech/mail-kit-bundle registered the mail goes out by default (`channels.mail: auto`);
+   without MailKit set `channels.mail: on` and a sender (`notify.mail_from`). With nowo-tech/notify-kit-bundle
+   (>= 0.1.1) registered, the bell is on by default; its category `instance_settings` is declared by the bundle
+   (`notify.notify_kit.declare_category: false` if you declare it yourself). A service implementing
+   `ExpiryNoticeChannelInterface` is a channel too.
+4. Generate and run a migration: `instance_setting_secret_expiry_notice` (`notice_key` CHAR(64) primary key, section,
+   name, expires_on, threshold, channel, recipient, sent_at), with your `doctrine.table_prefix`, on
+   `doctrine.entity_manager` when set.
+5. Set `framework.router.default_uri` so the links in the mails are absolute URLs of your site when the command runs
+   from cron.
+6. A host listener of `SecretExpiryThresholdReachedEvent` that sent the same reminders (Symfony Beacon's
+   `SecretExpiryReminder`) must go, or the people get them twice. See the Beacon example in
+   [USAGE](USAGE.md#example-symfony-beacon-without-secretexpiryreminder).
+
+The schedule is unchanged: `nowo:instance-settings:check-expiring-secrets` once a day.
 
 ## To 1.20.0
 

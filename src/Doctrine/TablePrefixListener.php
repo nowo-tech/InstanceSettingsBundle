@@ -19,8 +19,8 @@ use function str_starts_with;
  */
 final readonly class TablePrefixListener
 {
-    /** Namespaces of the bundle entities: the settings table, the opt-in file table (1.4) and expiry table (1.17). */
-    private const ENTITY_NAMESPACES = ['Nowo\\InstanceSettingsBundle\\Entity\\', 'Nowo\\InstanceSettingsBundle\\FileEntity\\', 'Nowo\\InstanceSettingsBundle\\ExpiryEntity\\', 'Nowo\\InstanceSettingsBundle\\RuntimeEntity\\'];
+    /** Namespaces of the bundle entities: the settings table, the opt-in file (1.4), expiry (1.17), runtime (1.20) and sent-marker (1.21) tables. */
+    private const ENTITY_NAMESPACES = ['Nowo\\InstanceSettingsBundle\\Entity\\', 'Nowo\\InstanceSettingsBundle\\FileEntity\\', 'Nowo\\InstanceSettingsBundle\\ExpiryEntity\\', 'Nowo\\InstanceSettingsBundle\\RuntimeEntity\\', 'Nowo\\InstanceSettingsBundle\\ExpiryNoticeEntity\\'];
 
     /**
      * @param string $prefix table prefix (e.g. `app_`); empty = unprefixed names

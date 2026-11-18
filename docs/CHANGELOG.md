@@ -40,6 +40,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Default expiry notifier** (KIT-88, Symfony Beacon re-audit), opt-in with `expiring_secrets.notify.enabled: true`: every `SecretExpiryThresholdReachedEvent` of one of `notify.days` (default 30, 7, 1, 0) becomes a reminder for each person holding `notify.roles` (default `security.access_roles`), listed by the host through `Expiry\Notify\ExpiryRecipientProviderInterface` (`notify.recipient_provider`)
+- Channels, all optional bridges: an e-mail through the application mailer (MailKit's when nowo-tech/mail-kit-bundle is registered; `channels.mail: on` for plain symfony/mailer), a NotifyKit bell notification when nowo-tech/notify-kit-bundle (>= 0.1.1) is registered (types `instance_settings.secret_expiring` / `instance_settings.secret_expired`), and any host service implementing `Expiry\Notify\ExpiryNoticeChannelInterface` (autoconfigured, tag `nowo_instance_settings.expiry_channel`); the build fails when the notifier has no channel
+- At most once per secret, expiry date, threshold, channel and recipient: a sent-marker table `instance_setting_secret_expiry_notice` (mapped only with the flag, primary key = SHA-256 of the reminder) is claimed before each send, across workers, restarts and parallel cron runs; a failed delivery releases its marker and makes `nowo:instance-settings:check-expiring-secrets` exit 1 so only the missing reminders are retried
+- Overridable mail templates `@NowoInstanceSettingsBundle/expiry/notice.html.twig` and `notice.txt.twig` (`notify.mail_template`), with the `secret_expiry_notice.*` texts in the seven shipped locales; they name the setting, the date and a link (`notify.link_route`, `notify.fallback_link_route`), never the secret
+- Dev dependencies `symfony/mailer` and `nowo-tech/notify-kit-bundle`; `conflict` with notify-kit-bundle < 0.1.1
+
 ### Changed
 
 - README: `## Screenshots` moved to the mid-body slot after `## Usage` (REQ-DOCS-019)

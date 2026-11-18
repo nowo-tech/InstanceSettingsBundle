@@ -2,9 +2,9 @@
 
 **Baseline spec**: [`spec.md`](spec.md)  
 **Package**: `nowo-tech/instance-settings-bundle`  
-**Last audited**: 2026-11-17
+**Last audited**: 2026-11-18
 
-Scope: every file under `src/`. Audit command: `git ls-files src | wc -l` → **205**.
+Scope: every file under `src/`. Audit command: `git ls-files src | wc -l` → **221**.
 
 ## Bundle and dependency injection
 
@@ -224,6 +224,22 @@ These 115 `src/` files were added by releases after the last review. Each row ma
 | `src/Expiry/SecretExpiryRecord.php` | One stored expiry date (1.17), the value object of SecretExpiryStoreInterface: section, field name, date and the last... | FR-EXPIRY-001 |
 | `src/Expiry/SecretExpiryStoreInterface.php` | Storage of the expiry dates of expiring secrets (1.17): the bundle's own store, framework-free (dates and SecretExpir... | FR-EXPIRY-001 |
 | `src/ExpiryEntity/SecretExpiry.php` | Expiry date of one expiring secret field (1.17), stored next to its secret: one row per `(section, name)`.  Mapped on... | FR-EXPIRY-001 |
+| `src/Expiry/Notify/DoctrineExpiryNoticeStore.php` | Database sent-markers of the expiry reminders (table `instance_setting_secret_expiry_notice`, 1.21): one INSERT per claim, primary key = reminder hash. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryNoticeChannelInterface.php` | One way of delivering an expiry reminder (1.21): mail, NotifyKit bell or a host channel. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryNoticeFailedException.php` | Some reminders of one threshold could not be delivered (1.21); the checker keeps the threshold open. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryNoticeKey.php` | Identity of one expiry reminder (1.21): secret, date, threshold, channel, recipient; SHA-256 hash. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryNoticeLinks.php` | The link of an expiry reminder (1.21): `link_route` with the section, or `fallback_link_route`. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryNoticeStoreInterface.php` | Sent-markers of the expiry reminders (1.21): claim before send, release on failure. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryRecipient.php` | One person who receives the expiry reminders (1.21): id, e-mail, locale, settings access. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryRecipientProviderInterface.php` | Host port of the default expiry notifier (1.21): the active users holding the roles. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/MailExpiryNoticeChannel.php` | Mail channel of the default expiry notifier (1.21): HTML + text templates through the application mailer (MailKit). | FR-EXPIRY-002 |
+| `src/Expiry/Notify/NotifyKitExpiryNoticeChannel.php` | NotifyKit channel of the default expiry notifier (1.21): one bell notification per recipient. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/NotifyKitExpiryTypeProvider.php` | Declares the two NotifyKit types of the expiry reminders and their category (1.21). | FR-EXPIRY-002 |
+| `src/Expiry/Notify/SecretExpiryNotifier.php` | The default expiry notifier (1.21, KIT-88): each threshold once per secret, channel and recipient. | FR-EXPIRY-002 |
+| `src/ExpiryNoticeEntity/SecretExpiryNotice.php` | Sent-marker of one expiry reminder (1.21); mapped only with `expiring_secrets.notify.enabled`. | FR-EXPIRY-002 |
+| `src/DependencyInjection/Compiler/ExpiryNoticeChannelPass.php` | Fails the build when the default expiry notifier is on without any channel (1.21). | FR-EXPIRY-002 |
+| `src/Resources/views/expiry/notice.html.twig` | Expiry reminder e-mail, HTML part (1.21); overridable, never the secret. | FR-EXPIRY-002 |
+| `src/Resources/views/expiry/notice.txt.twig` | Expiry reminder e-mail, text part (1.21); overridable, never the secret. | FR-EXPIRY-002 |
 | `src/File/FileStoreTransaction.php` | [004](../004-image-fields/spec.md): Runs a callback in a database transaction of the setting repository and, for a StagedSettingFileStoreInterface, in a... | FR-FILE-001 |
 | `src/File/FilesystemSettingFileStore.php` | [004](../004-image-fields/spec.md): Filesystem store of the image setting files (1.7, owner decision D-20261109-03; opt-in with `files.store: filesystem`... | FR-FILE-001 |
 | `src/File/ImageMetadataStripper.php` | [004](../004-image-fields/spec.md): Removes metadata and trailing data from a PNG, JPEG or WebP **without touching the pixel data** (1.7.1): the kept seg... | FR-FILE-001 |
@@ -294,6 +310,6 @@ These 115 `src/` files were added by releases after the last review. Each row ma
 
 ## Totals
 
-- Mapped files: **205** of the 205 files under `src/` (re-audited 2026-11-17).
+- Mapped files: **221** of the 221 files under `src/` (re-audited 2026-11-18).
 - FR-RS-001..005 (1.20, runtime settings): source, writer, section version tokens, admin guard, ports binding; see the linked docs.
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

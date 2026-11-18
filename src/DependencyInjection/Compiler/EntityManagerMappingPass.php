@@ -47,6 +47,9 @@ final class EntityManagerMappingPass implements CompilerPassInterface
     /** Namespace of the runtime-setting entities (1.20, mapped with `runtime_setting.enabled` only). */
     public const RUNTIME_ENTITY_NAMESPACE = 'Nowo\\InstanceSettingsBundle\\RuntimeEntity';
 
+    /** Namespace of the expiry notifier's sent-marker entity (1.21, mapped with `expiring_secrets.notify.enabled` only). */
+    public const NOTICE_ENTITY_NAMESPACE = 'Nowo\\InstanceSettingsBundle\\ExpiryNoticeEntity';
+
     /**
      * @param bool $checkOnly only check that the manager exists (registered before the mapping passes, which would
      *                        otherwise fail on its missing driver chain with a less helpful message)
@@ -89,7 +92,7 @@ final class EntityManagerMappingPass implements CompilerPassInterface
             $maps  = false;
             foreach ($chain->getMethodCalls() as $call) {
                 $namespace = $call[0] === 'addDriver' ? ($call[1][1] ?? null) : null;
-                $isBundle  = is_string($namespace) && (str_starts_with($namespace, self::ENTITY_NAMESPACE) || str_starts_with($namespace, self::FILE_ENTITY_NAMESPACE) || str_starts_with($namespace, self::EXPIRY_ENTITY_NAMESPACE) || str_starts_with($namespace, self::RUNTIME_ENTITY_NAMESPACE));
+                $isBundle  = is_string($namespace) && (str_starts_with($namespace, self::ENTITY_NAMESPACE) || str_starts_with($namespace, self::FILE_ENTITY_NAMESPACE) || str_starts_with($namespace, self::EXPIRY_ENTITY_NAMESPACE) || str_starts_with($namespace, self::RUNTIME_ENTITY_NAMESPACE) || str_starts_with($namespace, self::NOTICE_ENTITY_NAMESPACE));
                 if ($isBundle && $manager !== $name) {
                     continue;
                 }
@@ -106,6 +109,7 @@ final class EntityManagerMappingPass implements CompilerPassInterface
                     ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::FILE_ENTITY_NAMESPACE]],
                     ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::EXPIRY_ENTITY_NAMESPACE]],
                     ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::RUNTIME_ENTITY_NAMESPACE]],
+                    ['addDriver', [new Definition(ExcludedEntityNamespaceDriver::class), self::NOTICE_ENTITY_NAMESPACE]],
                 );
             }
 

@@ -177,6 +177,19 @@ secret_expiry:
   warning_expired: "Verlopen op %date% (%days% dag(en) geleden). Vervang het geheim en werk deze datum bij."
   notice_expiring: "“%field%” verloopt op %date% (over %days% dag(en))."
   notice_expired: "“%field%” is verlopen op %date% (%days% dag(en) geleden)."
+secret_expiry_notice:
+  subject_expiring: "%credential% verloopt op %date%"
+  subject_expired: "%credential% is verlopen op %date%"
+  heading_expiring: "Een opgeslagen toegangsgegeven verloopt binnenkort"
+  heading_expired: "Een opgeslagen toegangsgegeven is verlopen"
+  body_expiring: "Het opgeslagen toegangsgegeven “%credential%” verloopt op %date% (over %days% dag(en)). Maak een nieuw aan bij de aanbieder, vervang het in de instellingen en vul de nieuwe vervaldatum in, anders werkt de dienst die het gebruikt niet meer."
+  body_today: "Het opgeslagen toegangsgegeven “%credential%” verloopt vandaag (%date%). Maak een nieuw aan bij de aanbieder, vervang het in de instellingen en vul de nieuwe vervaldatum in, anders werkt de dienst die het gebruikt niet meer."
+  body_expired: "Het opgeslagen toegangsgegeven “%credential%” is verlopen op %date% (%days% dag(en) geleden). De dienst die het gebruikt maakt mogelijk geen verbinding meer: maak een nieuw aan bij de aanbieder en vervang het in de instellingen met de nieuwe vervaldatum."
+  action: "Instellingen openen"
+  footer: "U ontvangt deze herinnering omdat u deze applicatie beheert. Het toegangsgegeven zelf staat er nooit in."
+  notify_category: "Instellingen"
+  notify_expiring: "%credential% verloopt op %date%"
+  notify_expired: "%credential% is verlopen op %date%"
 test:
   button: 'Testen'
   button_group: '%group% testen'

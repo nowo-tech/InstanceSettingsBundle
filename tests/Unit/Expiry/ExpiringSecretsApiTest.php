@@ -266,9 +266,12 @@ final class ExpiringSecretsApiTest extends TestCase
     public function testConfiguration(): void
     {
         $defaults = (new Processor())->processConfiguration(new Configuration(), [[]]);
+        // 1.21: the notifier subtree is asserted by ExpiryNotifierConfigurationTest.
+        unset($defaults['expiring_secrets']['notify']);
         self::assertSame(['enabled' => false, 'thresholds' => [30, 7, 1, 0], 'warning' => true, 'warning_days' => 30, 'timezone' => null], $defaults['expiring_secrets']);
 
         $custom = (new Processor())->processConfiguration(new Configuration(), [['expiring_secrets' => ['enabled' => true, 'thresholds' => [14, 0], 'warning' => false, 'warning_days' => 7, 'timezone' => 'Europe/Madrid']]]);
+        unset($custom['expiring_secrets']['notify']);
         self::assertSame(['enabled' => true, 'thresholds' => [14, 0], 'warning' => false, 'warning_days' => 7, 'timezone' => 'Europe/Madrid'], $custom['expiring_secrets']);
 
         foreach ([['thresholds' => []], ['thresholds' => [7, 7]], ['thresholds' => [-1]], ['timezone' => 'Mars/Olympus'], ['timezone' => 3], ['warning_days' => 4000]] as $invalid) {

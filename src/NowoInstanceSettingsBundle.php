@@ -8,6 +8,7 @@ use Doctrine\Bundle\DoctrineBundle\DependencyInjection\Compiler\DoctrineOrmMappi
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\BrandBridgePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\CsrfProtectionPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\EntityManagerMappingPass;
+use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\ExpiryNoticeChannelPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileStoreMiddlewarePass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\FileSupportPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\RuntimeSettingPortsPass;
@@ -46,6 +47,9 @@ final class NowoInstanceSettingsBundle extends Bundle
     /** Service tag of the portability providers ({@see Portability\PortabilityProviderInterface}). */
     public const PORTABILITY_PROVIDER_TAG = 'nowo_instance_settings.portability_provider';
 
+    /** Tag of the expiry notifier channels (1.21; autoconfigured from Expiry\Notify\ExpiryNoticeChannelInterface). */
+    public const EXPIRY_CHANNEL_TAG = 'nowo_instance_settings.expiry_channel';
+
     /**
      * Registers the compiler passes: Twig paths, CSRF and encryption fail-closed guards, demo-only unauthenticated access, the brand bridge, section tags.
      */
@@ -57,6 +61,8 @@ final class NowoInstanceSettingsBundle extends Bundle
         $container->addCompilerPass(new UnauthenticatedAccessPass());
         $container->addCompilerPass(new SecretEncryptionPass());
         $container->addCompilerPass(new FileSupportPass());
+        // 1.21: the expiry notifier needs at least one channel (built-in or the host's).
+        $container->addCompilerPass(new ExpiryNoticeChannelPass());
         // 1.5 brand bridge: takes UiKit's appearance provider over when the host set none (either pass order).
         $container->addCompilerPass(new BrandBridgePass());
         // Before the tagged iterators are resolved (PassConfig::TYPE_BEFORE_OPTIMIZATION, priority 10).
@@ -92,6 +98,12 @@ final class NowoInstanceSettingsBundle extends Bundle
             [__DIR__ . '/RuntimeEntity'],
             [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
             NowoInstanceSettingsExtension::DEDICATED_RUNTIME_MAPPING_PARAMETER,
+        ));
+        $container->addCompilerPass(DoctrineOrmMappingsPass::createAttributeMappingDriver(
+            [EntityManagerMappingPass::NOTICE_ENTITY_NAMESPACE],
+            [__DIR__ . '/ExpiryNoticeEntity'],
+            [FileStoreMiddlewarePass::ENTITY_MANAGER_PARAMETER],
+            NowoInstanceSettingsExtension::DEDICATED_NOTICE_MAPPING_PARAMETER,
         ));
         // 1.20: runtime-setting-contract ports bound to the instance settings only when nothing else is (before the
         // contract's default-ports pass), and the admin validation of the registered settings.

@@ -25,6 +25,7 @@
   - [Error page illustrations (1.13)](#error-page-illustrations-113)
 - [Runtime settings (1.20)](#runtime-settings-120)
 - [Expiring secrets (1.17)](#expiring-secrets-117)
+  - [Default expiry notifier (1.21, `expiring_secrets.notify`)](#default-expiry-notifier-121-expiring_secretsnotify)
 - [FormKit profile](#formkit-profile)
 - [Encryption (DoctrineEncryptBundle)](#encryption-doctrineencryptbundle)
 - [Profiles](#profiles)
@@ -106,9 +107,20 @@ nowo_instance_settings:
         warning: true                  # warn on the section page and next to the field
         warning_days: 30               # … from this many days before the date (and once expired)
         timezone: null                 # zone of "today" (null = the PHP default zone)
+        notify:                        # 1.21: the default expiry notifier (mail / NotifyKit bell / host channels)
+            enabled: false             # opt-in: maps instance_setting_secret_expiry_notice and registers the notifier
+            days: [30, 7, 1, 0]        # thresholds that notify (each one of thresholds)
+            roles: []                  # [] = security.access_roles
+            recipient_provider: null   # service id of an ExpiryRecipientProviderInterface (required when enabled)
+            mail_template: '@NowoInstanceSettingsBundle/expiry/notice'   # + .html.twig / .txt.twig
+            mail_from: null            # null = the mailer's (MailKit)
+            link_route: null           # null = the section's settings page
+            fallback_link_route: null  # for recipients who cannot open the settings
+            channels: { mail: auto, notify_kit: auto }   # auto | on | off
+            notify_kit: { recipient_type: user, category: instance_settings, declare_category: true }
 ```
 
-Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled`, `brand.enabled` and `expiring_secrets.enabled` (1.17) must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
+Unknown keys are rejected. Security switches (`web_ui.enabled`, `security.allow_unauthenticated`, `portability.web_ui`, `portability.sealed_secrets`), `files.enabled`, `brand.enabled`, `expiring_secrets.enabled` (1.17) and `expiring_secrets.notify.enabled` (1.21) must be literal booleans: `%env(bool:…)%` placeholders are refused because they would read as `true` while the container is built. Set `files.enabled` and `brand.enabled` in the host's `nowo_instance_settings` config (or from a bundle that prepends before InstanceSettings): they are read in InstanceSettings' own prepend step to map the file entity, and since 1.5 a value prepended later makes the container refuse to compile with a clear message (audit IO-I10; 1.4 failed later, with a Doctrine mapping error on the first image save).
 
 ## doctrine
 
@@ -946,6 +958,30 @@ declaring `expires: true` fails closed when the definitions load. See [USAGE](US
 Schedule the command daily (cron or Symfony Scheduler), e.g. `0 8 * * * php bin/console nowo:instance-settings:check-expiring-secrets`.
 Running it more often is harmless: an announced threshold is stored next to the date. `--dry-run` lists what is due.
 
+### Default expiry notifier (1.21, `expiring_secrets.notify`)
+
+The bundle's own reminders (KIT-88): mail, NotifyKit bell and host channels, once per secret, threshold and recipient.
+See [USAGE](USAGE.md#default-expiry-notifier-121).
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `enabled` | `false` | Maps `instance_setting_secret_expiry_notice` (mapping `NowoInstanceSettingsExpiryNotice`) and registers `Expiry\Notify\SecretExpiryNotifier` (listener of `SecretExpiryThresholdReachedEvent`), `ExpiryNoticeStoreInterface` (`DoctrineExpiryNoticeStore`), the channels and `ExpiryNoticeLinks`. Needs `expiring_secrets.enabled: true`. Literal boolean only, read in the prepend step. Add the migration ([UPGRADING](UPGRADING.md#unreleased)). |
+| `days` | `[30, 7, 1, 0]` | Thresholds that notify; each must be one of `expiring_secrets.thresholds` (else the build fails). |
+| `roles` | `[]` | Passed to the recipient provider. Empty: `security.access_roles`. |
+| `recipient_provider` | `null` | Service id implementing `ExpiryRecipientProviderInterface`. Required when enabled. |
+| `mail_template` | `'@NowoInstanceSettingsBundle/expiry/notice'` | Template pair without the suffix (`.html.twig`, `.txt.twig`). |
+| `mail_from` | `null` | `From` of the mail; null = the mailer's (MailKit sets it from its settings). |
+| `link_route` | `null` | Route of the link, with the `section` parameter. Null: the section's settings page (`nowo_instance_settings_section`), none without `web_ui`. |
+| `fallback_link_route` | `null` | Route (no parameters) for recipients with `canOpenSettings: false`. Null: no link (the bell links to `/`). |
+| `channels.mail` | `auto` | `auto`: on when nowo-tech/mail-kit-bundle is registered; `on`: needs symfony/mailer; `off`. |
+| `channels.notify_kit` | `auto` | `auto`: on when nowo-tech/notify-kit-bundle is registered; `on`: the same, or the build fails; `off`. |
+| `notify_kit.recipient_type` | `user` | NotifyKit recipient type of the recipient ids. |
+| `notify_kit.category` | `instance_settings` | NotifyKit category of the two types. |
+| `notify_kit.declare_category` | `true` | `false` when the host declares that category itself. |
+
+Host channels: any service implementing `Expiry\Notify\ExpiryNoticeChannelInterface` (autoconfigured, tag
+`nowo_instance_settings.expiry_channel`). The build fails when the notifier has no channel.
+
 ## FormKit profile
 
 The forms are FormKit types bound to the profile **`nowo_form_kit.profiles.instance_settings`** (REQ-TWIG-005 rule 11), prepended by the bundle with: translation domain `NowoInstanceSettingsBundle`, `auto_help: false`, `auto_placeholder: false`, no framework classes (the UiKit settings scaffold theme paints the fields). Define the profile yourself to change it; the bundle then prepends nothing:
@@ -1019,6 +1055,7 @@ The container refuses to compile when:
 - `files.enabled` or `brand.enabled` was prepended after this bundle, so the file entity is not mapped (1.5, audit IO-I10);
 - `expiring_secrets.enabled` was prepended after this bundle, so the expiry entity is not mapped (1.17);
 - `expiring_secrets.thresholds` is empty or repeats a value, or `expiring_secrets.timezone` is not a zone (1.17);
+- `expiring_secrets.notify.enabled` without `expiring_secrets.enabled`, without `recipient_provider`, with a day that is not a threshold, with no roles at all, with a channel `on` that is not installed, with no channel, or prepended after this bundle (1.21);
 - `brand.enabled` is true and the host defines its own `BrandProviderInterface` service or alias (two brands, 1.5,
   audit IU-I2);
 - `brand.enabled` is true without `nowo-tech/brand-contracts`, without `brand.defaults.name`, or with a default asset

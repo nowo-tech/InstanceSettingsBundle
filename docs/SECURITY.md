@@ -186,6 +186,17 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
   row is a plain date input; the reveal endpoint, `reveal_on_toggle` and the Turbo / `pagehide` clearing of revealed
   values are unchanged. Field labels in the warnings are translated and escaped by Twig.
 
+- **Expiry reminders (1.21, `expiring_secrets.notify`).** A reminder names the setting (its translated label), the
+  expiry date, the days left and a link; it never carries the secret or any part of it: the threshold event holds
+  none, the channels read none, and the templates receive only those values (tests render every locale and assert the
+  stored value never appears in the mail, the bell notification, the markers or the logs). The label is host text:
+  escaped in the HTML part, line breaks removed from the subject. The link comes from the host's routes
+  (`link_route`, `fallback_link_route`), never from request data. An overridden template must not add a secret. The
+  sent-marker table holds the setting, the date, the threshold, the channel and an opaque recipient id (personal data
+  of the host's users: cover it with your retention), never an address or the secret. A failed delivery is logged with
+  the setting, date, threshold, channel, recipient id and exception class only. Recipients come only from the host's
+  `ExpiryRecipientProviderInterface`: the bundle never guesses who may read about a credential.
+
 - **Locked stored secrets (1.17, `web_ui.reveal_in_input`).** The stored value is shown in the input itself, so it
   is a form control while shown: the script hides it on every exit path (second click, 60 s, hidden page, `pagehide`,
   `turbo:before-cache`, submit), blanks it in every form data set (`formdata` event, so also `new FormData(form)`),

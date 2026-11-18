@@ -177,6 +177,19 @@ secret_expiry:
   warning_expired: "Expirou em %date% (há %days% dia(s)). Substitua o segredo e atualize esta data."
   notice_expiring: "“%field%” expira em %date% (dentro de %days% dia(s))."
   notice_expired: "“%field%” expirou em %date% (há %days% dia(s))."
+secret_expiry_notice:
+  subject_expiring: "%credential% expira em %date%"
+  subject_expired: "%credential% expirou em %date%"
+  heading_expiring: "Uma credencial guardada expira em breve"
+  heading_expired: "Uma credencial guardada expirou"
+  body_expiring: "A credencial guardada “%credential%” expira em %date% (dentro de %days% dia(s)). Crie uma nova no fornecedor, substitua-a nas definições e indique a nova data de expiração, ou o serviço que a utiliza deixará de funcionar."
+  body_today: "A credencial guardada “%credential%” expira hoje (%date%). Crie uma nova no fornecedor, substitua-a nas definições e indique a nova data de expiração, ou o serviço que a utiliza deixará de funcionar."
+  body_expired: "A credencial guardada “%credential%” expirou em %date% (há %days% dia(s)). O serviço que a utiliza pode já não ligar: crie uma nova no fornecedor e substitua-a nas definições com a nova data de expiração."
+  action: "Abrir as definições"
+  footer: "Recebe este lembrete porque gere esta aplicação. Nunca contém a própria credencial."
+  notify_category: "Definições"
+  notify_expiring: "%credential% expira em %date%"
+  notify_expired: "%credential% expirou em %date%"
 test:
   button: 'Testar'
   button_group: 'Testar %group%'

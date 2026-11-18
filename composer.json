@@ -75,6 +75,7 @@
         "friendsofphp/php-cs-fixer": "^3.0",
         "igor-php/igor-php": "^0.10.1",
         "nowo-tech/brand-contracts": "^1.0",
+        "nowo-tech/notify-kit-bundle": "^0.1.1",
         "nowo-tech/phpstan-frankenphp": "^1.4",
         "nowo-tech/runtime-setting-contract": "^1.0",
         "phpstan/extension-installer": "^1.4",
@@ -87,6 +88,7 @@
         "symfony/css-selector": "^7.4 || ^8.0",
         "symfony/dom-crawler": "^7.4 || ^8.0",
         "symfony/filesystem": "^7.4 || ^8.0",
+        "symfony/mailer": "^7.4 || ^8.0",
         "symfony/phpunit-bridge": "^7.4 || ^8.0",
         "symfony/rate-limiter": "^7.4 || ^8.0",
         "symfony/security-bundle": "^7.4 || ^8.0",
@@ -95,16 +97,20 @@
     },
     "suggest": {
         "ext-gd": "Required (with PNG, JPEG and WebP support) when a section declares an image field (1.4)",
-        "nowo-tech/runtime-setting-contract": "^1.0 — for runtime_setting.enabled (1.20): settings read and changed live (nowo:runtime-setting:*), rotation, section version tokens",
         "nowo-tech/brand-contracts": "Required for the brand bridge (brand.enabled: true, 1.5): BrandProviderInterface for UiKit, Pwa, MailKit, LegalKit and SeoKit",
+        "nowo-tech/mail-kit-bundle": "The mail channel of the default expiry notifier (expiring_secrets.notify, 1.21): reminders through MailKit's mailer, sender and log",
+        "nowo-tech/notify-kit-bundle": "^0.1.1 — the bell channel of the default expiry notifier (expiring_secrets.notify, 1.21)",
+        "nowo-tech/runtime-setting-contract": "^1.0 — for runtime_setting.enabled (1.20): settings read and changed live (nowo:runtime-setting:*), rotation, section version tokens",
         "symfony/flex": "For automatic recipe installation",
+        "symfony/mailer": "The mail channel of the default expiry notifier without MailKit (expiring_secrets.notify.channels.mail: on, 1.21)",
         "symfony/rate-limiter": "To rate-limit the secret reveal endpoint (security.reveal_rate_limiter, 1.15)",
         "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
         "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()",
         "symfony/yaml": "To load YAML seed files with nowo:instance-settings:seed (1.7; JSON seed files need nothing)"
     },
     "conflict": {
-        "nowo-tech/brand-contracts": "<1.0 || >=2.0"
+        "nowo-tech/brand-contracts": "<1.0 || >=2.0",
+        "nowo-tech/notify-kit-bundle": "<0.1.1"
     },
     "autoload": {
         "psr-4": {
