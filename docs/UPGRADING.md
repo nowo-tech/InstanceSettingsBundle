@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.22.0](#to-1220)
   - [Lock conflicts answer 409 + CONFLICT codes](#lock-conflicts-answer-409--conflict-codes)
 - [To 1.21.0](#to-1210)
   - [Opt in: the default expiry notifier (`expiring_secrets.notify`)](#opt-in-the-default-expiry-notifier-expiring_secretsnotify)
@@ -52,6 +53,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.22.0
+
+From **1.21.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 ### Lock conflicts answer 409 + CONFLICT codes
 
