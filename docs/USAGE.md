@@ -762,9 +762,10 @@ final readonly class ExpiryRecipients implements ExpiryRecipientProviderInterfac
         foreach ($this->users->findActiveWithAnyRole($roles) as $user) {
             yield new ExpiryRecipient(
                 id: (string) $user->getId(),           // stable: the reminder is sent once per id
-                email: $user->getEmail(),               // null = no mail (the bell only)
+                // null = no mail (the bell only); an address that is not RFC 5322 throws, so check it first
+                email: ExpiryRecipient::isValidEmail($user->getEmail()) ? $user->getEmail() : null,
                 locale: $user->getLocale(),             // the mail and the bell texts; null = default locale
-                canOpenSettings: $user->hasRole('ROLE_DEVELOPER'),   // false = fallback_link_route
+                canOpenSettings: $user->hasRole('ROLE_DEVELOPER'),   // default false (fail closed) = fallback_link_route
             );
         }
     }
@@ -787,8 +788,26 @@ final readonly class ExpiryRecipients implements ExpiryRecipientProviderInterfac
 second run, a parallel cron run on another server, a restarted worker or a retried run finds it taken and sends
 nothing. A delivery that throws releases its claim, the other recipients still get theirs, and the notifier throws
 `ExpiryNoticeFailedException`: the command exits with code 1, the threshold stays open, and the next run sends only the
-missing reminders. A process killed between the claim and the send (OOM) skips that one reminder (at most once, as
-for the 1.17 threshold). A new date (a renewed secret) starts over.
+missing reminders. Because the threshold stays open, that next run dispatches the event again to **every** listener
+of `SecretExpiryThresholdReachedEvent`, not only to the notifier: a host listener next to it must be idempotent too.
+A delivery that no retry can fix — an address the mailer refuses (`RfcComplianceException`), or any
+`PermanentExpiryNoticeFailureException` a host channel throws — keeps its marker and is logged as a warning, never
+retried. A release that fails after a failed delivery (the database went away) leaves that reminder marked and logs
+it as lost (`critical`); the other recipients are still sent. A process killed between the claim and the send (OOM)
+skips that one reminder (at most once, as for the 1.17 threshold). A new date (a renewed secret) starts over. Two
+channels with the same `name()` are refused (a name identifies the markers of one channel).
+
+**Build-time checks.** `mail_from` must be an address when the container is built; `link_route`,
+`fallback_link_route` (and, for the default link, the bundle routes) and the template pair must exist when the cache is
+warmed (`ExpiryNoticeConfigurationCheck`, a required cache warmer: `cache:clear` / `cache:warmup` fail on a typo).
+
+**Retention.** The markers hold an opaque recipient id. Schedule
+`nowo:instance-settings:purge-expiry-notices` (it deletes the markers of expiry dates more than
+`notify.retention_days`, default 90, in the past; `--days=N` overrides it):
+
+```cron
+30 3 * * 0 cd /srv/app && php bin/console nowo:instance-settings:purge-expiry-notices --no-interaction
+```
 
 **What a mail contains.** The translated field label, the expiry date, the days left (or since), and the link built
 with `link_route` (absolute; in a console run the host comes from `framework.router.default_uri`). Never the secret,
@@ -865,7 +884,8 @@ final readonly class ExpiryRecipients implements ExpiryRecipientProviderInterfac
         }
         ksort($byId);
         foreach ($byId as $user) {
-            yield new ExpiryRecipient((string) $user->getId(), $user->getEmail(), $user->getPreferredLocale(), SystemRole::Developer->heldBy($user->getRoles()));
+            $email = ExpiryRecipient::isValidEmail($user->getEmail()) ? $user->getEmail() : null;
+            yield new ExpiryRecipient((string) $user->getId(), $email, $user->getPreferredLocale(), SystemRole::Developer->heldBy($user->getRoles()));
         }
     }
 }
@@ -926,7 +946,8 @@ final readonly class InboxExpiryChannel implements ExpiryNoticeChannelInterface
 
 Then delete `SecretExpiryReminder`, and the `secret_expiring` / `secret_expired` rows of `EmailTemplateCatalog` once the
 bundle mail (or an override of its templates with Beacon's branded layout) replaces them. `MaintenanceSchedule` keeps
-its `'0 8 * * *' => 'nowo:instance-settings:check-expiring-secrets --no-interaction'` entry unchanged.
+its `'0 8 * * *' => 'nowo:instance-settings:check-expiring-secrets --no-interaction'` entry unchanged; add
+`'30 3 * * 0' => 'nowo:instance-settings:purge-expiry-notices --no-interaction'` for the marker retention.
 
 ## Image fields
 

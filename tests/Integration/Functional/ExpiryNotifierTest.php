@@ -9,25 +9,33 @@ use DateTimeZone;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Doctrine\Persistence\ManagerRegistry;
+use LogicException;
 use Nowo\InstanceSettingsBundle\Command\CheckExpiringSecretsCommand;
+use Nowo\InstanceSettingsBundle\Command\PurgeExpiryNoticesCommand;
 use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiryDate;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\DoctrineExpiryNoticeStore;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeConfigurationCheck;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeKey;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeStoreInterface;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\SecretExpiryNotifier;
 use Nowo\InstanceSettingsBundle\ExpiryNoticeEntity\SecretExpiryNotice;
+use Nowo\InstanceSettingsBundle\Tests\Database\Support\HookState;
+use Nowo\InstanceSettingsBundle\Tests\Database\Support\StatementHook;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiryRecipientsFixture;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
 use Nowo\NotifyKitBundle\NowoNotifyKitBundle;
+use RuntimeException;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Mailer\EventListener\MessageLoggerListener;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Routing\RouterInterface;
 use Symfony\Contracts\Service\ResetInterface;
+use Twig\Environment;
 
 use function array_map;
 use function array_values;
@@ -136,6 +144,89 @@ final class ExpiryNotifierTest extends KernelTestCase
         }
     }
 
+    public function testAFailedClaimInsideATransactionRollsBackToItsSavepoint(): void
+    {
+        // Audit TB L2: any error of the claim (not only the duplicate) goes back to the claim's savepoint, so the
+        // caller's transaction stays usable; when the savepoint itself is gone, the first error still reaches the caller.
+        $kernel     = $this->boot(['expiring_secrets' => ['enabled' => true, 'timezone' => 'UTC', 'notify' => self::NOTIFY]], hook: true);
+        $store      = $this->container($kernel)->get(ExpiryNoticeStoreInterface::class);
+        $hook       = $this->container($kernel)->get(HookState::class);
+        $connection = $this->connection($kernel);
+        self::assertInstanceOf(ExpiryNoticeStoreInterface::class, $store);
+        self::assertInstanceOf(HookState::class, $hook);
+        $key = new ExpiryNoticeKey('providers', 'api_key', '2031-01-31', 7, 'mail', '1');
+
+        $connection->beginTransaction();
+        $hook->arm('/^INSERT INTO instance_setting_secret_expiry_notice/', static function (): never {
+            throw new RuntimeException('insert failed');
+        });
+        try {
+            $store->claim($key, new DateTimeImmutable());
+            self::fail('Expected the insert error');
+        } catch (RuntimeException $e) {
+            self::assertSame('insert failed', $e->getMessage());
+        }
+        self::assertTrue($store->claim($key, new DateTimeImmutable()), 'the transaction is usable and nothing was kept');
+        $connection->commit();
+
+        $connection->beginTransaction();
+        $hook->arm('/^INSERT INTO instance_setting_secret_expiry_notice/', static function () use ($hook): never {
+            $hook->arm('/^ROLLBACK TO SAVEPOINT/', static function (): never {
+                throw new RuntimeException('savepoint gone');
+            });
+
+            throw new RuntimeException('deadlock');
+        });
+        try {
+            $store->claim(new ExpiryNoticeKey('providers', 'api_key', '2031-01-31', 7, 'mail', '2'), new DateTimeImmutable());
+            self::fail('Expected the insert error');
+        } catch (RuntimeException $e) {
+            self::assertSame('deadlock', $e->getMessage(), 'the first error, not the savepoint one');
+        }
+        $connection->rollBack();
+    }
+
+    public function testTheBuildChecksTheRoutesAndTemplatesAndThePurgeDeletesOldMarkers(): void
+    {
+        $kernel = $this->boot(['expiring_secrets' => ['enabled' => true, 'timezone' => 'UTC', 'notify' => self::NOTIFY + ['fallback_link_route' => 'nowo_instance_settings_index']]]);
+        $check  = $this->container($kernel)->get(ExpiryNoticeConfigurationCheck::class);
+        self::assertInstanceOf(ExpiryNoticeConfigurationCheck::class, $check);
+        self::assertFalse($check->isOptional());
+        self::assertSame([], $check->warmUp(sys_get_temp_dir()));
+
+        $router = $this->container($kernel)->get('router');
+        self::assertInstanceOf(RouterInterface::class, $router);
+        $twig = $this->container($kernel)->get('twig');
+        self::assertInstanceOf(Environment::class, $twig);
+        foreach ([
+            [['app_missing'], null, 'route "app_missing"'],
+            [[], '@NowoInstanceSettingsBundle/expiry/missing', 'template "@NowoInstanceSettingsBundle/expiry/missing.html.twig"'],
+            [[], '@NowoInstanceSettingsBundle/settings/section', 'template "@NowoInstanceSettingsBundle/settings/section.txt.twig"'],
+        ] as [$routes, $template, $message]) {
+            try {
+                (new ExpiryNoticeConfigurationCheck($router, $twig, $routes, $template))->warmUp(sys_get_temp_dir());
+                self::fail('Expected a refusal: ' . $message);
+            } catch (LogicException $e) {
+                self::assertStringContainsString($message, $e->getMessage());
+            }
+        }
+
+        $store = $this->container($kernel)->get(ExpiryNoticeStoreInterface::class);
+        self::assertInstanceOf(ExpiryNoticeStoreInterface::class, $store);
+        $today = $this->today();
+        foreach (['-200 days' => '1', '-91 days' => '2', '-90 days' => '3', '+5 days' => '4'] as $offset => $recipient) {
+            $store->claim(new ExpiryNoticeKey('providers', 'api_key', ExpiryDate::format($today->modify($offset)), 0, 'mail', $recipient), new DateTimeImmutable());
+        }
+        $tester = new CommandTester((new Application($kernel))->find(PurgeExpiryNoticesCommand::NAME));
+        self::assertSame(0, $tester->execute([]));
+        self::assertStringContainsString('Deleted 2 expiry reminder marker(s) of dates before ' . ExpiryDate::format($today->modify('-90 days')), $tester->getDisplay());
+        self::assertSame(0, $tester->execute(['--days' => '0']));
+        self::assertStringContainsString('Deleted 1 ', $tester->getDisplay());
+        self::assertSame(['4'], $this->connection($kernel)->fetchFirstColumn('SELECT recipient FROM instance_setting_secret_expiry_notice'));
+        self::assertSame(2, $tester->execute(['--days' => 'ten']));
+        self::assertStringContainsString('--days must be a whole number', $tester->getDisplay());
+    }
+
     public function testTheDddHostKeepsTheMarkersOnTheSettingsManagerWithItsPrefix(): void
     {
         $kernel = $this->boot(['doctrine' => ['entity_manager' => 'settings', 'table_prefix' => 'app_'], 'expiring_secrets' => ['enabled' => true, 'timezone' => 'UTC', 'notify' => self::NOTIFY]], extensions: ['doctrine' => [
@@ -186,14 +277,18 @@ final class ExpiryNotifierTest extends KernelTestCase
      * @param array<string, mixed> $config
      * @param array<string, array<string, mixed>> $extensions
      */
-    private function boot(array $config, bool $notifyKit = false, ?string $databaseUrl = null, bool $createSchema = true, array $extensions = []): InstanceSettingsTestKernel
+    private function boot(array $config, bool $notifyKit = false, ?string $databaseUrl = null, bool $createSchema = true, array $extensions = [], bool $hook = false): InstanceSettingsTestKernel
     {
+        $services = ['providers_section' => ExpiringFixtureSection::class, ExpiryRecipientsFixture::class => ExpiryRecipientsFixture::class];
+        if ($hook) {
+            $services += [HookState::class => HookState::class, StatementHook::class => StatementHook::class];
+        }
         $extensions['framework'] = ['router' => ['default_uri' => 'https://settings.example.test']];
         if ($notifyKit) {
             $extensions['nowo_notify_kit'] = ['enabled' => true];
         }
 
-        return $this->bootKernel($config, ['providers_section' => ExpiringFixtureSection::class, ExpiryRecipientsFixture::class => ExpiryRecipientsFixture::class], extensions: $extensions, extraBundles: $notifyKit ? [new NowoNotifyKitBundle()] : [], databaseUrl: $databaseUrl, createSchema: $createSchema);
+        return $this->bootKernel($config, $services, extensions: $extensions, extraBundles: $notifyKit ? [new NowoNotifyKitBundle()] : [], databaseUrl: $databaseUrl, createSchema: $createSchema);
     }
 
     private function notifier(InstanceSettingsTestKernel $kernel): SecretExpiryNotifier

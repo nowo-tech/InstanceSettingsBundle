@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Database;
 
 use DateTimeImmutable;
+use Doctrine\DBAL\Exception;
 use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeKey;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeStoreInterface;
@@ -14,6 +15,7 @@ use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKer
 use Symfony\Component\Mailer\EventListener\MessageLoggerListener;
 
 use function count;
+use function str_repeat;
 
 /**
  * 1.21 (KIT-88): the expiry notifier's sent-markers on MySQL / MariaDB / PostgreSQL — two "servers" on one database
@@ -58,6 +60,20 @@ final class ExpiryNotifierDatabaseTest extends DatabaseTestCase
 
         $store->release($key);
         self::assertTrue($store->claim($key, new DateTimeImmutable()));
+
+        // Audit TB L2: an error other than the duplicate (a recipient id longer than the column: PostgreSQL / MySQL
+        // refuse it) also goes back to the claim's savepoint, so the caller's transaction is not left aborted.
+        $connection->beginTransaction();
+        try {
+            $store->claim(new ExpiryNoticeKey('providers', 'api_key', '2031-01-31', 0, 'mail', str_repeat('x', 300)), new DateTimeImmutable());
+            self::fail('Expected the database to refuse the value');
+        } catch (Exception $e) {
+            $this->addToAssertionCount(1);
+        }
+        self::assertSame(2, (int) $connection->fetchOne('SELECT COUNT(*) FROM instance_setting_secret_expiry_notice'), 'the transaction still answers');
+        self::assertTrue($store->claim(new ExpiryNoticeKey('providers', 'api_key', '2031-01-31', 0, 'mail', '3'), new DateTimeImmutable()));
+        $connection->commit();
+        self::assertSame(3, (int) $connection->fetchOne('SELECT COUNT(*) FROM instance_setting_secret_expiry_notice'));
     }
 
     private function notifier(InstanceSettingsTestKernel $kernel): SecretExpiryNotifier

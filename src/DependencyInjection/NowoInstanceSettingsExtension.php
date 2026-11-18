@@ -25,6 +25,7 @@ use Nowo\InstanceSettingsBundle\Brand\InstanceBrandProvider;
 use Nowo\InstanceSettingsBundle\Command\CheckExpiringSecretsCommand;
 use Nowo\InstanceSettingsBundle\Command\ExportSettingsCommand;
 use Nowo\InstanceSettingsBundle\Command\ImportSettingsCommand;
+use Nowo\InstanceSettingsBundle\Command\PurgeExpiryNoticesCommand;
 use Nowo\InstanceSettingsBundle\Command\PurgeFilesCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedCommand;
 use Nowo\InstanceSettingsBundle\Command\SeedFromFallbacksCommand;
@@ -46,6 +47,7 @@ use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecrets;
 use Nowo\InstanceSettingsBundle\Expiry\ExpiringSecretSourceInterface;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\DoctrineExpiryNoticeStore;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeChannelInterface;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeConfigurationCheck;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeLinks;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeStoreInterface;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\MailExpiryNoticeChannel;
@@ -132,6 +134,8 @@ use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\KernelEvents;
 use Symfony\Component\Mailer\MailerInterface;
+use Symfony\Component\Mime\Address;
+use Throwable;
 
 use function array_diff;
 use function array_filter;
@@ -321,7 +325,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $config = $this->processConfiguration(new Configuration(), $configs);
         $this->assertLiteralBooleans($config);
 
-        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}}, runtime_setting: array{enabled: bool}} $config */
+        /** @var array{doctrine: array{table_prefix: string, entity_manager: string|null}, web_ui: array{enabled: bool, path_prefix: string, layout_template: string|null, templates: array<string, string>, hidden_secrets: string, hidden_secrets_notice: bool, unlayered_styles?: bool, section_layout?: string, section_group_parameter?: string, section_icons?: array<string, string>, navigation_hidden?: list<string>, reveal_on_toggle?: bool, reveal_toggle_only?: bool, reveal_in_input?: bool}, security: array{access_roles: list<string>, area_roles: array<string, list<string>>, reveal_roles: list<string>, reveal_rate_limiter: string|null, test_roles?: list<string>|null, test_rate_limiter?: string|null, access_checker: string|null, allow_unauthenticated: bool}, portability: array{web_ui: bool, schema: string, max_upload_bytes: int, sealed_secrets: bool, max_file_bytes: int}, files: array{enabled: bool, path_prefix: string, orphan_retention: int, store: string, directory: string, crop: array{enabled: bool, shape: string|null, quality: float|null, labels: array<string, string>}}, seed: array{file: string|null, base_dir: string}, brand: array{enabled: bool, public_dir: string, fallback_provider: string|null, defaults: array<string, mixed>, extra_images: array<string, array{label: string|null, help: string|null, max_width: int, max_height: int, max_bytes: int, square: bool, default: string|null}>, error_illustrations: array{base: string|null, per_code: bool}}, expiring_secrets: array{enabled: bool, thresholds: list<int>, warning: bool, warning_days: int, timezone: string|null, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, retention_days: int, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}}, runtime_setting: array{enabled: bool}} $config */
         $webUi       = $config['web_ui']['enabled'];
         $portability = $config['portability'];
 
@@ -644,7 +648,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
      * store, the links, the mail channel (MailKit / symfony/mailer), the NotifyKit channel and its types, the
      * autoconfiguration of host channels and the listener of {@see SecretExpiryThresholdReachedEvent}.
      *
-     * @param array{enabled: bool, thresholds: list<int>, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}} $expiry
+     * @param array{enabled: bool, thresholds: list<int>, timezone: string|null, notify: array{enabled: bool, days: list<int>, roles: list<string>, recipient_provider: string|null, mail_template: string, mail_from: string|null, link_route: string|null, fallback_link_route: string|null, retention_days: int, channels: array{mail: string, notify_kit: string}, notify_kit: array{recipient_type: string, category: string, declare_category: bool}}} $expiry
      * @param list<string> $accessRoles `security.access_roles` (the default recipients' roles)
      */
     private function registerExpiryNotifier(ContainerBuilder $container, array $expiry, array $accessRoles, bool $webUi): void
@@ -674,15 +678,36 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         // Host channels (a bell of its own, SMS, chat): any ExpiryNoticeChannelInterface service. ExpiryNoticeChannelPass
         // fails the build when there is none at all.
         $container->registerForAutoconfiguration(ExpiryNoticeChannelInterface::class)->addTag(NowoInstanceSettingsBundle::EXPIRY_CHANNEL_TAG);
+        if ($notify['mail_from'] !== null) {
+            try {
+                Address::create($notify['mail_from']);
+            } catch (Throwable $e) {
+                throw new InvalidConfigurationException(sprintf('nowo_instance_settings.expiring_secrets.notify.mail_from must be an e-mail address such as "noreply@example.com" or "App <noreply@example.com>" (%s).', $e::class), $e->getCode(), $e);
+            }
+        }
         $translator = new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE);
+        $linkRoute  = $notify['link_route'] ?? ($webUi ? InstanceSettingsRoutes::SECTION : null);
 
         $container->setDefinition(DoctrineExpiryNoticeStore::class, new Definition(DoctrineExpiryNoticeStore::class, [new Reference(SettingsEntityManager::class)]));
         $container->setAlias(ExpiryNoticeStoreInterface::class, DoctrineExpiryNoticeStore::class)->setPublic(true);
         $container->setDefinition(ExpiryNoticeLinks::class, new Definition(ExpiryNoticeLinks::class, [
             new Reference('router'),
-            $notify['link_route'] ?? ($webUi ? InstanceSettingsRoutes::SECTION : null),
+            $linkRoute,
             $notify['fallback_link_route'],
         ]));
+        // L3: the routes and the template pair are checked when the cache is built (the routes are unknown before).
+        $container->setDefinition(ExpiryNoticeConfigurationCheck::class, (new Definition(ExpiryNoticeConfigurationCheck::class, [
+            new Reference('router'),
+            new Reference('twig', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            array_values(array_filter([$linkRoute, $notify['fallback_link_route']], static fn (?string $route): bool => $route !== null)),
+            $mail ? $notify['mail_template'] : null,
+        ]))->setPublic(true)->addTag('kernel.cache_warmer'));
+        $container->setDefinition(PurgeExpiryNoticesCommand::class, (new Definition(PurgeExpiryNoticesCommand::class, [
+            new Reference(ExpiryNoticeStoreInterface::class),
+            $notify['retention_days'],
+            new Reference('clock', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            $expiry['timezone'],
+        ]))->addTag('console.command', ['command' => PurgeExpiryNoticesCommand::NAME]));
 
         if ($mail) {
             $container->setDefinition(MailExpiryNoticeChannel::class, (new Definition(MailExpiryNoticeChannel::class, [

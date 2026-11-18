@@ -7,6 +7,7 @@ namespace Nowo\InstanceSettingsBundle\Tests\Support;
 use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeChannelInterface;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipient;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\PermanentExpiryNoticeFailureException;
 use RuntimeException;
 
 use function in_array;
@@ -22,6 +23,9 @@ final class RecordingExpiryChannel implements ExpiryNoticeChannelInterface
 
     /** @var list<string> recipient ids whose delivery throws */
     public array $failFor = [];
+
+    /** @var list<string> recipient ids whose delivery fails for good */
+    public array $permanentFor = [];
 
     public function __construct(
         private readonly string $name = 'recording',
@@ -41,6 +45,9 @@ final class RecordingExpiryChannel implements ExpiryNoticeChannelInterface
 
     public function send(SecretExpiryThresholdReachedEvent $event, ExpiryRecipient $recipient): void
     {
+        if (in_array($recipient->id, $this->permanentFor, true)) {
+            throw new PermanentExpiryNoticeFailureException('Address refused.');
+        }
         if (in_array($recipient->id, $this->failFor, true)) {
             throw new RuntimeException('SMTP down for ' . $recipient->id);
         }

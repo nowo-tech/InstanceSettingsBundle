@@ -42,8 +42,8 @@ final class NotifyKitExpiryNoticeChannelTest extends TestCase
         self::assertTrue($channel->supports(new ExpiryRecipient('3')));
 
         $event = new SecretExpiryThresholdReachedEvent('providers', 'api_key', 'providers.api_key', 'app', '2026-12-31', 7, 7);
-        $channel->send($event, new ExpiryRecipient('1', 'dev@example.test', 'es'));
-        $channel->send($event, new ExpiryRecipient('2', null, 'es', canOpenSettings: false));
+        $channel->send($event, new ExpiryRecipient('1', 'dev@example.test', 'es', true));
+        $channel->send($event, new ExpiryRecipient('2', null, 'es'));
         $channel->send(new SecretExpiryThresholdReachedEvent('providers', 'api_key', 'providers.api_key', 'app', '2026-12-31', 0, -2), new ExpiryRecipient('1'));
 
         [$first, $manager, $expired] = $notifier->requests;

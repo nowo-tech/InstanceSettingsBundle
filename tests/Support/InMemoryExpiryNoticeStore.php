@@ -34,4 +34,17 @@ final class InMemoryExpiryNoticeStore implements ExpiryNoticeStoreInterface
         ++$this->releases;
         unset($this->markers[$key->hash()]);
     }
+
+    public function purge(DateTimeImmutable $expiresBefore): int
+    {
+        $deleted = 0;
+        foreach ($this->markers as $hash => $key) {
+            if ($key->expiresOn < $expiresBefore->format('Y-m-d')) {
+                unset($this->markers[$hash]);
+                ++$deleted;
+            }
+        }
+
+        return $deleted;
+    }
 }

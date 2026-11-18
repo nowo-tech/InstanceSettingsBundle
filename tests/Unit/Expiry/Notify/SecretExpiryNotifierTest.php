@@ -14,6 +14,7 @@ use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeFailedException;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeKey;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeStoreInterface;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipient;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\PermanentExpiryNoticeFailureException;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\SecretExpiryNotifier;
 use Nowo\InstanceSettingsBundle\Expiry\SecretExpiryChecker;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
@@ -29,6 +30,7 @@ use Nowo\InstanceSettingsBundle\Tests\Support\RecordingExpiryChannel;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\EventDispatcher\EventDispatcher;
 
@@ -153,6 +155,11 @@ final class SecretExpiryNotifierTest extends TestCase
             public function release(ExpiryNoticeKey $key): void
             {
             }
+
+            public function purge(DateTimeImmutable $expiresBefore): int
+            {
+                return 0;
+            }
         };
         $third = new RecordingExpiryChannel('bell');
         (new SecretExpiryNotifier($this->recipients, $lost, [$third], [7], ['ROLE_ADMIN']))($event);
@@ -193,6 +200,72 @@ final class SecretExpiryNotifierTest extends TestCase
         $this->notifier([$bell])(new SecretExpiryThresholdReachedEvent('providers', 'api_key', 'providers.api_key', 'app', '2026-12-31', 7, 7));
     }
 
+    public function testReleaseFailureLosesTheReminderForeverButNotTheOthers(): void
+    {
+        // Audit TB L1: the delivery fails AND the release fails (the database went away in between). That reminder stays
+        // claimed (logged as lost, critical); the other recipients are still sent and the run reports the failure.
+        $store = new class implements ExpiryNoticeStoreInterface {
+            /** @var array<string, true> */
+            public array $claimed = [];
+
+            public function claim(ExpiryNoticeKey $key, DateTimeImmutable $at): bool
+            {
+                $this->claimed[$key->hash()] = true;
+
+                return true;
+            }
+
+            public function release(ExpiryNoticeKey $key): void
+            {
+                throw new RuntimeException('server has gone away');
+            }
+
+            public function purge(DateTimeImmutable $expiresBefore): int
+            {
+                return 0;
+            }
+        };
+        $logger        = new RecordingLogger();
+        $bell          = new RecordingExpiryChannel('bell');
+        $bell->failFor = ['1'];
+        try {
+            (new SecretExpiryNotifier($this->recipients, $store, [$bell], [7], ['ROLE_ADMIN'], $logger))(new SecretExpiryThresholdReachedEvent('providers', 'api_key', 'providers.api_key', 'app', '2026-12-31', 7, 7));
+            self::fail('Expected ExpiryNoticeFailedException');
+        } catch (ExpiryNoticeFailedException $e) {
+            self::assertStringStartsWith('1 expiry reminder(s)', $e->getMessage());
+        }
+        self::assertSame(['2:providers.api_key:7', '3:providers.api_key:7'], $bell->sent, 'the loop went on');
+        self::assertCount(3, $store->claimed);
+        self::assertSame(['error', 'critical'], array_map(static fn (array $record): string => $record['level'], $logger->records));
+        self::assertSame(RuntimeException::class, $logger->records[1]['context']['exception']);
+        self::assertStringNotContainsString('server has gone away', $logger->dump(), 'exception class only');
+    }
+
+    public function testAPermanentFailureKeepsTheMarkerAndIsNotRetried(): void
+    {
+        $logger             = new RecordingLogger();
+        $mail               = new RecordingExpiryChannel('mail', needsEmail: true);
+        $mail->permanentFor = ['2'];
+        $event              = new SecretExpiryThresholdReachedEvent('providers', 'api_key', 'providers.api_key', 'app', '2026-12-31', 7, 7);
+        $this->notifier([$mail], $logger)($event);
+        self::assertSame(['1:providers.api_key:7'], $mail->sent);
+        self::assertCount(2, $this->markers->markers, 'the refused one stays marked');
+        self::assertSame(0, $this->markers->releases);
+        self::assertSame('warning', $logger->records[0]['level']);
+        self::assertSame(PermanentExpiryNoticeFailureException::class, $logger->records[0]['context']['exception']);
+
+        $mail->permanentFor = [];
+        $this->notifier([$mail], $logger)($event);
+        self::assertSame(['1:providers.api_key:7'], $mail->sent, 'never retried');
+    }
+
+    public function testTwoChannelsWithOneNameAreRefused(): void
+    {
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('are both named "bell"');
+        $this->notifier([new RecordingExpiryChannel('bell'), new RecordingExpiryChannel('bell', needsEmail: true)])(new SecretExpiryThresholdReachedEvent('providers', 'api_key', 'providers.api_key', 'app', '2026-12-31', 7, 7));
+    }
+
     public function testAChannelNameThatDoesNotFitTheMarkerIsRefused(): void
     {
         $this->expectException(LogicException::class);
@@ -202,9 +275,14 @@ final class SecretExpiryNotifierTest extends TestCase
 
     public function testTheRecipientValueObjectRefusesUnsafeValues(): void
     {
-        $recipient = new ExpiryRecipient('user-1', 'a@example.test', 'pt_BR', false);
-        self::assertSame(['user-1', 'a@example.test', 'pt_BR', false], [$recipient->id, $recipient->email, $recipient->locale, $recipient->canOpenSettings]);
+        $recipient = new ExpiryRecipient('user-1', 'a@example.test', 'pt_BR', true);
+        self::assertSame(['user-1', 'a@example.test', 'pt_BR', true], [$recipient->id, $recipient->email, $recipient->locale, $recipient->canOpenSettings]);
         self::assertNull((new ExpiryRecipient('9'))->email);
+        self::assertFalse((new ExpiryRecipient('9'))->canOpenSettings, 'fail closed: no settings link unless the host says so');
+        self::assertTrue(ExpiryRecipient::isValidEmail('first.last+tag@sub.example.test'));
+        foreach (['no-at', 'a@b@c.test', ' a@b.test', 'a@b.test ', "a@b.test\r\nBcc: x@evil.test", 'a b@c.test', '<a@b.test>', ''] as $bad) {
+            self::assertFalse(ExpiryRecipient::isValidEmail($bad), (string) json_encode($bad));
+        }
 
         foreach ([['', null, null], [' 1', null, null], ["1\n", null, null], [str_repeat('x', 129), null, null], ["\xff", null, null], ['1', 'no-at', null], ['1', "a@b.test\r\nBcc: x@evil.test", null], ['1', '', null], ['1', null, '../en'], ['1', null, 'EN']] as [$id, $email, $locale]) {
             try {

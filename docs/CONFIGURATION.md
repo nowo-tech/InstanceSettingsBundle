@@ -116,6 +116,7 @@ nowo_instance_settings:
             mail_from: null            # null = the mailer's (MailKit)
             link_route: null           # null = the section's settings page
             fallback_link_route: null  # for recipients who cannot open the settings
+            retention_days: 90         # purge-expiry-notices deletes markers of older dates
             channels: { mail: auto, notify_kit: auto }   # auto | on | off
             notify_kit: { recipient_type: user, category: instance_settings, declare_category: true }
 ```
@@ -970,9 +971,10 @@ See [USAGE](USAGE.md#default-expiry-notifier-121).
 | `roles` | `[]` | Passed to the recipient provider. Empty: `security.access_roles`. |
 | `recipient_provider` | `null` | Service id implementing `ExpiryRecipientProviderInterface`. Required when enabled. |
 | `mail_template` | `'@NowoInstanceSettingsBundle/expiry/notice'` | Template pair without the suffix (`.html.twig`, `.txt.twig`). |
-| `mail_from` | `null` | `From` of the mail; null = the mailer's (MailKit sets it from its settings). |
+| `mail_from` | `null` | `From` of the mail; null = the mailer's (MailKit sets it from its settings). Checked as an address when the container is built. |
 | `link_route` | `null` | Route of the link, with the `section` parameter. Null: the section's settings page (`nowo_instance_settings_section`), none without `web_ui`. |
-| `fallback_link_route` | `null` | Route (no parameters) for recipients with `canOpenSettings: false`. Null: no link (the bell links to `/`). |
+| `fallback_link_route` | `null` | Route (no parameters) for recipients with `canOpenSettings: false` (the default). Null: no link (the bell links to `/`). |
+| `retention_days` | `90` | 1 … 3650. `nowo:instance-settings:purge-expiry-notices` deletes the markers of expiry dates older than this. |
 | `channels.mail` | `auto` | `auto`: on when nowo-tech/mail-kit-bundle is registered; `on`: needs symfony/mailer; `off`. |
 | `channels.notify_kit` | `auto` | `auto`: on when nowo-tech/notify-kit-bundle is registered; `on`: the same, or the build fails; `off`. |
 | `notify_kit.recipient_type` | `user` | NotifyKit recipient type of the recipient ids. |
@@ -980,7 +982,9 @@ See [USAGE](USAGE.md#default-expiry-notifier-121).
 | `notify_kit.declare_category` | `true` | `false` when the host declares that category itself. |
 
 Host channels: any service implementing `Expiry\Notify\ExpiryNoticeChannelInterface` (autoconfigured, tag
-`nowo_instance_settings.expiry_channel`). The build fails when the notifier has no channel.
+`nowo_instance_settings.expiry_channel`). The build fails when the notifier has no channel; two channels with one
+`name()` fail the first run. The routes and the template pair are checked by a required cache warmer
+(`ExpiryNoticeConfigurationCheck`).
 
 ## FormKit profile
 

@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Unit\DependencyInjection;
 
 use LogicException;
+use Nowo\InstanceSettingsBundle\Command\PurgeExpiryNoticesCommand;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Compiler\ExpiryNoticeChannelPass;
 use Nowo\InstanceSettingsBundle\DependencyInjection\Configuration;
 use Nowo\InstanceSettingsBundle\DependencyInjection\NowoInstanceSettingsExtension;
 use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\DoctrineExpiryNoticeStore;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeChannelInterface;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeConfigurationCheck;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeLinks;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeStoreInterface;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\MailExpiryNoticeChannel;
@@ -28,6 +30,7 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Throwable;
 
+use function array_column;
 use function array_keys;
 
 /**
@@ -52,6 +55,7 @@ final class ExpiryNotifierExtensionTest extends TestCase
             'mail_from'           => null,
             'link_route'          => null,
             'fallback_link_route' => null,
+            'retention_days'      => 90,
             'channels'            => ['mail' => 'auto', 'notify_kit' => 'auto'],
             'notify_kit'          => ['recipient_type' => 'user', 'category' => 'instance_settings', 'declare_category' => true],
         ], $config['expiring_secrets']['notify']);
@@ -95,6 +99,11 @@ final class ExpiryNotifierExtensionTest extends TestCase
         $mail = $container->getDefinition(MailExpiryNoticeChannel::class);
         self::assertSame(['@NowoInstanceSettingsBundle/expiry/notice', null], [$mail->getArgument(3), $mail->getArgument(5)]);
         self::assertSame(['user'], [$container->getDefinition(NotifyKitExpiryNoticeChannel::class)->getArgument(2)]);
+        $check = $container->getDefinition(ExpiryNoticeConfigurationCheck::class);
+        self::assertTrue($check->hasTag('kernel.cache_warmer'));
+        self::assertSame([[InstanceSettingsRoutes::SECTION], '@NowoInstanceSettingsBundle/expiry/notice'], [$check->getArgument(2), $check->getArgument(3)]);
+        self::assertSame([PurgeExpiryNoticesCommand::NAME], array_column($container->getDefinition(PurgeExpiryNoticesCommand::class)->getTag('console.command'), 'command'));
+        self::assertSame(90, $container->getDefinition(PurgeExpiryNoticesCommand::class)->getArgument(1));
         $types = $container->getDefinition(NotifyKitExpiryTypeProvider::class);
         self::assertTrue($types->hasTag('nowo_notify_kit.type_provider'));
         self::assertSame(['instance_settings', true], $types->getArguments());
@@ -119,6 +128,7 @@ final class ExpiryNotifierExtensionTest extends TestCase
         self::assertFalse($container->hasDefinition(NotifyKitExpiryNoticeChannel::class));
         self::assertSame(['emails/secret_expiry', 'noreply@example.test'], [$container->getDefinition(MailExpiryNoticeChannel::class)->getArgument(3), $container->getDefinition(MailExpiryNoticeChannel::class)->getArgument(5)]);
         self::assertSame(['app_settings', 'app_home'], [$container->getDefinition(ExpiryNoticeLinks::class)->getArgument(1), $container->getDefinition(ExpiryNoticeLinks::class)->getArgument(2)]);
+        self::assertSame(['app_settings', 'app_home'], $container->getDefinition(ExpiryNoticeConfigurationCheck::class)->getArgument(2));
     }
 
     public function testNotifyKitAloneAndNoLinkWithoutTheAdminUi(): void
@@ -127,6 +137,7 @@ final class ExpiryNotifierExtensionTest extends TestCase
         self::assertFalse($container->hasDefinition(MailExpiryNoticeChannel::class), 'auto: no MailKit, no mail');
         self::assertTrue($container->hasDefinition(NotifyKitExpiryNoticeChannel::class));
         self::assertNull($container->getDefinition(ExpiryNoticeLinks::class)->getArgument(1));
+        self::assertSame([[], null], [$container->getDefinition(ExpiryNoticeConfigurationCheck::class)->getArgument(2), $container->getDefinition(ExpiryNoticeConfigurationCheck::class)->getArgument(3)], 'no route, no mail template to check');
     }
 
     /**
@@ -139,6 +150,7 @@ final class ExpiryNotifierExtensionTest extends TestCase
         yield 'blank recipient provider' => [['expiring_secrets' => ['enabled' => true, 'notify' => ['enabled' => true, 'recipient_provider' => ' ']]], self::MAIL_KIT, true, true, InvalidConfigurationException::class, 'recipient_provider must be the id of a service'];
         yield 'a day that never fires' => [['expiring_secrets' => ['enabled' => true, 'thresholds' => [30, 7], 'notify' => ['enabled' => true, 'recipient_provider' => 'x', 'days' => [30, 14]]]], self::MAIL_KIT, true, true, InvalidConfigurationException::class, 'notify.days must be among expiring_secrets.thresholds (30, 7); 14 never fire(s).'];
         yield 'no roles at all' => [['security' => ['access_roles' => [], 'access_checker' => 'app.checker'], 'expiring_secrets' => ['enabled' => true, 'notify' => ['enabled' => true, 'recipient_provider' => 'x']]], self::MAIL_KIT, true, true, InvalidConfigurationException::class, 'notify.roles is empty and so is security.access_roles'];
+        yield 'invalid mail_from' => [['expiring_secrets' => ['enabled' => true, 'notify' => ['enabled' => true, 'recipient_provider' => 'x', 'mail_from' => 'not an address']]], self::MAIL_KIT, true, true, InvalidConfigurationException::class, 'notify.mail_from must be an e-mail address'];
         yield 'mail on without symfony/mailer' => [['expiring_secrets' => ['enabled' => true, 'notify' => ['enabled' => true, 'recipient_provider' => 'x', 'channels' => ['mail' => 'on']]]], [], false, true, LogicException::class, 'notify.channels.mail is on but symfony/mailer is not installed'];
         yield 'bell on without NotifyKit' => [['expiring_secrets' => ['enabled' => true, 'notify' => ['enabled' => true, 'recipient_provider' => 'x', 'channels' => ['notify_kit' => 'on']]]], self::MAIL_KIT, true, false, LogicException::class, 'notify.channels.notify_kit is on but nowo-tech/notify-kit-bundle'];
         yield 'bell on, bundle not registered' => [['expiring_secrets' => ['enabled' => true, 'notify' => ['enabled' => true, 'recipient_provider' => 'x', 'channels' => ['notify_kit' => 'on']]]], self::MAIL_KIT, true, true, LogicException::class, 'notify.channels.notify_kit is on but nowo-tech/notify-kit-bundle'];

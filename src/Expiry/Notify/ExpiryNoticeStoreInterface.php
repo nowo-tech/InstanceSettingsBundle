@@ -23,4 +23,9 @@ interface ExpiryNoticeStoreInterface
      * Forgets a claim whose sending failed, so the next run sends it again.
      */
     public function release(ExpiryNoticeKey $key): void;
+
+    /**
+     * Deletes the markers of expiry dates before `$expiresBefore` (the retention purge); returns how many.
+     */
+    public function purge(DateTimeImmutable $expiresBefore): int;
 }

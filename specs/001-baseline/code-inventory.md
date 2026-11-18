@@ -4,7 +4,7 @@
 **Package**: `nowo-tech/instance-settings-bundle`  
 **Last audited**: 2026-11-18
 
-Scope: every file under `src/`. Audit command: `git ls-files src | wc -l` → **221**.
+Scope: every file under `src/`. Audit command: `git ls-files src | wc -l` → **224**.
 
 ## Bundle and dependency injection
 
@@ -237,6 +237,9 @@ These 115 `src/` files were added by releases after the last review. Each row ma
 | `src/Expiry/Notify/NotifyKitExpiryTypeProvider.php` | Declares the two NotifyKit types of the expiry reminders and their category (1.21). | FR-EXPIRY-002 |
 | `src/Expiry/Notify/SecretExpiryNotifier.php` | The default expiry notifier (1.21, KIT-88): each threshold once per secret, channel and recipient. | FR-EXPIRY-002 |
 | `src/ExpiryNoticeEntity/SecretExpiryNotice.php` | Sent-marker of one expiry reminder (1.21); mapped only with `expiring_secrets.notify.enabled`. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/PermanentExpiryNoticeFailureException.php` | A delivery no retry can fix (1.21): the notifier keeps the marker and logs it. | FR-EXPIRY-002 |
+| `src/Expiry/Notify/ExpiryNoticeConfigurationCheck.php` | Required cache warmer (1.21): the reminder routes and mail templates must exist. | FR-EXPIRY-002 |
+| `src/Command/PurgeExpiryNoticesCommand.php` | Deletes the reminder sent-markers of dates older than the retention (1.21). | FR-EXPIRY-002 |
 | `src/DependencyInjection/Compiler/ExpiryNoticeChannelPass.php` | Fails the build when the default expiry notifier is on without any channel (1.21). | FR-EXPIRY-002 |
 | `src/Resources/views/expiry/notice.html.twig` | Expiry reminder e-mail, HTML part (1.21); overridable, never the secret. | FR-EXPIRY-002 |
 | `src/Resources/views/expiry/notice.txt.twig` | Expiry reminder e-mail, text part (1.21); overridable, never the secret. | FR-EXPIRY-002 |
@@ -310,6 +313,6 @@ These 115 `src/` files were added by releases after the last review. Each row ma
 
 ## Totals
 
-- Mapped files: **221** of the 221 files under `src/` (re-audited 2026-11-18).
+- Mapped files: **224** of the 224 files under `src/` (re-audited 2026-11-18).
 - FR-RS-001..005 (1.20, runtime settings): source, writer, section version tokens, admin guard, ports binding; see the linked docs.
 - Re-audit: run the audit command and compare with this table on every PR that adds, moves or removes a file under `src/`.

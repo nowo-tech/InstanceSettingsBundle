@@ -193,8 +193,11 @@ user may open, but a sealed export plus the instance key reveals the secrets of 
   escaped in the HTML part, line breaks removed from the subject. The link comes from the host's routes
   (`link_route`, `fallback_link_route`), never from request data. An overridden template must not add a secret. The
   sent-marker table holds the setting, the date, the threshold, the channel and an opaque recipient id (personal data
-  of the host's users: cover it with your retention), never an address or the secret. A failed delivery is logged with
-  the setting, date, threshold, channel, recipient id and exception class only. Recipients come only from the host's
+  of the host's users), never an address or the secret: `nowo:instance-settings:purge-expiry-notices` deletes the rows
+  of dates older than `notify.retention_days` (default 90); schedule it, or purge the table yourself. A failed delivery
+  is logged with the setting, date, threshold, channel, recipient id and exception class only. `canOpenSettings`
+  defaults to false, so a recipient gets the settings link only when the host says so; recipient addresses are checked
+  against RFC 5322. Recipients come only from the host's
   `ExpiryRecipientProviderInterface`: the bundle never guesses who may read about a credential.
 
 - **Locked stored secrets (1.17, `web_ui.reveal_in_input`).** The stored value is shown in the input itself, so it

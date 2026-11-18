@@ -74,7 +74,15 @@ table or schema change is added (`migrations:diff` stays empty).
    `SecretExpiryReminder`) must go, or the people get them twice. See the Beacon example in
    [USAGE](USAGE.md#example-symfony-beacon-without-secretexpiryreminder).
 
-The schedule is unchanged: `nowo:instance-settings:check-expiring-secrets` once a day.
+7. `ExpiryRecipient::$canOpenSettings` defaults to **false** (fail closed): pass `true` for the people who may open the
+   settings, or they get `fallback_link_route` (or no link). An address that is not RFC 5322 is refused when the
+   recipient is built: filter with `ExpiryRecipient::isValidEmail()` and pass `null` instead.
+8. Schedule `nowo:instance-settings:purge-expiry-notices` (weekly is enough; `notify.retention_days`, default 90).
+9. A wrong `mail_from` fails the container build; a missing `link_route`, `fallback_link_route` or template fails
+   `cache:clear` / `cache:warmup`.
+
+The check schedule is unchanged: `nowo:instance-settings:check-expiring-secrets` once a day. The bundle now requires
+`egulias/email-validator` ^4.0 (already installed wherever symfony/mailer is).
 
 ## To 1.20.0
 

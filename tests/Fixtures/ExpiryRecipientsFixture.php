@@ -19,9 +19,9 @@ final class ExpiryRecipientsFixture implements ExpiryRecipientProviderInterface
     public function expiryRecipients(array $roles): iterable
     {
         $this->calls[] = $roles;
-        yield new ExpiryRecipient('1', 'dev@example.test', 'en');
-        yield new ExpiryRecipient('2', 'manager@example.test', 'es', canOpenSettings: false);
+        yield new ExpiryRecipient('1', 'dev@example.test', 'en', canOpenSettings: true);
+        yield new ExpiryRecipient('2', 'manager@example.test', 'es');
         yield new ExpiryRecipient('3');
-        yield new ExpiryRecipient('1', 'dev@example.test', 'en');
+        yield new ExpiryRecipient('1', 'dev@example.test', 'en', canOpenSettings: true);
     }
 }

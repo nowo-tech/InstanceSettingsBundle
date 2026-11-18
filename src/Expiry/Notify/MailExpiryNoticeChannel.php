@@ -9,6 +9,7 @@ use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Symfony\Component\Mailer\MailerInterface;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Exception\RfcComplianceException;
 use Symfony\Component\Mime\Header\Headers;
 use Symfony\Contracts\Translation\TranslatorInterface;
 use Twig\Environment;
@@ -64,6 +65,8 @@ final readonly class MailExpiryNoticeChannel implements ExpiryNoticeChannelInter
 
     /**
      * Renders and sends the e-mail.
+     *
+     * @throws PermanentExpiryNoticeFailureException when the mailer refuses the address (RFC)
      */
     public function send(SecretExpiryThresholdReachedEvent $event, ExpiryRecipient $recipient): void
     {
@@ -86,14 +89,19 @@ final readonly class MailExpiryNoticeChannel implements ExpiryNoticeChannelInter
             '%days%'       => (string) $event->daysLeft,
         ], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN, $locale);
 
-        $this->mailer->send($this->message(
-            (string) $recipient->email,
-            // A label is host text: no line breaks in a header.
-            (string) preg_replace('/[\r\n\t]+/', ' ', $subject),
-            $this->twig->render($this->template . '.html.twig', $context),
-            $this->twig->render($this->template . '.txt.twig', $context),
-            $this->from,
-        ));
+        try {
+            $this->mailer->send($this->message(
+                (string) $recipient->email,
+                // A label is host text: no line breaks in a header.
+                (string) preg_replace('/[\r\n\t]+/', ' ', $subject),
+                $this->twig->render($this->template . '.html.twig', $context),
+                $this->twig->render($this->template . '.txt.twig', $context),
+                $this->from,
+            ));
+        } catch (RfcComplianceException $e) {
+            // An address the mailer refuses: no retry fixes it (the notifier keeps the marker and logs it).
+            throw new PermanentExpiryNoticeFailureException('The reminder e-mail address is refused by the mailer (RFC).', 0, $e);
+        }
     }
 
     /**

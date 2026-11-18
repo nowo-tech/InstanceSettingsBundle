@@ -8,12 +8,16 @@ use Nowo\InstanceSettingsBundle\Event\SecretExpiryThresholdReachedEvent;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryNoticeLinks;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\ExpiryRecipient;
 use Nowo\InstanceSettingsBundle\Expiry\Notify\MailExpiryNoticeChannel;
+use Nowo\InstanceSettingsBundle\Expiry\Notify\PermanentExpiryNoticeFailureException;
 use Nowo\InstanceSettingsBundle\Routing\InstanceSettingsRoutes;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingMailer;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bridge\Twig\Extension\TranslationExtension;
+use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\MailerInterface;
+use Symfony\Component\Mime\Exception\RfcComplianceException;
+use Symfony\Component\Mime\RawMessage;
 use Symfony\Component\Routing\Generator\UrlGenerator;
 use Symfony\Component\Routing\RequestContext;
 use Symfony\Component\Routing\Route;
@@ -55,7 +59,7 @@ final class MailExpiryNoticeChannelTest extends TestCase
     public function testEveryShippedLocaleRendersBothParts(string $locale, string $heading, string $action): void
     {
         $mailer = $this->mailer();
-        $this->channel($mailer)->send($this->event(7), new ExpiryRecipient('1', 'dev@example.test', $locale));
+        $this->channel($mailer)->send($this->event(7), new ExpiryRecipient('1', 'dev@example.test', $locale, true));
 
         $email = $mailer->only();
         self::assertStringContainsString($heading, (string) $email->getHtmlBody());
@@ -70,7 +74,7 @@ final class MailExpiryNoticeChannelTest extends TestCase
     {
         $mailer    = $this->mailer();
         $channel   = $this->channel($mailer);
-        $recipient = new ExpiryRecipient('1', 'dev@example.test', 'en');
+        $recipient = new ExpiryRecipient('1', 'dev@example.test', 'en', true);
         $channel->send($this->event(30), $recipient);
         $channel->send($this->event(0), $recipient);
         $channel->send(new SecretExpiryThresholdReachedEvent('providers', 'api_key', 'providers.api_key', 'app', '2026-12-31', 0, -3), $recipient);
@@ -90,7 +94,7 @@ final class MailExpiryNoticeChannelTest extends TestCase
     public function testTheLabelIsEscapedInTheHtmlPart(): void
     {
         $mailer = $this->mailer();
-        $this->channel($mailer)->send($this->event(7), new ExpiryRecipient('1', 'dev@example.test', 'en'));
+        $this->channel($mailer)->send($this->event(7), new ExpiryRecipient('1', 'dev@example.test', 'en', true));
         $html = (string) $mailer->only()->getHtmlBody();
         self::assertStringContainsString('&lt;img src=x onerror=alert(1)&gt; API key', $html);
         self::assertStringNotContainsString('<img', $html);
@@ -101,11 +105,11 @@ final class MailExpiryNoticeChannelTest extends TestCase
     public function testARecipientWhoCannotOpenTheSettingsGetsTheFallbackLinkOrNone(): void
     {
         $mailer = $this->mailer();
-        $this->channel($mailer)->send($this->event(7), new ExpiryRecipient('2', 'manager@example.test', 'es', canOpenSettings: false));
+        $this->channel($mailer)->send($this->event(7), new ExpiryRecipient('2', 'manager@example.test', 'es'));
         self::assertStringContainsString('href="https://beacon.example.test/"', (string) $mailer->only()->getHtmlBody());
 
         $mailer = $this->mailer();
-        $this->channel($mailer, fallbackRoute: null)->send($this->event(7), new ExpiryRecipient('2', 'manager@example.test', 'es', canOpenSettings: false));
+        $this->channel($mailer, fallbackRoute: null)->send($this->event(7), new ExpiryRecipient('2', 'manager@example.test', 'es'));
         self::assertStringNotContainsString('<a ', (string) $mailer->only()->getHtmlBody());
         self::assertStringNotContainsString('https://', (string) $mailer->only()->getTextBody());
         self::assertStringContainsString('Recibes este aviso', (string) $mailer->only()->getTextBody());
@@ -122,6 +126,23 @@ final class MailExpiryNoticeChannelTest extends TestCase
         self::assertSame('noreply@beacon.example.test', $mailer->only()->getFrom()[0]->getAddress());
         self::assertSame('Beacon', $mailer->only()->getFrom()[0]->getName());
         self::assertSame('dev@example.test', $mailer->only()->getTo()[0]->getAddress());
+    }
+
+    public function testAnAddressTheMailerRefusesIsAPermanentFailure(): void
+    {
+        $mailer = new class implements MailerInterface {
+            public function send(RawMessage $message, ?Envelope $envelope = null): void
+            {
+                throw new RfcComplianceException('Email "x" does not comply with addr-spec of RFC 2822.');
+            }
+        };
+        try {
+            $this->channel($mailer)->send($this->event(7), new ExpiryRecipient('1', 'dev@example.test'));
+            self::fail('Expected a permanent failure');
+        } catch (PermanentExpiryNoticeFailureException $e) {
+            self::assertInstanceOf(RfcComplianceException::class, $e->getPrevious());
+            self::assertStringNotContainsString('dev@example.test', $e->getMessage());
+        }
     }
 
     public function testWithoutATranslatorTheKeysAreSent(): void
