@@ -966,7 +966,7 @@ See [USAGE](USAGE.md#default-expiry-notifier-121).
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `enabled` | `false` | Maps `instance_setting_secret_expiry_notice` (mapping `NowoInstanceSettingsExpiryNotice`) and registers `Expiry\Notify\SecretExpiryNotifier` (listener of `SecretExpiryThresholdReachedEvent`), `ExpiryNoticeStoreInterface` (`DoctrineExpiryNoticeStore`), the channels and `ExpiryNoticeLinks`. Needs `expiring_secrets.enabled: true`. Literal boolean only, read in the prepend step. Add the migration ([UPGRADING](UPGRADING.md#unreleased)). |
+| `enabled` | `false` | Maps `instance_setting_secret_expiry_notice` (mapping `NowoInstanceSettingsExpiryNotice`) and registers `Expiry\Notify\SecretExpiryNotifier` (listener of `SecretExpiryThresholdReachedEvent`), `ExpiryNoticeStoreInterface` (`DoctrineExpiryNoticeStore`), the channels and `ExpiryNoticeLinks`. Needs `expiring_secrets.enabled: true`. Literal boolean only, read in the prepend step. Add the migration ([UPGRADING](UPGRADING.md#to-1210)). |
 | `days` | `[30, 7, 1, 0]` | Thresholds that notify; each must be one of `expiring_secrets.thresholds` (else the build fails). |
 | `roles` | `[]` | Passed to the recipient provider. Empty: `security.access_roles`. |
 | `recipient_provider` | `null` | Service id implementing `ExpiryRecipientProviderInterface`. Required when enabled. |

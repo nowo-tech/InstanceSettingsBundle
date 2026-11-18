@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.21.0](#to-1210)
   - [Opt in: the default expiry notifier (`expiring_secrets.notify`)](#opt-in-the-default-expiry-notifier-expiring_secretsnotify)
 - [To 1.20.0](#to-1200)
   - [Opt in: runtime settings (`runtime_setting.enabled`)](#opt-in-runtime-settings-runtime_settingenabled)
@@ -50,6 +51,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.21.0
+
+From **1.20.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 Target 1.21.0, from **1.20.0**. Nothing changes until you opt in: without `expiring_secrets.notify.enabled` no service,
 table or schema change is added (`migrations:diff` stays empty).
