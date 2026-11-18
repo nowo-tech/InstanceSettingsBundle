@@ -300,7 +300,7 @@ These 115 `src/` files were added by releases after the last review. Each row ma
 | `src/Settings/SettingsMemoObserver.php` | Drops the settings memo (InstanceSettings) when a transaction of the bundle's connection, or one of its savepoints, r... | FR-STORE-001 |
 | `src/Settings/SnapshotSettingsWriterInterface.php` | Saves a section form without losing what another editor saved meanwhile (1.19, Beacon spec 239). | FR-STORE-001 |
 | `src/Transaction/InstanceSettingsTransactionRunner.php` | 1.19 (Beacon spec 239): the runner of every write unit of the settings store, registered as `nowo_instance_settings.t... | FR-TRANSACTION-001 |
-| `src/Transaction/StorageFailureListener.php` | 1.19 (Beacon spec 239): a storage failure of a route of the bundle answers 503 or 409 instead of 500. | FR-TRANSACTION-001 |
+| `src/Transaction/StorageFailureListener.php` | 1.19 (Beacon spec 239), 1.22 (REQ-RUNTIME-003): a lock conflict of a route of the bundle answers 409 + CONFLICT_001 / CONFLICT_002 (503 per host), a form conflict 409 SETTINGS_CHANGED. | FR-TRANSACTION-001 |
 | `src/Ui/ImagePreview.php` | Admin UI: Admin preview of the image stored in an image field (1.5, audit IO Q3): the file route URL of the stored original, pr... | FR-UI-004 |
 | `src/Ui/SecretReveal.php` | Admin UI: What `settings/_secret_reveal.html.twig` needs to render the Reveal control of the revealable secret rows of one sect... | FR-UI-004 |
 | `src/Ui/SectionGroupTab.php` | Admin UI: One subtab of a section page (1.14): its code, label, fields and error count. | FR-UI-004 |

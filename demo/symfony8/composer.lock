@@ -941,6 +941,74 @@
             "published-time": "2026-02-08T16:22:50+00:00"
         },
         {
+            "name": "egulias/email-validator",
+            "version": "4.0.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/egulias/EmailValidator.git",
+                "reference": "d42c8731f0624ad6bdc8d3e5e9a4524f68801cfa"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/egulias/EmailValidator/zipball/d42c8731f0624ad6bdc8d3e5e9a4524f68801cfa",
+                "reference": "d42c8731f0624ad6bdc8d3e5e9a4524f68801cfa",
+                "shasum": ""
+            },
+            "require": {
+                "doctrine/lexer": "^2.0 || ^3.0",
+                "php": ">=8.1",
+                "symfony/polyfill-intl-idn": "^1.26"
+            },
+            "require-dev": {
+                "phpunit/phpunit": "^10.2",
+                "vimeo/psalm": "^5.12"
+            },
+            "suggest": {
+                "ext-intl": "PHP Internationalization Libraries are required to use the SpoofChecking validation"
+            },
+            "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-master": "4.0.x-dev"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Egulias\\EmailValidator\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Eduardo Gulias Davis"
+                }
+            ],
+            "description": "A library for validating emails against several RFCs",
+            "homepage": "https://github.com/egulias/EmailValidator",
+            "keywords": [
+                "email",
+                "emailvalidation",
+                "emailvalidator",
+                "validation",
+                "validator"
+            ],
+            "support": {
+                "issues": "https://github.com/egulias/EmailValidator/issues",
+                "source": "https://github.com/egulias/EmailValidator/tree/4.0.4"
+            },
+            "funding": [
+                {
+                    "url": "https://github.com/egulias",
+                    "type": "github"
+                }
+            ],
+            "time": "2025-03-06T22:45:56+00:00",
+            "published-time": "2025-03-20T21:39:03+00:00"
+        },
+        {
             "name": "nowo-tech/doctrine-encrypt-bundle",
             "version": "v2.10.1",
             "source": {
@@ -1166,17 +1234,18 @@
             "dist": {
                 "type": "path",
                 "url": "/var/instance-settings-bundle",
-                "reference": "06051c6952fd00d44d67840c1e6548f9d58b8bd1"
+                "reference": "bcbf059358f6a7a3d652340f07e5e24900b2111f"
             },
             "require": {
                 "doctrine/dbal": "^3.8.2 || ^4.0",
                 "doctrine/doctrine-bundle": "^2.13 || ^3.0",
                 "doctrine/orm": "^3.3",
                 "doctrine/persistence": "^3.1 || ^4.0",
+                "egulias/email-validator": "^4.0",
                 "nowo-tech/doctrine-encrypt-bundle": "^2.10",
                 "nowo-tech/form-kit-bundle": "^2.17",
                 "nowo-tech/transaction-contract": "^1.0",
-                "nowo-tech/transaction-doctrine": "^1.1",
+                "nowo-tech/transaction-doctrine": "^1.5",
                 "nowo-tech/ui-kit-bundle": "^2.47",
                 "php": ">=8.2 <8.6",
                 "psr/clock": "^1.0",
@@ -1204,13 +1273,16 @@
                 "twig/twig": "^3.12"
             },
             "conflict": {
-                "nowo-tech/brand-contracts": "<1.0 || >=2.0"
+                "nowo-tech/brand-contracts": "<1.0 || >=2.0",
+                "nowo-tech/notify-kit-bundle": "<0.1.1"
             },
             "require-dev": {
                 "friendsofphp/php-cs-fixer": "^3.0",
                 "igor-php/igor-php": "^0.10.1",
                 "nowo-tech/brand-contracts": "^1.0",
+                "nowo-tech/notify-kit-bundle": "^0.1.1",
                 "nowo-tech/phpstan-frankenphp": "^1.4",
+                "nowo-tech/runtime-setting-contract": "^1.0",
                 "phpstan/extension-installer": "^1.4",
                 "phpstan/phpstan": "^2.0",
                 "phpstan/phpstan-phpunit": "^2.0",
@@ -1221,6 +1293,7 @@
                 "symfony/css-selector": "^7.4 || ^8.0",
                 "symfony/dom-crawler": "^7.4 || ^8.0",
                 "symfony/filesystem": "^7.4 || ^8.0",
+                "symfony/mailer": "^7.4 || ^8.0",
                 "symfony/phpunit-bridge": "^7.4 || ^8.0",
                 "symfony/rate-limiter": "^7.4 || ^8.0",
                 "symfony/security-bundle": "^7.4 || ^8.0",
@@ -1230,7 +1303,11 @@
             "suggest": {
                 "ext-gd": "Required (with PNG, JPEG and WebP support) when a section declares an image field (1.4)",
                 "nowo-tech/brand-contracts": "Required for the brand bridge (brand.enabled: true, 1.5): BrandProviderInterface for UiKit, Pwa, MailKit, LegalKit and SeoKit",
+                "nowo-tech/mail-kit-bundle": "The mail channel of the default expiry notifier (expiring_secrets.notify, 1.21): reminders through MailKit's mailer, sender and log",
+                "nowo-tech/notify-kit-bundle": "^0.1.1 — the bell channel of the default expiry notifier (expiring_secrets.notify, 1.21)",
+                "nowo-tech/runtime-setting-contract": "^1.0 — for runtime_setting.enabled (1.20): settings read and changed live (nowo:runtime-setting:*), rotation, section version tokens",
                 "symfony/flex": "For automatic recipe installation",
+                "symfony/mailer": "The mail channel of the default expiry notifier without MailKit (expiring_secrets.notify.channels.mail: on, 1.21)",
                 "symfony/rate-limiter": "To rate-limit the secret reveal endpoint (security.reveal_rate_limiter, 1.15)",
                 "symfony/security-bundle": "Required for the admin UI unless security.allow_unauthenticated is true (dev / demo only)",
                 "symfony/translation": "To return a TranslatableMessage (key + parameters) from SettingsSectionInterface::getIntro()",
@@ -1415,40 +1492,69 @@
         },
         {
             "name": "nowo-tech/transaction-doctrine",
-            "version": "v1.1.0",
+            "version": "v1.5.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/transaction-doctrine.git",
-                "reference": "c9e26d12a120427c2c643af20140989bafacdf1a"
+                "reference": "5b1369c60fe1ee3cd5b7e4f0dce458e3dac8fdc2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/transaction-doctrine/zipball/c9e26d12a120427c2c643af20140989bafacdf1a",
-                "reference": "c9e26d12a120427c2c643af20140989bafacdf1a",
+                "url": "https://api.github.com/repos/nowo-tech/transaction-doctrine/zipball/5b1369c60fe1ee3cd5b7e4f0dce458e3dac8fdc2",
+                "reference": "5b1369c60fe1ee3cd5b7e4f0dce458e3dac8fdc2",
                 "shasum": ""
             },
             "require": {
                 "doctrine/dbal": "^3.8.2 || ^4.0",
                 "nowo-tech/transaction-contract": "^1.0",
-                "php": ">=8.2 <8.6"
+                "php": ">=8.2 <8.6",
+                "psr/log": "^1.0 || ^2.0 || ^3.0"
+            },
+            "conflict": {
+                "symfony/http-kernel": "<6.4",
+                "symfony/messenger": "<6.4"
             },
             "require-dev": {
                 "doctrine/orm": "^3.0",
                 "doctrine/persistence": "^3.1 || ^4.0",
                 "friendsofphp/php-cs-fixer": "^3.0",
+                "igor-php/igor-php": "^0.10.0",
+                "nowo-tech/phpstan-frankenphp": "^1.0",
+                "phpstan/extension-installer": "^1.4",
                 "phpstan/phpstan": "^2.0",
                 "phpstan/phpstan-phpunit": "^2.0",
                 "phpunit/phpunit": "^10.0 || ^11.0",
-                "rector/rector": "^2.0"
+                "rector/rector": "^2.0",
+                "symfony/clock": "^6.4 || ^7.0 || ^8.0",
+                "symfony/config": "^6.4 || ^7.0 || ^8.0",
+                "symfony/dependency-injection": "^6.4 || ^7.0 || ^8.0",
+                "symfony/event-dispatcher": "^6.4 || ^7.0 || ^8.0",
+                "symfony/framework-bundle": "^6.4 || ^7.0 || ^8.0",
+                "symfony/http-foundation": "^6.4 || ^7.0 || ^8.0",
+                "symfony/http-kernel": "^6.4 || ^7.0 || ^8.0",
+                "symfony/messenger": "^6.4 || ^7.0 || ^8.0",
+                "symfony/property-access": "^6.4 || ^7.0 || ^8.0",
+                "symfony/security-core": "^6.4 || ^7.0 || ^8.0",
+                "symfony/serializer": "^6.4 || ^7.0 || ^8.0",
+                "symfony/translation": "^6.4 || ^7.0 || ^8.0",
+                "symfony/twig-bundle": "^6.4 || ^7.0 || ^8.0",
+                "symfony/yaml": "^6.4 || ^7.0 || ^8.0",
+                "twig/twig": "^3.0"
             },
             "suggest": {
-                "doctrine/orm": "For DoctrineTransactionRunner::forEntityManager()",
-                "doctrine/persistence": "To reset a closed entity manager through a ManagerRegistry"
+                "doctrine/orm": "For DoctrineTransactionRunner::forEntityManager() and write units on entity managers",
+                "doctrine/persistence": "To reset a closed entity manager through a ManagerRegistry (required by WriteUnit)",
+                "nowo-tech/ui-kit-bundle": "The conflict page extends UiKit's error page when UiKit is installed",
+                "psr/event-dispatcher": "To dispatch WriteUnitRetryEvent before each write-unit replay (Symfony's event_dispatcher)",
+                "symfony/clock": "To pause between write-unit attempts through the Symfony clock (testable)",
+                "symfony/http-kernel": "For the optional NowoTransactionDoctrineBundle (#[AsWriteUnit], 409 conflict responder, worker hygiene)",
+                "symfony/messenger": "For WriteUnitMiddleware (replays a consumed message after a lock conflict)",
+                "twig/twig": "For the branded HTML conflict page (overridable template)"
             },
             "type": "library",
             "extra": {
                 "branch-alias": {
-                    "dev-main": "1.0.x-dev"
+                    "dev-main": "1.3.x-dev"
                 }
             },
             "autoload": {
@@ -1472,7 +1578,7 @@
                     "homepage": "https://nowo.tech"
                 }
             ],
-            "description": "Safe plain-Doctrine default for nowo-tech/transaction-contract: a one-attempt TransactionRunnerInterface that never leaves a poisoned connection (close instead of a failing rollback after a nested deadlock), plus the transient-failure classifier and connection repairer. No Symfony.",
+            "description": "Safe plain-Doctrine default for nowo-tech/transaction-contract: a one-attempt TransactionRunnerInterface that never leaves a poisoned connection (close instead of a failing rollback after a nested deadlock), the transient-failure classifier and connection repairer, and write units that replay a deadlock or lock wait timeout. Optional Symfony bundle: #[AsWriteUnit], Messenger middleware, 409 + Retry-After conflict responder, worker connection hygiene.",
             "homepage": "https://github.com/nowo-tech/transaction-doctrine",
             "keywords": [
                 "dbal",
@@ -1481,15 +1587,18 @@
                 "frankenphp",
                 "orm",
                 "savepoint",
+                "symfony",
                 "transaction",
-                "worker"
+                "worker",
+                "write-unit"
             ],
             "support": {
+                "docs": "https://github.com/nowo-tech/transaction-doctrine#documentation",
                 "issues": "https://github.com/nowo-tech/transaction-doctrine/issues",
                 "source": "https://github.com/nowo-tech/transaction-doctrine"
             },
-            "time": "2026-11-15T08:15:49+00:00",
-            "published-time": "2026-11-15T08:18:10+00:00"
+            "time": "2026-11-18T12:10:08+00:00",
+            "published-time": "2026-11-18T12:12:21+00:00"
         },
         {
             "name": "nowo-tech/ui-kit-bundle",

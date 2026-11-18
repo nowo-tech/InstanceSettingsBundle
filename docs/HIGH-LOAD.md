@@ -1,5 +1,8 @@
 # High load
 
+The write-path table, the conflict codes and the host options of REQ-RUNTIME-003 are in [CONCURRENCY.md](CONCURRENCY.md);
+this page explains the mechanisms in detail.
+
 Since 1.19.0 (Beacon spec 239) the settings store is built for many concurrent requests on long-running workers:
 FrankenPHP worker mode with the kernel **not** reset between requests, RoadRunner, Messenger consumers.
 
@@ -11,7 +14,7 @@ FrankenPHP worker mode with the kernel **not** reset between requests, RoadRunne
 - [Section forms keep what another editor saved](#section-forms-keep-what-another-editor-saved)
 - [Side effects follow the commit](#side-effects-follow-the-commit)
 - [The memo never serves what was not committed](#the-memo-never-serves-what-was-not-committed)
-- [Transient failures: 503, conflicts: 409](#transient-failures-503-conflicts-409)
+- [Lock conflicts: 409 + CONFLICT codes](#lock-conflicts-409--conflict-codes)
 - [Races that no longer happen](#races-that-no-longer-happen)
 - [Exact keys](#exact-keys)
 - [Database settings](#database-settings)
@@ -35,7 +38,7 @@ implementing nowo-tech/transaction-contract's `TransactionRunnerInterface`): a s
 - A transient failure (deadlock, lock wait timeout, serialization failure, lost savepoint) is a
   `Nowo\TransactionContract\TransientStorageFailure` with a Retry-After hint; anything else is rethrown unchanged.
 
-HTTP writes make one attempt: a transient failure answers 503 and the client retries. `runRetrying()` replays a transient
+HTTP writes make one attempt: a transient failure answers 409 `CONFLICT_001` (503 per host) and the client retries. `runRetrying()` replays a transient
 failure (three attempts, full-jitter backoff, waited on the clock) **only when the unit is the outermost transaction**:
 the console seeds use it (`nowo:instance-settings:seed`, `nowo:instance-settings:seed-from-fallbacks`, and
 `FallbackSeeder` / `SeedFileSeeder` called from your own code). Inside a transaction of yours it is never replayed: the
@@ -137,19 +140,25 @@ section lock. In PHP the same merge is `SnapshotSettingsWriterInterface::snapsho
 A value another process saves while a request is running is seen by the next request (a request reads one consistent
 view of the settings).
 
-## Transient failures: 503, conflicts: 409
+## Lock conflicts: 409 + CONFLICT codes
 
-On the routes of the bundle (`StorageFailureListener`, only for the bundle's controllers):
+On the routes of the bundle (`StorageFailureListener`, only for the bundle's controllers), since 1.22
+(REQ-RUNTIME-003 rule 6; 1.19–1.21 answered 503):
 
-- a `TransientStorageFailure` or a DBAL `RetryableException` anywhere in the chain of previous exceptions:
-  **503 Service Unavailable** with `Retry-After` (the runner's hint, else 1 s);
-- a unique key violation or a `SettingsConflictException`: **409 Conflict**.
+- a `TransientStorageFailure`, or a deadlock, lock wait timeout or serialization failure anywhere in the chain of
+  previous exceptions: **409 Conflict** (`conflict_response.status: 503` keeps the old status) with
+  - `CONFLICT_001` and `Retry-After` (the runner's hint, else `conflict_response.retry_after`, else 1 s) when nothing
+    of the request was committed;
+  - `CONFLICT_002` and no `Retry-After` when an earlier write unit of the same request committed (the runner's
+    `CommitLedger` moved since the request started), or the failure is a lost savepoint with no deadlock behind it;
+- a `SettingsConflictException`: **409 Conflict** with the bundle's own code `SETTINGS_CHANGED`;
+- a unique key violation or a lost connection: **not mapped** (a real error).
 
-The reveal and test endpoints answer `{"error": "unavailable" | "conflict"}` (never cacheable); the pages get a
-`ServiceUnavailableHttpException` / `ConflictHttpException` with a fixed message, rendered by your error page. The
-storage error stays the previous exception, for your logs: no SQL, no parameter and no secret reaches the client. A host
-route that embeds a section keeps your own error handling (a form conflict is answered by the embed itself: 409 with the
-errors on the form).
+The reveal and test endpoints answer `{"error": "conflict" | "unavailable", "code": "…"}` (never cacheable); the pages
+get an `HttpException` with a fixed message, rendered by your error page. Every answer carries the code in the
+`X-Conflict-Code` header. The storage error stays the previous exception, for your logs: no SQL, no parameter and no
+secret reaches the client. A host route that embeds a section keeps your own error handling (a form conflict is
+answered by the embed itself: 409 with the errors on the form).
 
 ## Races that no longer happen
 
@@ -161,7 +170,7 @@ errors on the form).
 | R4 | A secret stored by another editor between this request's checks and its write was overwritten (or 500) | 409 |
 | R5 | An expiry date typed for the secret shown was put on the secret another editor rotated meanwhile | 409 |
 | R6 | A save that failed left its values in the memo for the rest of the request / worker unit | memo dropped |
-| R7 | A deadlock or lock wait on a bundle route answered 500 | 503 + Retry-After |
+| R7 | A deadlock or lock wait on a bundle route answered 500 | 409 + `CONFLICT_001` + Retry-After (1.19–1.21: 503); `CONFLICT_002` after a committed unit |
 | R8 | An import and a concurrent first save of one of its fields: unique key violation | section locks |
 | R9 | A raw row write and a concurrent first save: unique key violation | section locks |
 | R10 | A value read inside a rolled-back transaction was served from the memo | memo dropped on rollback |
@@ -186,11 +195,11 @@ re-checks the section (and field) name with `===`, and no read applies a LIMIT b
   the `(section, name)` key until that writer commits. No deadlock was reproduced, but under load the saves of
   unrelated sections queue behind each other (audit QQ-I-1). READ COMMITTED takes no gap locks.
   `innodb_lock_wait_timeout` bounds how long a save waits for the section lock (the default 50 s is long for HTTP;
-  5–10 s is a better fit, the client gets a 503).
+  5–10 s is a better fit, the client gets a 409 `CONFLICT_001`).
 - PostgreSQL: READ COMMITTED (the default). Set `lock_timeout` for the same reason.
 - DBAL 3 (3.8.2 or later) and DBAL 4 are supported. On DBAL 3 **enable savepoints** (`doctrine.dbal.use_savepoints:
   true`) when the store is called inside your transactions. Without them a nested unit is not a savepoint: a save
-  refused inside your transaction (409 conflict, 422 validation, 503 transient failure) marks your transaction
+  refused inside your transaction (409 conflict, 422 validation, transient failure) marks your transaction
   rollback-only, and your commit then fails, so your own work in that transaction is lost too. With savepoints only the
   refused save is rolled back. DBAL 4 always nests with savepoints.
 
@@ -227,8 +236,8 @@ With `runtime_setting.enabled` (nowo-tech/runtime-setting-contract):
 
 `tests/Database` plays two requests in one process on a real database (a peer kernel on its own connection, run between
 a page load and its submit, or right before the first write of the other request). Every test there fails on 1.18.1.
-The CI job "Load readiness" runs it on MySQL 8.4 and PostgreSQL 16, with DBAL 4 and DBAL 3, and (1.20) on MariaDB 11.4
-with DBAL 4:
+The CI job "Load readiness" runs it on MySQL 8.4, MariaDB 11.4 and PostgreSQL 16, each with DBAL 4 and DBAL 3 (required
+checks of `main`):
 
 ```bash
 IS_TEST_DATABASE_URL='mysql://root@127.0.0.1:3306/is_test?serverVersion=8.4.0&charset=utf8mb4' \

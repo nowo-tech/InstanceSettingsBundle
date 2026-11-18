@@ -41,13 +41,19 @@ use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use Nowo\InstanceSettingsBundle\Seed\SeedFileSeeder;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettings;
 use Nowo\InstanceSettingsBundle\Settings\SettingsMemoObserver;
+use Nowo\InstanceSettingsBundle\Transaction\StorageFailureListener;
+use Nowo\TransactionDoctrine\Symfony\Conflict\ConflictResponsePolicy;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\ContainerInterface;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpKernel\KernelEvents;
 
 use function array_map;
 
@@ -74,6 +80,28 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $definition = new ChildDefinition('');
         $container->getAttributeAutoconfigurators()[AsSettingsSection::class][0]($definition, new AsSettingsSection(5));
         self::assertSame([['priority' => 5]], $definition->getTag(NowoInstanceSettingsBundle::SECTION_TAG));
+    }
+
+    public function testTheConflictAnswerFollowsTransactionDoctrineUnlessConfigured(): void
+    {
+        $listener = $this->load([], withSecurity: true)->getDefinition(StorageFailureListener::class);
+        $policy   = $listener->getArgument(0);
+        self::assertInstanceOf(Reference::class, $policy);
+        self::assertSame(ConflictResponsePolicy::class, (string) $policy);
+        self::assertSame(ContainerInterface::NULL_ON_INVALID_REFERENCE, $policy->getInvalidBehavior());
+        self::assertSame(NowoInstanceSettingsExtension::COMMIT_LEDGER_ID, (string) $listener->getArgument(1));
+        self::assertSame(['kernel.event_listener' => [
+            ['event' => KernelEvents::REQUEST, 'method' => 'onRequest', 'priority' => StorageFailureListener::REQUEST_PRIORITY],
+            ['event' => KernelEvents::EXCEPTION, 'method' => 'onException', 'priority' => StorageFailureListener::PRIORITY],
+        ]], $listener->getTags());
+
+        $policy = $this->load(['conflict_response' => ['status' => 503]], withSecurity: true)->getDefinition(StorageFailureListener::class)->getArgument(0);
+        self::assertInstanceOf(Definition::class, $policy);
+        self::assertSame([503, ConflictResponsePolicy::DEFAULT_RETRY_AFTER], $policy->getArguments());
+
+        $policy = $this->load(['conflict_response' => ['retry_after' => 3]], withSecurity: true)->getDefinition(StorageFailureListener::class)->getArgument(0);
+        self::assertInstanceOf(Definition::class, $policy);
+        self::assertSame([409, 3], $policy->getArguments());
     }
 
     public function testEventsGoThroughTheAfterCommitDispatcherAndTheRowReaderIsAliased(): void

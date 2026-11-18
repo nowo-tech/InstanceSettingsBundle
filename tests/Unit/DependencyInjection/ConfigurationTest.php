@@ -24,6 +24,8 @@ final class ConfigurationTest extends TestCase
         self::assertSame(['web_ui' => true, 'schema' => 'nowo-instance-settings', 'max_upload_bytes' => 1_048_576, 'sealed_secrets' => true, 'max_file_bytes' => 8_388_608], $config['portability']);
         self::assertSame(['enabled' => false, 'path_prefix' => '/_settings-file', 'orphan_retention' => 30, 'store' => 'doctrine', 'directory' => '%kernel.project_dir%/config/instance-files', 'crop' => ['enabled' => false, 'shape' => null, 'quality' => null, 'labels' => []]], $config['files']);
         self::assertSame(['file' => null, 'base_dir' => '%kernel.project_dir%'], $config['seed']);
+        self::assertSame(['status' => null, 'retry_after' => null], $config['conflict_response']);
+        self::assertSame(['status' => 503, 'retry_after' => 0], $this->process(['conflict_response' => ['status' => 503, 'retry_after' => 0]])['conflict_response']);
     }
 
     public function testSectionIconsAndHiddenNavigation(): void
@@ -178,6 +180,8 @@ final class ConfigurationTest extends TestCase
         yield 'test roles map' => [['security' => ['test_roles' => ['a' => 'ROLE_A']]], 'test_roles must be null or a list'];
         yield 'test roles blank' => [['security' => ['test_roles' => ['ROLE_A', ' ']]], 'test_roles must be null or a list'];
         yield 'test roles not a string' => [['security' => ['test_roles' => [3]]], 'test_roles must be null or a list'];
+        yield 'conflict status' => [['conflict_response' => ['status' => 500]], 'conflict_response.status must be 409 or 503'];
+        yield 'conflict retry after' => [['conflict_response' => ['retry_after' => -1]], 'retry_after'];
         yield 'test area roles' => [['security' => ['area_roles' => ['_test' => ['ROLE_A']]]], 'must not define "_test"'];
     }
 
