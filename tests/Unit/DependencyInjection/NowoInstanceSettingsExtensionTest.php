@@ -229,6 +229,28 @@ final class NowoInstanceSettingsExtensionTest extends TestCase
         $this->load([]);
     }
 
+    /**
+     * DoctrineBundle 3.4 deprecates the mapping `alias` option (ORM 3 has no `Alias:Entity` DQL syntax, and the bundle
+     * allows ORM 3 only): none of the five mappings sets it.
+     */
+    public function testNoMappingSetsTheDeprecatedAlias(): void
+    {
+        $container = new ContainerBuilder();
+        $container->registerExtension($this->extension('doctrine'));
+        $container->prependExtensionConfig('nowo_instance_settings', [
+            'files'            => ['enabled' => true],
+            'expiring_secrets' => ['enabled' => true, 'notify' => ['enabled' => true]],
+            'runtime_setting'  => ['enabled' => true],
+        ]);
+        (new NowoInstanceSettingsExtension())->prepend($container);
+
+        $mappings = $container->getExtensionConfig('doctrine')[0]['orm']['mappings'];
+        self::assertCount(5, $mappings);
+        foreach ($mappings as $name => $mapping) {
+            self::assertArrayNotHasKey('alias', $mapping, $name);
+        }
+    }
+
     public function testPrependRegistersDoctrineMappingAndFormKitProfile(): void
     {
         $container = new ContainerBuilder();
