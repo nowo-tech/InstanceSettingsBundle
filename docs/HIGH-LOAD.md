@@ -149,8 +149,8 @@ On the routes of the bundle (`StorageFailureListener`, only for the bundle's con
   previous exceptions: **409 Conflict** (`conflict_response.status: 503` keeps the old status) with
   - `CONFLICT_001` and `Retry-After` (the runner's hint, else `conflict_response.retry_after`, else 1 s) when nothing
     of the request was committed;
-  - `CONFLICT_002` and no `Retry-After` when an earlier write unit of the same request committed (the runner's
-    `CommitLedger` moved since the request started), or the failure is a lost savepoint with no deadlock behind it;
+  - `CONFLICT_002` and no `Retry-After` when anything committed earlier in the same request (the request's
+    `CommitMark`, by the host or another bundle too, or the runner's `CommitLedger`), or the failure is a lost savepoint with no deadlock behind it;
 - a `SettingsConflictException`: **409 Conflict** with the bundle's own code `SETTINGS_CHANGED`;
 - a unique key violation or a lost connection: **not mapped** (a real error).
 

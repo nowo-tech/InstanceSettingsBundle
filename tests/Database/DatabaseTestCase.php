@@ -24,6 +24,7 @@ use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpKernel\Bundle\BundleInterface;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
 use function count;
@@ -67,8 +68,9 @@ abstract class DatabaseTestCase extends TestCase
      * @param array<string, string> $services extra service id => class (autoconfigured, public)
      * @param bool $hook this kernel's connection runs {@see StatementHook}
      * @param (Closure(RoutingConfigurator): void)|null $routes extra routes (the bundle's routes are always imported)
+     * @param list<BundleInterface> $extraBundles more bundles (e.g. NowoTransactionDoctrineBundle for request-level commit detection)
      */
-    protected function boot(array $config = [], array $services = [], bool $hook = false, ?Closure $routes = null): InstanceSettingsTestKernel
+    protected function boot(array $config = [], array $services = [], bool $hook = false, ?Closure $routes = null, array $extraBundles = []): InstanceSettingsTestKernel
     {
         $id     = (string) preg_replace('/\W+/', '_', static::class . '_' . $this->name() . '_' . count($this->kernels));
         $kernel = new InstanceSettingsTestKernel(
@@ -97,6 +99,7 @@ abstract class DatabaseTestCase extends TestCase
             },
             databaseUrl: (string) getenv('IS_TEST_DATABASE_URL'),
             keyId: 'database-shared',
+            extraBundles: $extraBundles,
         );
         $first           = $this->kernels === [];
         $this->kernels[] = $kernel;

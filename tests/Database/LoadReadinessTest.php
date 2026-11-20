@@ -15,11 +15,13 @@ use Nowo\InstanceSettingsBundle\Section\SettingsSectionRegistry;
 use Nowo\InstanceSettingsBundle\Seed\FallbackSeeder;
 use Nowo\InstanceSettingsBundle\Settings\SectionSnapshot;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\HostWriteThenSaveController;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SeedFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\TwoUnitWriteController;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Transaction\StorageFailureListener;
 use Nowo\TransactionDoctrine\ConflictCode;
+use Nowo\TransactionDoctrine\Symfony\NowoTransactionDoctrineBundle;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 use Throwable;
 
@@ -383,6 +385,67 @@ final class LoadReadinessTest extends DatabaseTestCase
         self::assertSame('Stored', $this->stored($kernel, 'general', 'site_name'), 'the second unit is not');
         $this->settings($kernel)->save('general', ['site_name' => 'After']);
         self::assertSame('After', $this->stored($kernel, 'general', 'site_name'), 'the connection is usable afterwards');
+    }
+
+    /**
+     * R7, request-level detection (transaction-doctrine >= 1.6) — a commit made earlier in the request OUTSIDE the bundle's
+     * runner (a host write in autocommit, tracked by NowoTransactionDoctrineBundle's commit detection) turns the later lock
+     * conflict of the bundle's unit into 409 + CONFLICT_002 without Retry-After. The runner's own ledger saw nothing.
+     */
+    public function testAHostCommitEarlierInTheRequestAnswers409Committed(): void
+    {
+        $kernel = $this->boot(
+            services: [HostWriteThenSaveController::class => HostWriteThenSaveController::class],
+            routes: static function (RoutingConfigurator $routes): void {
+                $routes->add('host_write', '/host-write')->controller(HostWriteThenSaveController::class)->methods(['POST']);
+            },
+            extraBundles: [new NowoTransactionDoctrineBundle()],
+        );
+        $peer = $this->boot();
+        $this->settings($kernel)->save('general', ['site_name' => 'Stored']);
+        $this->settings($kernel)->save('mailer', ['from_name' => 'Before']);
+        $client = $this->client($kernel);
+
+        $this->lockTimeout($kernel, 1);
+        $this->connection($peer)->transactional(static function ($blocker) use ($client): void {
+            $blocker->fetchAllAssociative('SELECT id FROM instance_setting_value WHERE section = ? AND name = ? FOR UPDATE', ['general', 'site_name']);
+            $client->request('POST', '/host-write', server: ['HTTP_ACCEPT' => 'application/json']);
+        });
+
+        $response = $client->getResponse();
+        self::assertSame(409, $response->getStatusCode());
+        self::assertNull($response->headers->get('Retry-After'));
+        self::assertSame(ConflictCode::COMMITTED, $response->headers->get(StorageFailureListener::CODE_HEADER));
+        self::assertSame(['error' => 'conflict', 'code' => ConflictCode::COMMITTED], json_decode((string) $response->getContent(), true));
+        self::assertSame('Host', $this->stored($kernel, 'mailer', 'from_name'), 'the host write is committed');
+        self::assertSame('Stored', $this->stored($kernel, 'general', 'site_name'), 'the bundle write is not');
+        $this->settings($kernel)->save('general', ['site_name' => 'After']);
+        self::assertSame('After', $this->stored($kernel, 'general', 'site_name'), 'the connection is usable afterwards');
+    }
+
+    /**
+     * R7, request-level detection — a lock conflict with no earlier commit in the request stays CONFLICT_001 with
+     * Retry-After, also with commit detection on.
+     */
+    public function testALockConflictWithoutAnEarlierCommitStaysRetrySafeWithCommitDetection(): void
+    {
+        $kernel = $this->boot(extraBundles: [new NowoTransactionDoctrineBundle()]);
+        $peer   = $this->boot();
+        $this->settings($kernel)->save('general', ['site_name' => 'Stored']);
+        $client = $this->client($kernel);
+        $form   = $client->request('GET', '/admin/settings/sections/general')->filter('form[name="settings_section"]')->form();
+
+        $this->lockTimeout($kernel, 1);
+        $this->connection($peer)->transactional(static function ($blocker) use ($client, $form): void {
+            $blocker->fetchAllAssociative('SELECT id FROM instance_setting_value WHERE section = ? AND name = ? FOR UPDATE', ['general', 'site_name']);
+            $client->submit($form, ['settings_section[site_name]' => 'Mine']);
+        });
+
+        $response = $client->getResponse();
+        self::assertSame(409, $response->getStatusCode());
+        self::assertSame('1', $response->headers->get('Retry-After'));
+        self::assertSame(ConflictCode::RETRY_SAFE, $response->headers->get(StorageFailureListener::CODE_HEADER));
+        self::assertSame('Stored', $this->stored($kernel, 'general', 'site_name'));
     }
 
     /**

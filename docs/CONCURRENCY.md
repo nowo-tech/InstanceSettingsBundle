@@ -19,7 +19,7 @@ write paths, conflict answers, codes, host options and residual risks.
 
 - **One transaction per write unit**, on the bundle's own runner `nowo_instance_settings.transaction_runner`
   (`InstanceSettingsTransactionRunner`, built on nowo-tech/transaction-contract and nowo-tech/transaction-doctrine
-  ^1.5), on the bundle's **private** entity manager. Inside a transaction of yours a unit is a savepoint of it.
+  ^1.8.1), on the bundle's **private** entity manager. Inside a transaction of yours a unit is a savepoint of it.
 - **Your entity manager is never flushed, cleared, closed or reset.** After any failure the runner rolls back to the
   entry level (and closes the connection only when that rollback fails) and clears only the private manager.
 - **Side effects after the commit:** `SettingsChangedEvent`, the audit lines and the image files of the filesystem
@@ -53,8 +53,13 @@ section keeps your own error handling):
 | Code | When | Status | `Retry-After` | Client should |
 | --- | --- | --- | --- | --- |
 | `CONFLICT_001` | Deadlock, lock wait timeout or serialization failure (a `TransientStorageFailure` of the runner, or a DBAL error anywhere in the chain) and nothing of the request was committed | 409 (`conflict_response.status`) | Yes: the runner's hint, else `conflict_response.retry_after`, else 1 s | Retry |
-| `CONFLICT_002` | The same, after an earlier write unit of the same request committed (the runner's `CommitLedger` moved since the request started), or a `ConcurrencyConflict` that committed, or a lost savepoint with no deadlock behind it (outcome unknown) | 409 (`conflict_response.status`) | No | Reload, do not repeat blindly |
+| `CONFLICT_002` | The same, after an earlier write unit of the same request committed (anything committed since the request's `CommitMark`, made by the host or another bundle as well, or the runner's `CommitLedger` moved since the request started), or a `ConcurrencyConflict` that committed, or a lost savepoint with no deadlock behind it (outcome unknown) | 409 (`conflict_response.status`) | No | Reload, do not repeat blindly |
 | `SETTINGS_CHANGED` | `SettingsConflictException`: another editor changed the same fields since the page was opened (domain conflict, not a lock conflict) | 409 | No | Reload the form |
+
+Request-level detection: the code comes from `ConflictCode::forRequest($request, $failure)` (nowo-tech/transaction-doctrine
+^1.6), so a commit made earlier in the same request by the host or another bundle also answers `CONFLICT_002`. The mark
+is taken at `kernel.request` by transaction-doctrine's Symfony bundle when its `commit_detection` is on (the default);
+without it the failure and the bundle's own `CommitLedger` decide.
 
 - JSON answers (secret reveal, section test, `Accept: application/json`): `{"error": "conflict", "code": "…"}`
   (`"error": "unavailable"` when the status is 503), `Cache-Control: no-store, private`.
@@ -104,8 +109,8 @@ nowo_instance_settings:
   first-insert races, form conflicts, rotated secrets and dates, the stale memo, an import and a raw row write racing a
   save, the 409 `CONFLICT_001` answer with `Retry-After` (the stored data unchanged, the connection usable afterwards),
   the 503 host option, and the `CONFLICT_002` answer without `Retry-After` when the first unit of a request committed
-  and the second one met a lock.
-- `tests/Unit/Transaction/StorageFailureListenerTest.php` maps every case: `CONFLICT_001`, `CONFLICT_002` (ledger,
+  and the second one met a lock, and the same answer when the earlier commit was a host write outside the runner (request-level detection).
+- `tests/Unit/Transaction/StorageFailureListenerTest.php` maps every case: `CONFLICT_001`, `CONFLICT_002` (ledger, request mark,
   `ConcurrencyConflict::$committed`, lost savepoint), `SETTINGS_CHANGED`, 503, and unique violations / lost connections
   left alone.
 - The CI job **Load readiness** runs `tests/Database` on MySQL 8.4, MariaDB 11.4 and PostgreSQL 16, each with DBAL 4
@@ -118,10 +123,6 @@ IS_TEST_DATABASE_URL='mysql://root@127.0.0.1:3306/is_test?serverVersion=8.4.0&ch
 
 ## Residual risks
 
-- **Commit tracking covers the bundle's runner only.** `CONFLICT_002` is answered when a unit of the bundle's runner
-  committed earlier in the request. A write outside the runner on the same request (a host listener writing in
-  autocommit before the bundle's controller fails) is not counted; with nowo-tech/transaction-doctrine's commit
-  detection (`WriteUnit` / `#[AsWriteUnit]`) the host's own units answer through that bundle's responder.
 - **Under REPEATABLE READ** (MySQL default) the locking re-reads take next-key locks: saves of unrelated sections can
   queue behind each other. READ COMMITTED is recommended ([HIGH-LOAD.md](HIGH-LOAD.md#database-settings)).
 - **Lock waits are bounded by the database**, not by the bundle: set `innodb_lock_wait_timeout` / `lock_timeout` to a

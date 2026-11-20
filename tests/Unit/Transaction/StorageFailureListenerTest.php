@@ -18,6 +18,7 @@ use Nowo\TransactionDoctrine\ConflictCode;
 use Nowo\TransactionDoctrine\Symfony\Conflict\ConflictResponsePolicy;
 use Nowo\TransactionDoctrine\TransientFailureKind;
 use Nowo\TransactionDoctrine\WriteUnit\CommitLedger;
+use Nowo\TransactionDoctrine\WriteUnit\CommitMark;
 use Nowo\TransactionDoctrine\WriteUnit\ConcurrencyConflict;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -138,6 +139,54 @@ final class StorageFailureListenerTest extends TestCase
         self::assertNotNull($response);
         self::assertNull($response->headers->get('Retry-After'));
         self::assertSame('{"error":"conflict","code":"CONFLICT_002"}', $response->getContent());
+    }
+
+    public function testACommitOfTheHostEarlierInTheRequestIsCommittedWithoutRetryAfter(): void
+    {
+        // Request-level detection: the mark is the host's (transaction-doctrine's watermark), the bundle's ledger saw nothing.
+        $hostLedger = new CommitLedger();
+        $request    = $this->request();
+        $request->attributes->set(CommitMark::REQUEST_ATTRIBUTE, new CommitMark($hostLedger));
+        $listener = new StorageFailureListener(null, new CommitLedger());
+
+        $answer = $this->handle(new TransientStorageFailure(3), null, $request, listener: $listener)->getThrowable();
+        self::assertInstanceOf(HttpException::class, $answer);
+        self::assertSame([StorageFailureListener::CODE_HEADER => ConflictCode::RETRY_SAFE, 'Retry-After' => '3'], $answer->getHeaders());
+
+        $hostLedger->record();
+        $answer = $this->handle(new TransientStorageFailure(3), null, $request, listener: $listener)->getThrowable();
+        self::assertInstanceOf(HttpException::class, $answer);
+        self::assertSame(409, $answer->getStatusCode());
+        self::assertSame([StorageFailureListener::CODE_HEADER => ConflictCode::COMMITTED], $answer->getHeaders());
+        self::assertSame(StorageFailureListener::COMMITTED_MESSAGE, $answer->getMessage());
+
+        $request->attributes->set('_route', InstanceSettingsRoutes::REVEAL);
+        $response = $this->handle(new TransientStorageFailure(3), null, $request, listener: $listener)->getResponse();
+        self::assertNotNull($response);
+        self::assertNull($response->headers->get('Retry-After'));
+        self::assertSame('{"error":"conflict","code":"CONFLICT_002"}', $response->getContent());
+    }
+
+    public function testACommitOfTheHostIsSeenWithoutTheBundlesLedger(): void
+    {
+        $hostLedger = new CommitLedger();
+        $request    = $this->request();
+        $request->attributes->set(CommitMark::REQUEST_ATTRIBUTE, new CommitMark($hostLedger));
+        $hostLedger->record();
+
+        $answer = $this->handle(new TransientStorageFailure(3), null, $request)->getThrowable();
+        self::assertInstanceOf(HttpException::class, $answer);
+        self::assertSame([StorageFailureListener::CODE_HEADER => ConflictCode::COMMITTED], $answer->getHeaders());
+    }
+
+    public function testARequestMarkWithNoCommitKeepsCode001(): void
+    {
+        $request = $this->request();
+        $request->attributes->set(CommitMark::REQUEST_ATTRIBUTE, new CommitMark(new CommitLedger()));
+
+        $answer = $this->handle(new TransientStorageFailure(2), null, $request)->getThrowable();
+        self::assertInstanceOf(HttpException::class, $answer);
+        self::assertSame([StorageFailureListener::CODE_HEADER => ConflictCode::RETRY_SAFE, 'Retry-After' => '2'], $answer->getHeaders());
     }
 
     public function testWithoutTheRequestCountNothingCountsAsCommitted(): void
