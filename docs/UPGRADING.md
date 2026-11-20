@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.23.1](#to-1231)
 - [To 1.23.0](#to-1230)
 - [To 1.22.0](#to-1220)
   - [Lock conflicts answer 409 + CONFLICT codes](#lock-conflicts-answer-409--conflict-codes)
@@ -54,6 +55,14 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.23.1
+
+From **1.23.0**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
 
 ## To 1.23.0
 
