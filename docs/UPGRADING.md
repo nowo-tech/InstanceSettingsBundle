@@ -54,6 +54,20 @@
 
 ## Unreleased
 
+From **1.22.x**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle nowo-tech/transaction-doctrine
+```
+
+`nowo-tech/transaction-doctrine` ^1.8.1 is required (was ^1.5). No migration.
+
+A lock conflict on a route of the bundle now answers `CONFLICT_002` (no `Retry-After`) also when the host or another
+bundle committed earlier in the same request, not only when the bundle's own runner did. The commit is seen through the
+request's `CommitMark`, which transaction-doctrine's Symfony bundle takes at `kernel.request` when its
+`commit_detection` is on (the default). With that bundle absent or `commit_detection: false`, only the bundle's own
+commits are counted, as before. Clients that retry on `CONFLICT_001` and read again on `CONFLICT_002` need no change.
+
 ## To 1.22.0
 
 From **1.21.0**:

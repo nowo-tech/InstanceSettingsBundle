@@ -28,7 +28,7 @@ use function is_string;
 use function str_starts_with;
 
 /**
- * 1.19 (Beacon spec 239), 1.22 (REQ-RUNTIME-003 rule 6): a storage failure of a route of the bundle answers a conflict
+ * 1.19 (Beacon spec 239), 1.22 (REQ-RUNTIME-003 rule 6), request-level detection since the next release: a storage failure of a route of the bundle answers a conflict
  * instead of a 500.
  *
  * - lock conflict (a {@see TransientStorageFailure} of the bundle's runner, or a deadlock, lock wait timeout or
@@ -36,8 +36,9 @@ use function str_starts_with;
  *   by default, 503 when the host configures it) with a conflict code ({@see ConflictCode}):
  *   - `CONFLICT_001` with `Retry-After` (the runner's hint, else the policy's) when nothing of the request was committed;
  *   - `CONFLICT_002` without `Retry-After` when part of it may already be committed: an earlier write unit of the same
- *     request committed (the bundle runner's {@see CommitLedger} moved since the request started), the failure is a
- *     ConcurrencyConflict that committed, or a lost savepoint with no deadlock behind it (outcome unknown);
+ *     request committed (any commit since the request's `CommitMark`, {@see ConflictCode::forRequest()}, whoever made it;
+ *     or the bundle runner's {@see CommitLedger} moved since the request started), the failure is a ConcurrencyConflict
+ *     that committed, or a lost savepoint with no deadlock behind it (outcome unknown);
  * - domain conflict ({@see SettingsConflictException}: another editor changed the same fields): `409` with the
  *   bundle's own code {@see self::SETTINGS_CHANGED}, never a `CONFLICT_*` code.
  *
@@ -162,7 +163,12 @@ final readonly class StorageFailureListener
             return null;
         }
 
-        return $this->committedEarlier($request) ? ConflictCode::Committed : ConflictCode::forFailure($failure);
+        // Request-level detection (transaction-doctrine >= 1.6): forRequest() also sees a commit made earlier in the same
+        // request by the host or another bundle (the request's CommitMark, with `commit_detection` on). The bundle's own
+        // ledger stays as a second source, so its own commits count even when the host turned detection off.
+        $code = ConflictCode::forRequest($request, $failure);
+
+        return $code->retrySafe() && $this->committedEarlier($request) ? ConflictCode::Committed : $code;
     }
 
     /** Whether a unit of the bundle's runner committed since the request started. */

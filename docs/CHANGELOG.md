@@ -44,8 +44,21 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- **Request-level conflict detection (REQ-RUNTIME-003 rule 6):** the code of a lock conflict on a route of the bundle comes
+  from `ConflictCode::forRequest()` (nowo-tech/transaction-doctrine >= 1.6, the request's `CommitMark`). A commit made
+  earlier in the same request by the host or another bundle now gives `CONFLICT_002` (no `Retry-After`), not only a commit
+  of the bundle's own runner. The runner's `CommitLedger` stays as a second source, so the bundle's own commits still count
+  when the host turned `commit_detection` off. The "commit tracking covers the bundle's runner only" residual risk is gone
+  from `docs/CONCURRENCY.md`
+- `nowo-tech/transaction-doctrine` ^1.8.1 (was ^1.5)
+
 - CI: new `deps-floor` job (as in BreadcrumbKit). It checks that the demo lock installs every nowo-tech requirement of the bundle (`.scripts/check-demo-lock.py`), then downgrades nowo-tech/transaction-* to the lowest versions composer.json allows (`composer update 'nowo-tech/transaction-*' --prefer-lowest`) and runs PHPStan and the tests there, so a call to a newer API than the constraint allows fails the pull request.
 - Demo: `make update-bundle` runs `composer update nowo-tech/instance-settings-bundle -w`, so the bundle's new or raised requirements reach the demo lock too.
+
+### Tests
+
+- Unit tests for the request-level code (a host commit seen through the request mark, with and without the bundle's ledger; a mark with no commit stays `CONFLICT_001`)
+- Real-database tests (Load readiness, with `NowoTransactionDoctrineBundle` registered): a host write in autocommit earlier in the request answers 409 `CONFLICT_002` without `Retry-After`; with no earlier commit the answer stays `CONFLICT_001` with `Retry-After`
 
 ## [1.22.0] - 2026-11-18
 
