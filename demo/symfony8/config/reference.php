@@ -1414,10 +1414,18 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         tokens_dark?: array<string, mixed>,
  *         confirm_message_in_header?: bool|Param, // Confirm dialogs and the full-page confirm render the message inside the header, under the title (hosts whose dialog header is title + message). View\Confirm::messageInHeader wins when set. // Default: false
  *         popover_menus?: bool|Param, // 2.4: menu / kebab / row-action menus render their panel as a native [popover] (browser top layer: never clipped by table scrollers or cards; nowo-ui-popover.js places it). The partial option `popover` wins. // Default: false
+ *         context_menus?: bool|Param, // 2.54: kebab / row-action menus also open as the context menu of the row or card around them (right-click, the ContextMenu key, Shift+F10, long press on touch), with the same items. Loads the opt-in context-menu runtime through the scripts partial. The partial option `context_menu` wins; data-nowo-ui-context-menu="off" opts a row out. // Default: false
  *         form_errors_after_widget?: bool|Param, // 2.10: the UiKit form theme (form/nowo_ui_layout.html.twig) prints a field's errors after its widget (and before the help), instead of Symfony's order (label, errors, widget, help). // Default: false
  *         menu_semantics?: null|"menu"|"disclosure"|Param, // 2.28: ARIA of popover menus with items. null (default) = as 2.27; menu = APG menu button (role="menu" / menuitem, arrow keys in nowo-ui-popover.js); disclosure = no aria-haspopup. The menu partial option `menu_semantics` wins. // Default: null
  *         dialog?: array{ // 2.31: kit dialog options (docs/THEMING.md#dialog-sizes-229).
  *             height?: "content"|"size"|Param, // 2.31: content (default, dialog rule v2) = a dialog is as tall as its content, capped at min(the size's height token, 100dvh - 2rem), only the body scrolls; size = every dialog with a field, list, table or fold has the size's height (2.29 / 2.30), printed as --nowo-ui-dialog-fill: 1 by nowo_ui_theme_css(). // Default: "content"
+ *         },
+ *         focus_mode?: array{ // 2.55: shell focus mode — [data-nowo-ui-focus-mode] toggles hide the shell regions (level 1) and optionally enter the browser fullscreen (level 2); js/nowo-ui-focus-mode.js. See docs/USAGE.md#shell-focus-mode-255.
+ *             enabled?: bool|Param, // false (default): no shell attributes, no focus bar, the focus_mode_toggle partial renders nothing and the scripts partial does not load the runtime. // Default: false
+ *             regions?: list<scalar|Param|null>,
+ *             keep?: list<scalar|Param|null>,
+ *             shortcut?: scalar|Param|null, // Key that toggles level 1 on pages with a toggle (never while typing, with a modifier pressed or with a dialog / menu open); e.g. F or Alt+Shift+F. null or false: no shortcut. // Default: "F"
+ *             fullscreen?: bool|Param, // Offer level 2 (the browser fullscreen on the shell, from the focus bar or a fullscreen toggle). Unsupported or refused by the browser: level 1 stays. // Default: true
  *         },
  *         bundles?: array<string, array{ // Default: []
  *             framework_defaults?: bool|Param, // Override of theme.framework_defaults for this bundle (unset = inherit).
@@ -1489,6 +1497,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         sidebar_rail_value?: scalar|Param|null, // Cookie value of the icons-only rail. // Default: "rail"
  *         sidebar_storage?: scalar|Param|null, // localStorage key of the aside mode (data-nowo-ui-sidebar-storage on the shell root; kit_styles + rail only). // Default: null
  *         sidebar_layout?: "below-header"|"full-height"|Param, // 2.32: below-header (default, the 2.31 markup byte for byte) | full-height: on desktop the aside runs from the top edge with the burger and the brand in its head (aside_brand_html / brand_icon_html + brand_name / brand_html), the header and the footer start at its right edge. The app_shell_open option sidebar_layout, then the request attribute _nowo_ui_sidebar_layout, win over it. // Default: "below-header"
+ *         sidebar_style?: "classic"|"inset"|Param, // 2.52: classic (default, the 2.51 markup byte for byte) | inset: on desktop the header, the aside and the footer share one shell surface with no border between them, and the content is an inset panel with rounded corners (tokens --nowo-ui-shell-inset-gap / -radius / -surface / -panel-surface). Phones are unchanged. The app_shell_open option sidebar_style, then the request attribute _nowo_ui_sidebar_style, win over it. // Default: "classic"
  *         brand?: array{ // 2.32: the shell brand from config (no template override): the aside head of the full-height layout, and the header brand when a page passes neither brand_html nor brand. The app_shell_open options brand_name / brand_href / brand_icon_src / brand_icon_html / aside_brand_html win.
  *             name?: scalar|Param|null, // Brand name (text); the icons-only rail hides it and keeps it as the link name. // Default: null
  *             href?: scalar|Param|null, // Brand link: relative, http, https or mailto (validated when the container compiles; javascript:, data: and other schemes are refused). // Default: null
@@ -1660,6 +1669,8 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         area_roles?: array<string, list<scalar|Param|null>>,
  *         reveal_roles?: list<scalar|Param|null>,
  *         reveal_rate_limiter?: scalar|Param|null, // 1.15: service id of a Symfony RateLimiterFactory (framework.rate_limiter.<name> gives limiter.<name>) consuming one token per reveal, keyed by the hashed actor; null = no limit. // Default: null
+ *         test_roles?: mixed, // 1.18: roles that may run the Test button of a section (any of them), asked on top of the section's own area. Null (default) = whoever may open the section may test it; an empty list refuses every test. With access_checker set, the custom checker decides the "_test" area (asked only when this is not null). // Default: null
+ *         test_rate_limiter?: scalar|Param|null, // 1.18: service id of a Symfony RateLimiterFactory consuming one token per section test, keyed by the hashed actor; null = the built-in limit (10 tests per actor per 10 minutes, kept in the settings store). // Default: null
  *         access_checker?: scalar|Param|null, // Service id implementing InstanceSettingsAccessCheckerInterface; null = role-based default. // Default: null
  *         allow_unauthenticated?: bool|Param, // DEV / DEMO only (refused without kernel.debug): open the UI without login. // Default: false
  *     },
@@ -1727,6 +1738,33 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         warning?: bool|Param, // The settings page warns on the section and next to an expiring secret within warning_days of its date, or expired. // Default: true
  *         warning_days?: int|Param, // Days before the date from which the page warns (0 = only on the day and once expired). // Default: 30
  *         timezone?: scalar|Param|null, // Zone of "today" for the thresholds and the warning (e.g. "Europe/Madrid"). Null: the PHP default zone. // Default: null
+ *         notify?: array{ // Default expiry notifier (1.21): a mail and / or a NotifyKit bell notification to the people holding notify.roles at notify.days before a stored secret expires, once per secret, threshold and recipient. Off by default. Needs expiring_secrets.enabled.
+ *             enabled?: bool|Param, // Registers the notifier and maps its sent-marker table (instance_setting_secret_expiry_notice). Off by default: no schema change. Literal boolean only. // Default: false
+ *             days?: list<int|Param>,
+ *             roles?: list<scalar|Param|null>,
+ *             recipient_provider?: scalar|Param|null, // Service id implementing Expiry\Notify\ExpiryRecipientProviderInterface: the active users holding any of the roles (the bundle has no user model). Required when enabled. // Default: null
+ *             mail_template?: scalar|Param|null, // Twig template of the reminder mail without the suffix: <mail_template>.html.twig and <mail_template>.txt.twig. // Default: "@NowoInstanceSettingsBundle/expiry/notice"
+ *             mail_from?: scalar|Param|null, // From address of the reminder mail. Null = the mailer's (MailKit fills it from its settings). // Default: null
+ *             link_route?: scalar|Param|null, // Route of the link (gets the "section" parameter). Null = the section's settings page (no link without web_ui). // Default: null
+ *             fallback_link_route?: scalar|Param|null, // Route (no parameters) of the link for recipients who cannot open the settings (ExpiryRecipient::$canOpenSettings false). Null = no link. // Default: null
+ *             retention_days?: int|Param, // nowo:instance-settings:purge-expiry-notices deletes the sent-markers of expiry dates older than this many days (they hold recipient ids). // Default: 90
+ *             channels?: array{ // auto: mail when nowo-tech/mail-kit-bundle is installed, the bell when nowo-tech/notify-kit-bundle is; on: required (mail needs symfony/mailer); off: never.
+ *                 mail?: "auto"|"on"|"off"|Param, // Default: "auto"
+ *                 notify_kit?: "auto"|"on"|"off"|Param, // Default: "auto"
+ *             },
+ *             notify_kit?: array{ // NotifyKit bell channel options.
+ *                 recipient_type?: scalar|Param|null, // NotifyKit recipient type of ExpiryRecipient ids. // Default: "user"
+ *                 category?: scalar|Param|null, // NotifyKit category of the two types. // Default: "instance_settings"
+ *                 declare_category?: bool|Param, // Declare the category (false: the host declares it). // Default: true
+ *             },
+ *         },
+ *     },
+ *     conflict_response?: array{ // 1.22 (REQ-RUNTIME-003): answer of a lock conflict (deadlock, lock wait timeout, serialization failure) on the bundle's routes. Unset: nowo-tech/transaction-doctrine's conflict_response when that bundle is registered, else 409 with Retry-After 1.
+ *         status?: int|Param, // 409 (default, CONFLICT_001 / CONFLICT_002) or 503 (the 1.19-1.21 answer). Null: follow transaction-doctrine, else 409. // Default: null
+ *         retry_after?: int|Param, // Retry-After seconds of a CONFLICT_001 answer when the failure carries no hint. Null: follow transaction-doctrine, else 1. // Default: null
+ *     },
+ *     runtime_setting?: array{ // 1.20: nowo-tech/runtime-setting-contract source and writer over the settings (section.field ids), with section version tokens and rotation. Needs nowo-tech/runtime-setting-contract. Maps instance_setting_runtime_version and instance_setting_runtime_previous: off by default, no schema change.
+ *         enabled?: bool|Param, // Literal boolean only. // Default: false
  *     },
  * }
  * @psalm-type DebugConfig = array{

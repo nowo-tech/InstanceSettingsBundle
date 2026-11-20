@@ -1,23 +1,24 @@
+{#- Demo home, in the demo platform layout grammar: page header (title, lead, the one primary action), then one
+    section card per topic (demo_platform/_section.html.twig). -#}
 {% extends 'base.html.twig' %}
 
 {% block title %}Home - Instance Settings Demo{% endblock %}
 
 {% block nowo_ui_page_header %}
+    {% set _toolbar %}
+        <a class="nowo-ui-btn nowo-ui-btn--outline" href="{{ path('nowo_instance_settings_portability') }}">Import / export</a>
+        <a class="nowo-ui-btn nowo-ui-btn--primary" href="{{ path('nowo_instance_settings_index') }}">Open the settings</a>
+    {% endset %}
     {{ include(nowo_ui_partial('page_header'), {
         title: instance_setting('site.name'),
         intro: 'Instance-wide settings split into sections contributed by the host or by other bundles (site, mailer, SMS here). Values live in MySQL; secrets are encrypted at rest with nowo-tech/doctrine-encrypt-bundle and never rendered back.',
+        toolbar: _toolbar,
     }) }}
 {% endblock %}
 
 {% block body %}
-    <p class="nowo-ui-muted">
-        FrankenPHP mode: <strong>worker</strong> by default (<code>FRANKENPHP_MODE</code>). A saved change applies on the
-        next request without restarting the worker.
-    </p>
-
-    <section class="nowo-ui-card" data-testid="demo-values">
-        <div class="nowo-ui-card__header"><h2 class="nowo-ui-card__title">Read by the application</h2></div>
-        <div class="nowo-ui-card__body">
+    {% embed '@NowoUiKit/demo_platform/_section.html.twig' with {title: 'Read by the application', intro: 'FrankenPHP mode: worker by default (FRANKENPHP_MODE). A saved change applies on the next request without restarting the worker.', kind: 'detail', testid: 'demo-values'} %}
+        {% block section_body %}
             <dl class="nowo-ui-detail-list">
                 <div class="nowo-ui-detail-list__item"><dt class="nowo-ui-detail-list__term">Footer</dt><dd class="nowo-ui-detail-list__value">{{ site.footer ?? '—' }}</dd></div>
                 <div class="nowo-ui-detail-list__item"><dt class="nowo-ui-detail-list__term">Rows per page</dt><dd class="nowo-ui-detail-list__value" data-testid="demo-page-size">{{ site.page_size }}</dd></div>
@@ -26,14 +27,6 @@
                 <div class="nowo-ui-detail-list__item"><dt class="nowo-ui-detail-list__term">Mailer DSN</dt><dd class="nowo-ui-detail-list__value">{{ dsn_stored ? 'stored (encrypted)' : 'not set' }}</dd></div>
                 <div class="nowo-ui-detail-list__item"><dt class="nowo-ui-detail-list__term">SMS provider</dt><dd class="nowo-ui-detail-list__value">{{ sms_provider }} — token {{ token_stored ? 'stored' : 'not set' }}</dd></div>
             </dl>
-        </div>
-    </section>
-
-    <section class="nowo-ui-card">
-        <div class="nowo-ui-card__header"><h2 class="nowo-ui-card__title">Manage</h2></div>
-        <div class="nowo-ui-card__body">
-            <a class="nowo-ui-btn nowo-ui-btn--primary" href="{{ path('nowo_instance_settings_index') }}">Open the settings</a>
-            <a class="nowo-ui-btn nowo-ui-btn--outline" href="{{ path('nowo_instance_settings_portability') }}">Import / export</a>
-        </div>
-    </section>
+        {% endblock %}
+    {% endembed %}
 {% endblock %}
