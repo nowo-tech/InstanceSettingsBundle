@@ -240,7 +240,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'type'      => 'attribute',
                     'dir'       => __DIR__ . '/../Entity',
                     'prefix'    => 'Nowo\InstanceSettingsBundle\Entity',
-                    'alias'     => 'NowoInstanceSettings',
                     'is_bundle' => false,
                 ],
             ];
@@ -285,7 +284,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'type'      => 'attribute',
                     'dir'       => __DIR__ . '/../FileEntity',
                     'prefix'    => 'Nowo\InstanceSettingsBundle\FileEntity',
-                    'alias'     => 'NowoInstanceSettingsFiles',
                     'is_bundle' => false,
                 ];
             }
@@ -294,7 +292,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'type'      => 'attribute',
                     'dir'       => __DIR__ . '/../ExpiryEntity',
                     'prefix'    => 'Nowo\InstanceSettingsBundle\ExpiryEntity',
-                    'alias'     => 'NowoInstanceSettingsExpiry',
                     'is_bundle' => false,
                 ];
             }
@@ -303,7 +300,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'type'      => 'attribute',
                     'dir'       => __DIR__ . '/../RuntimeEntity',
                     'prefix'    => 'Nowo\InstanceSettingsBundle\RuntimeEntity',
-                    'alias'     => 'NowoInstanceSettingsRuntime',
                     'is_bundle' => false,
                 ];
             }
@@ -312,7 +308,6 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
                     'type'      => 'attribute',
                     'dir'       => __DIR__ . '/../ExpiryNoticeEntity',
                     'prefix'    => 'Nowo\InstanceSettingsBundle\ExpiryNoticeEntity',
-                    'alias'     => 'NowoInstanceSettingsExpiryNotice',
                     'is_bundle' => false,
                 ];
             }
@@ -911,7 +906,7 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
         $container->setDefinition(KeyCollationListener::class, (new Definition(KeyCollationListener::class, [
             new Reference('doctrine'),
             new Reference('logger', ContainerInterface::NULL_ON_INVALID_REFERENCE),
-        ]))->addTag('doctrine.event_listener', ['event' => 'postGenerateSchemaTable']));
+        ]))->addTag('doctrine.event_listener', ['event' => 'postGenerateSchema']));
         $container->setDefinition(SettingsMemoObserver::class, new Definition(SettingsMemoObserver::class, [
             new ServiceClosureArgument(new Reference(InstanceSettings::class, ContainerInterface::IGNORE_ON_UNINITIALIZED_REFERENCE)),
         ]));

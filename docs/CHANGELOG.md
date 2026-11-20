@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.23.1] - 2026-11-21](#1231---2026-11-21)
 - [[1.23.0] - 2026-11-20](#1230---2026-11-20)
 - [[1.22.0] - 2026-11-18](#1220---2026-11-18)
 - [[1.21.0] - 2026-11-18](#1210---2026-11-18)
@@ -46,6 +47,13 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - Demo: runs in UiKit's demo platform shell (`nowo-tech/ui-kit-bundle` ^2.60; shared top bar, aside, page header and section cards; no demo stylesheet or `<style>`). Demo only, no bundle change.
+
+## [1.23.1] - 2026-11-21
+
+### Fixed
+
+- Schema: the collation of the key columns (`section`, `name`) is now applied on `postGenerateSchema`, once the schema tool has added every foreign key, instead of replacing the bundle tables on `postGenerateSchemaTable` (audit XI). On DBAL 4.5+ `KeyCollationListener` replaced the table with `setClassTable()`, and ORM 3.7–3.8's schema tool then added the foreign keys that start on that table to the replaced object, so on MySQL / MariaDB they were lost from the generated schema, with their indexes (the bundle tables have no foreign key today, so nothing was lost yet; a host association onto them would have been). On DBAL 4.5+ the tables are now rebuilt with their table editor and swapped into a new schema (`GenerateSchemaEventArgs::setSchema()`), which keeps every foreign key and index; on older DBAL (and ORM versions without `setSchema()`) the column options are set in place. Managers that do not map the bundle entities are skipped, the exact collations are unchanged, and `KeyCollationListener::postGenerateSchemaTable()` stays as a deprecated no-op (the constructor's registry argument is unused but kept). The old listener also checked only `Table::edit()`, not `setClassTable()`, which ORM 3.6.0 lacks; composer cannot install that combination today (`nowo-tech/doctrine-encrypt-bundle` ^2.10 needs ORM ^3.7), so the guard only matters for a host that forces it, where the listener no longer fails.
+- Doctrine mappings: the five prepended ORM mappings (`NowoInstanceSettingsBundle`, `NowoInstanceSettingsFiles`, `NowoInstanceSettingsExpiry`, `NowoInstanceSettingsRuntime`, `NowoInstanceSettingsExpiryNotice`) no longer set `alias`, which DoctrineBundle 3.4 deprecates. The bundle requires ORM 3 and uses no `Alias:Entity` string, so nothing else changes; a test boots with every optional table mapped and asserts no mapping deprecation.
 
 ## [1.23.0] - 2026-11-20
 

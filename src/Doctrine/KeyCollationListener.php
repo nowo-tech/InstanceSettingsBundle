@@ -9,8 +9,9 @@ use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Platforms\MariaDBPlatform;
 use Doctrine\DBAL\Platforms\MySQL80Platform;
 use Doctrine\DBAL\Schema\ColumnEditor;
+use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\Table;
-use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
 use Doctrine\ORM\Tools\Event\GenerateSchemaTableEventArgs;
 use Doctrine\Persistence\ManagerRegistry;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
@@ -33,6 +34,16 @@ use function method_exists;
  * re-check covers it, and a warning is logged). PostgreSQL and SQLite compare exactly and are untouched (they reject MySQL
  * collation names, so it cannot live in the mapping). Applied to the generated schema (schema tool,
  * `doctrine:migrations:diff`); existing tables keep theirs until the optional `ALTER TABLE` of UPGRADING.
+ *
+ * 1.23.1 (audit XI): applied on `postGenerateSchema`, once the schema tool has added every foreign key, by table name.
+ * Earlier versions replaced each table on `postGenerateSchemaTable` (`setClassTable()`, DBAL 4.5+), and ORM 3.7–3.8's
+ * schema tool then added the table's foreign keys to the table it had replaced, losing them on MySQL / MariaDB (latent:
+ * the bundle tables have no foreign key today); with ORM 3.6 and DBAL 4.5+ `setClassTable()` does not exist at all, so
+ * the listener was fatal there. Now:
+ *
+ * - DBAL 4.5+ with an ORM that has `GenerateSchemaEventArgs::setSchema()`: each table is rebuilt with its table editor
+ *   (foreign keys and indexes included) and swapped into a new schema given back with `setSchema()`;
+ * - otherwise (older DBAL, ORM 2 / 3.6): the column's platform options are set in place.
  */
 final readonly class KeyCollationListener
 {
@@ -47,13 +58,15 @@ final readonly class KeyCollationListener
     ];
 
     /**
-     * @param ManagerRegistry $registry Doctrine registry (the manager that maps the bundle entity decides the collation)
+     * @param ManagerRegistry|null $registry unused since 1.23.1 (the platform comes from the schema tool's entity manager);
+     *                                       kept for BC
      * @param LoggerInterface|null $logger warned when only the PAD SPACE `utf8mb4_bin` is available
      */
     public function __construct(
-        private ManagerRegistry $registry,
+        ?ManagerRegistry $registry = null,
         private ?LoggerInterface $logger = null,
     ) {
+        unset($registry);
     }
 
     /**
@@ -72,40 +85,70 @@ final readonly class KeyCollationListener
     }
 
     /**
-     * Gives the key columns of a bundle table their binary collation.
+     * Gives the key columns of the bundle tables their binary collation in the generated schema, keeping every foreign key
+     * and index of the tables.
+     */
+    public function postGenerateSchema(GenerateSchemaEventArgs $args): void
+    {
+        $entityManager = $args->getEntityManager();
+        $collation     = null;
+        $schema        = $args->getSchema();
+        // the editor path replaces the tables in a new schema: it needs Table::edit() and Schema::edit() (DBAL 4.5+) and an
+        // ORM that accepts the new schema (3.7+)
+        // @phpstan-ignore function.alreadyNarrowedType, function.alreadyNarrowedType, function.alreadyNarrowedType, booleanAnd.alwaysTrue (older doctrine/dbal / doctrine/orm)
+        $editor       = method_exists(Table::class, 'edit') && method_exists(Schema::class, 'edit') && method_exists($args, 'setSchema');
+        $replacements = [];
+        foreach (self::FIELDS as $class => $fields) {
+            if ($entityManager->getMetadataFactory()->isTransient($class)) {
+                continue;
+            }
+            $collation ??= self::collationFor($entityManager->getConnection()->getDatabasePlatform()) ?? false;
+            if ($collation === false) {
+                return;
+            }
+            $metadata  = $entityManager->getClassMetadata($class);
+            $tableName = $metadata->getTableName();
+            if ($tableName === '' || !$schema->hasTable($tableName)) {
+                continue;
+            }
+            if ($collation === 'utf8mb4_bin') {
+                $this->logger?->warning('Instance settings: the key columns of {table} get the PAD SPACE collation utf8mb4_bin (no binary NO PAD collation detected: MySQL before 8.0, or a doctrine server_version without the full version); every match is re-checked in PHP.', [
+                    'bundle' => 'NowoInstanceSettingsBundle',
+                    'table'  => $tableName,
+                ]);
+            }
+
+            $original = $table = $schema->getTable($tableName);
+            foreach ($fields as $field) {
+                /** @var non-empty-string $column mapped column names are never empty */
+                $column = $metadata->getColumnName($field);
+                $edited = self::collate($table, $column, $collation, $editor);
+                if ($edited instanceof Table) {
+                    $table = $edited;
+                }
+            }
+            if ($table !== $original) {
+                $replacements[$tableName] = $table;
+            }
+        }
+
+        if ($replacements !== []) {
+            $editing = $schema->edit();
+            foreach ($replacements as $tableName => $table) {
+                $editing->dropTableByUnquotedName($tableName)->addTable($table);
+            }
+            $args->setSchema($editing->create());
+        }
+    }
+
+    /**
+     * No longer subscribed (1.23.1, audit XI): replacing the tables there lost their foreign keys. Kept for BC; does nothing.
+     *
+     * @deprecated since 1.23.1, the collation is applied on postGenerateSchema ({@see self::postGenerateSchema()})
      */
     public function postGenerateSchemaTable(GenerateSchemaTableEventArgs $args): void
     {
-        $metadata = $args->getClassMetadata();
-        $fields   = self::FIELDS[$metadata->getName()] ?? [];
-        if ($fields === []) {
-            return;
-        }
-        $manager   = $this->registry->getManagerForClass($metadata->getName());
-        $collation = $manager instanceof EntityManagerInterface ? self::collationFor($manager->getConnection()->getDatabasePlatform()) : null;
-        if ($collation === null) {
-            return;
-        }
-        if ($collation === 'utf8mb4_bin') {
-            $this->logger?->warning('Instance settings: the key columns of {table} get the PAD SPACE collation utf8mb4_bin (no binary NO PAD collation detected: MySQL before 8.0, or a doctrine server_version without the full version); every match is re-checked in PHP.', [
-                'bundle' => 'NowoInstanceSettingsBundle',
-                'table'  => $metadata->getTableName(),
-            ]);
-        }
-
-        $table = $args->getClassTable();
-        foreach ($fields as $field) {
-            /** @var non-empty-string $column mapped column names are never empty */
-            $column = $metadata->getColumnName($field);
-            // @phpstan-ignore function.alreadyNarrowedType (Table::edit() exists only from DBAL 4.5)
-            $edited = self::collate($table, $column, $collation, method_exists(Table::class, 'edit'));
-            if ($edited instanceof Table) {
-                $table = $edited;
-            }
-        }
-        if ($table !== $args->getClassTable()) {
-            $args->setClassTable($table);
-        }
+        unset($args);
     }
 
     /**
@@ -123,7 +166,8 @@ final readonly class KeyCollationListener
             })->create();
         }
 
-        $table->getColumn($column)
+        // DBAL 4.5 deprecates the setters for the editors, and no editor changes a table in place (ORM 3.6 cannot swap it)
+        @$table->getColumn($column)
             ->setPlatformOption('charset', 'utf8mb4')
             ->setPlatformOption('collation', $collation);
 
