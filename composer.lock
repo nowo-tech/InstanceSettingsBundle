@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a042194ffa1a083c0d827550ec915f7f",
+    "content-hash": "4d3e16dce6a661f3f3be7f801cd77c52",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -1291,20 +1291,21 @@
                 "issues": "https://github.com/nowo-tech/transaction-contract/issues",
                 "source": "https://github.com/nowo-tech/transaction-contract"
             },
-            "time": "2026-11-15T08:04:23+00:00"
+            "time": "2026-11-15T08:04:23+00:00",
+            "published-time": "2026-11-15T08:05:10+00:00"
         },
         {
             "name": "nowo-tech/transaction-doctrine",
-            "version": "v1.5.0",
+            "version": "v1.8.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/transaction-doctrine.git",
-                "reference": "5b1369c60fe1ee3cd5b7e4f0dce458e3dac8fdc2"
+                "reference": "887fc325ef20787bc108cbfea6a267dfd4e938fe"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/transaction-doctrine/zipball/5b1369c60fe1ee3cd5b7e4f0dce458e3dac8fdc2",
-                "reference": "5b1369c60fe1ee3cd5b7e4f0dce458e3dac8fdc2",
+                "url": "https://api.github.com/repos/nowo-tech/transaction-doctrine/zipball/887fc325ef20787bc108cbfea6a267dfd4e938fe",
+                "reference": "887fc325ef20787bc108cbfea6a267dfd4e938fe",
                 "shasum": ""
             },
             "require": {
@@ -1362,7 +1363,8 @@
             },
             "autoload": {
                 "psr-4": {
-                    "Nowo\\TransactionDoctrine\\": "src/"
+                    "Nowo\\TransactionDoctrine\\": "src/",
+                    "Nowo\\TransactionDoctrine\\WriteUnit\\Dbal\\Dbal3\\": "compat/dbal3/"
                 }
             },
             "notification-url": "https://packagist.org/downloads/",
@@ -1400,8 +1402,8 @@
                 "issues": "https://github.com/nowo-tech/transaction-doctrine/issues",
                 "source": "https://github.com/nowo-tech/transaction-doctrine"
             },
-            "time": "2026-11-18T12:10:08+00:00",
-            "published-time": "2026-11-18T12:12:21+00:00"
+            "time": "2026-11-20T06:09:11+00:00",
+            "published-time": "2026-11-20T06:14:34+00:00"
         },
         {
             "name": "nowo-tech/ui-kit-bundle",
