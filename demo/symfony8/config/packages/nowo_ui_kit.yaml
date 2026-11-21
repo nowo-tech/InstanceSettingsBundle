@@ -1,8 +1,9 @@
-# REQ-DEMO-014: UiKit's default theme, unchanged, with UiKit's own semantic stylesheet only (no CSS framework, no CDN).
-# The bundle pages render in the demo shell (base.html.twig extends UiKit's admin layout and adds the header menu).
+# REQ-DEMO-014: UiKit's default theme, unchanged (no CSS framework, no CDN). The demo shell (templates/base.html.twig,
+# UiKit's demo platform layout) is the admin and guest layout of the bundle pages.
 nowo_ui_kit:
     css_framework: custom
     icon_set: none
+    base_stylesheet: true
     layouts:
         admin: 'base.html.twig'
-    base_stylesheet: true
+        guest: 'base.html.twig'

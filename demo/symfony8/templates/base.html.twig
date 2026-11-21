@@ -1,22 +1,20 @@
-{#- REQ-DEMO-014: the demo shell is UiKit's admin layout with UiKit's default theme (nowo-ui.css from the bundle's own
-    asset package, no CSS framework, no CDN). It is also the host layout of the bundle pages (nowo_ui_kit.layouts.admin).
-    The header menu lists the demo pages with the active item. -#}
-{% extends '@NowoUiKit/layout/admin.html.twig' %}
+{#- REQ-DEMO-014: the demo runs inside UiKit's shared demo platform shell (@NowoUiKit/demo_platform/layout.html.twig):
+    the same top bar, aside, content width, theme and footer as every other nowo-tech bundle demo. This file only
+    declares the demo (nowo_ui_demo_platform); the bundle pages render through it too (nowo_ui_kit.layouts). -#}
+{% extends '@NowoUiKit/demo_platform/layout.html.twig' %}
+{% set nowo_ui_demo_platform = {
+    bundle: 'Instance Settings',
+    home_route: 'demo_home',
+    repository: 'https://github.com/nowo-tech/InstanceSettingsBundle',
+    translation_domain: false,
+    locales: [],
+    nav: [
+        {label: 'Home', route: 'demo_home'},
+        {label: 'Settings', route: 'nowo_instance_settings_index', active: ['nowo_instance_settings_*']},
+    ],
+} %}
 
-{% block nowo_ui_document_title %}{% block title %}Instance Settings Demo{% endblock %}{% endblock %}
-
-{% block nowo_ui_navigation %}
-    {% set _route = app.request.attributes.get('_route') %}
-    <header class="nowo-ui-header" data-testid="demo-masthead">
-        <a class="nowo-ui-brand" href="{{ path('demo_home') }}">Instance Settings Bundle Demo</a>
-        <nav class="nowo-ui-header__nav" aria-label="Demo">
-            <a class="nowo-ui-link" href="{{ path('demo_home') }}"{% if _route == 'demo_home' %} aria-current="page"{% endif %}>Home</a>
-            <a class="nowo-ui-link" href="{{ path('nowo_instance_settings_index') }}"{% if _route starts with 'nowo_instance_settings' %} aria-current="page"{% endif %}>Settings</a>
-        </nav>
-    </header>
-{% endblock %}
-
-{% block nowo_ui_content %}{% block body %}{% endblock %}{% endblock %}
+{% block nowo_ui_document_title %}{% block title %}Instance Settings Demo{% endblock %} — Symfony 8{% endblock %}
 
 {% block nowo_ui_scripts %}
     {{ parent() }}
