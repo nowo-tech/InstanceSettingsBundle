@@ -19,6 +19,7 @@ final readonly class SectionActionContext
      */
     public function __construct(
         public string $section,
+        // @igor-ignore - Per-call value object built with new by SettingsSectionEmbedder for one section action; never a shared service, so it cannot keep a request across worker requests.
         public Request $request,
         public ?object $user = null,
     ) {

@@ -74,7 +74,7 @@
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.0",
-        "igor-php/igor-php": "^0.10.1",
+        "igor-php/igor-php": "^0.10.1 || ^0.11.0",
         "nowo-tech/brand-contracts": "^1.0",
         "nowo-tech/notify-kit-bundle": "^0.1.1",
         "nowo-tech/phpstan-frankenphp": "^1.4",

@@ -46,6 +46,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- Dev: Igor 0.11 (REQ-CS-008) — `SectionActionContext::$request` is a per-call value object, never a shared service; documented `@igor-ignore` (false positive). `igor-php/igor-php` accepts `^0.11.0` (supersedes #65).
 - Demo: runs in UiKit's demo platform shell (`nowo-tech/ui-kit-bundle` ^2.60; shared top bar, aside, page header and section cards; no demo stylesheet or `<style>`). Demo only, no bundle change.
 
 ## [1.23.1] - 2026-11-21
