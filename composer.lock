@@ -1406,16 +1406,16 @@
         },
         {
             "name": "nowo-tech/ui-kit-bundle",
-            "version": "v2.50.0",
+            "version": "v2.59.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/UiKitBundle.git",
-                "reference": "044a5f8a85e14b817eb3813a8ea76aeb372415f8"
+                "reference": "580b05d1d70a010e249aa9ff3ec6265436d9f4d5"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/044a5f8a85e14b817eb3813a8ea76aeb372415f8",
-                "reference": "044a5f8a85e14b817eb3813a8ea76aeb372415f8",
+                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/580b05d1d70a010e249aa9ff3ec6265436d9f4d5",
+                "reference": "580b05d1d70a010e249aa9ff3ec6265436d9f4d5",
                 "shasum": ""
             },
             "require": {
@@ -1504,7 +1504,7 @@
                 "issues": "https://github.com/nowo-tech/UiKitBundle/issues",
                 "source": "https://github.com/nowo-tech/UiKitBundle"
             },
-            "time": "2026-11-13T07:10:24+00:00"
+            "time": "2026-11-19T21:24:18+00:00"
         },
         {
             "name": "paragonie/constant_time_encoding",
