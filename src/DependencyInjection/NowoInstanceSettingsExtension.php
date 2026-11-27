@@ -120,6 +120,7 @@ use Nowo\NotifyKitBundle\Contract\NotifierInterface;
 use Nowo\RuntimeSettingContract\Contract\RuntimeValueSourceInterface;
 use Nowo\TransactionDoctrine\Symfony\Conflict\ConflictResponsePolicy;
 use Nowo\TransactionDoctrine\WriteUnit\CommitLedger;
+use Nowo\UiKitBundle\Date\DateFormatterInterface;
 use Nowo\UiKitBundle\View\ErrorIllustrationProviderInterface;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\Config\Resource\FileResource;
@@ -1237,9 +1238,13 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             return;
         }
 
-        foreach ([SettingsSectionType::class, ThemeCardsType::class, SettingColorType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
+        foreach ([ThemeCardsType::class, SettingColorType::class, PortabilityImportType::class, PortabilityExportType::class] as $type) {
             $container->setDefinition($type, (new Definition($type))->addTag('form.type'));
         }
+        // 1.24: the expiry warning date through the host's UiKit date formatter (UiKit's ISO default without one).
+        $container->setDefinition(SettingsSectionType::class, (new Definition(SettingsSectionType::class, [
+            new Reference(DateFormatterInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
+        ]))->addTag('form.type'));
         // 1.8: the bundle default of the image crop step (files.crop) and the translator of its dialog texts.
         $container->setDefinition(SettingImageType::class, (new Definition(SettingImageType::class, [
             self::cropDefault($config['files']['crop']),
@@ -1329,6 +1334,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             new Reference('request_stack', ContainerInterface::NULL_ON_INVALID_REFERENCE),
             // Audit PU-L1: the leak guard also checks the translated texts.
             new Reference('translator', ContainerInterface::NULL_ON_INVALID_REFERENCE),
+            // 1.24: the summary time through the host's UiKit date formatter (UiKit's ISO default without one).
+            new Reference(DateFormatterInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->setPublic(true));
 
         // 1.6 (IS-1): the section page, shared by the bundle route and host embeds (public: hosts fetch it in their
@@ -1364,6 +1371,8 @@ final class NowoInstanceSettingsExtension extends Extension implements PrependEx
             $webUi['reveal_in_input'] ?? false,
             // 1.18: the Test buttons of a section with a tester (rendered only for a user who may test).
             new Reference(SectionTestRunner::class),
+            // 1.24: the expiry notice date through the host's UiKit date formatter (UiKit's ISO default without one).
+            new Reference(DateFormatterInterface::class, ContainerInterface::NULL_ON_INVALID_REFERENCE),
         ]))->setPublic(true));
 
         // REQ-SF-004 rule 7: not autoconfigured (no `routing.controller` tag from #[Route]); the routes come only from

@@ -5,11 +5,15 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Ui;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Nowo\InstanceSettingsBundle\Controller\SettingsController;
 use Nowo\InstanceSettingsBundle\NowoInstanceSettingsBundle;
 use Nowo\InstanceSettingsBundle\SectionTest\StoredTestReport;
+use Nowo\UiKitBundle\Date\DateFormatterInterface;
+use Nowo\UiKitBundle\Date\IsoDateFormatter;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
+use function date_default_timezone_get;
 use function is_bool;
 
 /**
@@ -18,18 +22,29 @@ use function is_bool;
  *
  * Every text is a translation of a key with scalar parameters (already redacted); the page escapes it (Twig
  * autoescape, the script's `textContent`). No setting value ever reaches this view.
+ *
+ * 1.24: the time of the summary is a date for people, formatted by the host's UiKit {@see DateFormatterInterface}
+ * (kind `datetime` with the zone; UiKit's {@see IsoDateFormatter} without one: `2026-11-27 16:14 UTC`, the 1.18 text).
+ * `time` carries that text, in the application's time zone, and `testedAt` the ISO-8601 instant, so the page wraps the
+ * time in `<time datetime>` (`nowo_time_tag`) and the script does the same with the endpoint's answer.
  */
 final class SectionTestView
 {
-    /** Time format of the summary line. */
+    /**
+     * Time format of the summary line until 1.23; kept for BC, the summary now goes through
+     * {@see DateFormatterInterface} (its default prints the same text).
+     *
+     * @deprecated since 1.24, format through {@see DateFormatterInterface} (kind `datetime`, zone `true`)
+     */
     public const TIME_FORMAT = 'Y-m-d H:i T';
 
     /**
      * @param string $domain translation domain of the section (checks without a domain of their own)
+     * @param DateFormatterInterface|null $dates the host's date formatter (null: UiKit's ISO default)
      *
-     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, summary: string, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
+     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
      */
-    public static function json(StoredTestReport $report, string $domain, ?TranslatorInterface $translator): array
+    public static function json(StoredTestReport $report, string $domain, ?TranslatorInterface $translator, ?DateFormatterInterface $dates = null): array
     {
         $checks = [];
         foreach ($report->checks as $check) {
@@ -42,6 +57,8 @@ final class SectionTestView
             ];
         }
         $status = self::trans($translator, 'test.status.' . $report->status->value);
+        // In the application's zone, as `|date` and `nowo_time_tag` show it on the page.
+        $time = ($dates ?? new IsoDateFormatter())->format($report->testedAt->setTimezone(new DateTimeZone(date_default_timezone_get())), DateFormatterInterface::DATETIME, true);
 
         return [
             'section'     => $report->section,
@@ -49,9 +66,10 @@ final class SectionTestView
             'status'      => $report->status->value,
             'statusLabel' => $status,
             'testedAt'    => $report->testedAt->format(DateTimeImmutable::ATOM),
+            'time'        => $time,
             'summary'     => $report->actor === null
-                ? self::trans($translator, 'test.summary_anonymous', ['%status%' => $status, '%time%' => $report->testedAt->format(self::TIME_FORMAT)])
-                : self::trans($translator, 'test.summary', ['%status%' => $status, '%time%' => $report->testedAt->format(self::TIME_FORMAT), '%actor%' => $report->actor]),
+                ? self::trans($translator, 'test.summary_anonymous', ['%status%' => $status, '%time%' => $time])
+                : self::trans($translator, 'test.summary', ['%status%' => $status, '%time%' => $time, '%actor%' => $report->actor]),
             'checks' => $checks,
         ];
     }

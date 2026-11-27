@@ -17,6 +17,8 @@ use Nowo\InstanceSettingsBundle\Section\SettingField;
 use Nowo\InstanceSettingsBundle\Section\SettingsSectionInterface;
 use Nowo\InstanceSettingsBundle\Section\SettingType;
 use Nowo\InstanceSettingsBundle\Settings\SectionSnapshot;
+use Nowo\UiKitBundle\Date\DateFormatterInterface;
+use Nowo\UiKitBundle\Date\IsoDateFormatter;
 use Nowo\UiKitBundle\Form\VisibleWhen;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Exception\TransformationFailedException;
@@ -74,6 +76,15 @@ use function strtolower;
 final class SettingsSectionType extends AbstractType
 {
     use FormOptionsTrait;
+
+    /**
+     * @param DateFormatterInterface|null $dates 1.24: the host's UiKit date formatter of the expiry warning date (null:
+     *                                           UiKit's ISO default, `2026-11-27`)
+     */
+    public function __construct(
+        private readonly ?DateFormatterInterface $dates = null,
+    ) {
+    }
 
     /** Placeholder handed to {@see SecretType} as `current_value` when a secret is stored (only its presence counts). */
     private const STORED_SECRET_MARKER = 'stored';
@@ -270,7 +281,7 @@ final class SettingsSectionType extends AbstractType
         if ($warning instanceof ExpiringSecret) {
             $rowAttr[self::EXPIRY_STATE_ATTRIBUTE] = $warning->isExpired() ? 'expired' : 'expiring';
             $help                                  = $warning->isExpired() ? 'secret_expiry.warning_expired' : 'secret_expiry.warning_expiring';
-            $parameters                            = ['%date%' => $warning->expiresOnString(), '%days%' => (string) abs($warning->daysLeft)];
+            $parameters                            = ['%date%' => ($this->dates ?? new IsoDateFormatter())->format($warning->expiresOn, DateFormatterInterface::DATE), '%days%' => (string) abs($warning->daysLeft)];
         }
         $this->addWithDefaults($builder, SettingField::expiryKey($name), DateType::class, [
             'label'                       => 'secret_expiry.label',

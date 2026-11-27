@@ -16,7 +16,8 @@
  *   so (Test uses the stored values, save first); it never disables anything.
  * - A click POSTs to data-url with the section's CSRF token (data-token) and the group, one call at a time per button,
  *   and writes the answer into the button's result region (role="status", aria-live="polite") with textContent only:
- *   nothing from the server is ever parsed as HTML. A refusal (rate limit, test already running) shows the server's
+ *   nothing from the server is ever parsed as HTML (1.24: the time of the summary goes in a <time datetime> element built
+ *   with textContent). A refusal (rate limit, test already running) shows the server's
  *   translated message; anything else shows data-error-label.
  * - Turbo Drive's turbo:before-cache and pagehide clear every result region and the hint, and drop any call still in
  *   flight (its late answer is ignored), so neither Turbo's snapshot nor the back / forward cache shows a stale result.
@@ -175,12 +176,28 @@
         return typeof value === 'string' ? value : '';
     }
 
+    // 1.24: the time inside the summary becomes <time datetime="testedAt">, like the server-rendered summary; text
+    // nodes only, nothing is parsed as HTML. A summary without that time (redacted) stays plain text.
+    function summarize(summary, line, time, testedAt) {
+        var at = time === '' || testedAt === '' ? -1 : line.indexOf(time);
+        if (at === -1) {
+            summary.textContent = line;
+            return;
+        }
+        var tag = document.createElement('time');
+        tag.setAttribute('datetime', testedAt);
+        tag.textContent = time;
+        summary.appendChild(document.createTextNode(line.slice(0, at)));
+        summary.appendChild(tag);
+        summary.appendChild(document.createTextNode(line.slice(at + time.length)));
+    }
+
     function report(result, data) {
         clear(result);
         var summary = document.createElement('p');
         summary.className = 'nowo-instance-settings-test__summary';
         summary.setAttribute('data-status', statusOf(data.status));
-        summary.textContent = text(data.summary);
+        summarize(summary, text(data.summary), text(data.time), text(data.testedAt));
         result.appendChild(summary);
         var list = document.createElement('ul');
         list.className = 'nowo-instance-settings-test__checks';

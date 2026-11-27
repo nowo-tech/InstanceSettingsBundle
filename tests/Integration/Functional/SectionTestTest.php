@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nowo\InstanceSettingsBundle\Tests\Integration\Functional;
 
 use DateTimeImmutable;
+use DateTimeZone;
 use Nowo\InstanceSettingsBundle\Entity\SettingValue;
 use Nowo\InstanceSettingsBundle\Portability\ConfigPortability;
 use Nowo\InstanceSettingsBundle\Repository\SettingRowReaderInterface;
@@ -17,6 +18,7 @@ use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStateStorageInterface;
 use Nowo\InstanceSettingsBundle\SectionTest\SectionTestStore;
 use Nowo\InstanceSettingsBundle\SectionTest\TestStatus;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\ExpiringFixtureSection;
+use Nowo\InstanceSettingsBundle\Tests\Fixtures\ReaderDateFormatter;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\CalendarOAuthFixtureSection;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\CalendarSectionTester;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\GoogleGroupTester;
@@ -25,6 +27,7 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\SectionTest\SettingsTestedListene
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
 use Nowo\InstanceSettingsBundle\Tests\Support\RecordingLogger;
+use Nowo\UiKitBundle\Date\DateFormatterInterface;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\DomCrawler\Crawler;
@@ -128,6 +131,10 @@ final class SectionTestTest extends KernelTestCase
         self::assertSame('Passed', $payload['statusLabel']);
         self::assertStringStartsWith('Last test: Passed (', (string) $payload['summary']);
         self::assertStringEndsWith(', admin)', (string) $payload['summary']);
+        // 1.24: the time of the summary (UiKit's default formatter) and the ISO instant the page wraps it with.
+        self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+$/', (string) $payload['time']);
+        self::assertSame('Last test: Passed (' . $payload['time'] . ', admin)', $payload['summary']);
+        self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/', (string) $payload['testedAt']);
         self::assertSame([
             ['status' => 'ok', 'statusLabel' => 'Passed', 'label' => 'Token endpoint', 'hint' => 'Fields mode,google_client_id,google_client_secret,microsoft_tenant,microsoft_client_secret of section'],
             ['status' => 'skipped', 'statusLabel' => 'Skipped', 'label' => 'Refresh token', 'hint' => null],
@@ -149,6 +156,11 @@ final class SectionTestTest extends KernelTestCase
         $crawler = $client->request('GET', self::PAGE);
         $result  = $crawler->filter('[data-nowo-instance-settings-test-result]')->eq(0);
         self::assertSame('ok', $result->filter('.nowo-instance-settings-test__summary')->attr('data-status'));
+        $time = $result->filter('.nowo-instance-settings-test__summary time');
+        self::assertCount(1, $time, 'the time of the summary is a <time> element');
+        self::assertSame($payload['time'], $time->text());
+        self::assertSame((new DateTimeImmutable((string) $payload['testedAt']))->getTimestamp(), (new DateTimeImmutable((string) $time->attr('datetime')))->getTimestamp());
+        self::assertSame($payload['summary'], $result->filter('.nowo-instance-settings-test__summary')->text());
         self::assertCount(2, $result->filter('li'));
         self::assertSame('ok', $result->filter('li')->eq(0)->attr('data-status'));
         self::assertSame('skipped', $result->filter('li')->eq(1)->attr('data-status'));
@@ -501,6 +513,34 @@ final class SectionTestTest extends KernelTestCase
         self::assertSame(302, $client->getResponse()->getStatusCode());
         $this->settings($kernel)->reset();
         self::assertSame(self::GOOGLE_SECRET, $this->settings($kernel)->getSecret('providers.api_key'));
+    }
+
+    public function testTheHostDateFormatterFormatsTheSummaryTimeAndTheExpiryDate(): void
+    {
+        // 1.24: a host aliases UiKit's DateFormatterInterface; the summary, the expiry row and the expiry notice follow.
+        $kernel = $this->bootKernel(
+            ['expiring_secrets' => ['enabled' => true, 'timezone' => 'UTC']],
+            services: [ExpiringFixtureSection::class => ExpiringFixtureSection::class, ProvidersSectionTester::class => ProvidersSectionTester::class, DateFormatterInterface::class => ReaderDateFormatter::class, 'logger' => RecordingLogger::class],
+        );
+        $expires = (new DateTimeImmutable('today', new DateTimeZone('UTC')))->modify('+5 days');
+        $this->settings($kernel)->save('providers', ['api_key' => self::GOOGLE_SECRET, 'api_key:expires_on' => $expires, 'webhook_token' => self::MICROSOFT_SECRET]);
+        $this->settings($kernel)->reset();
+        $client  = $this->client($kernel, 'developer');
+        $crawler = $client->request('GET', '/admin/settings/sections/providers');
+        $day     = 'reader ' . $expires->format('d/m/Y');
+
+        self::assertStringContainsString('Expires on ' . $day . ' (in 5 day(s))', $crawler->filter('[data-nowo-instance-settings-expiry="expiring"]')->text(), 'the expiry row');
+        self::assertStringContainsString('expires on ' . $day . ' (in 5 day(s))', (string) $client->getResponse()->getContent(), 'the expiry notice');
+
+        $client->request('POST', '/admin/settings/sections/providers/test', ['_token' => $this->token($crawler)]);
+        $payload = $this->json($client);
+        self::assertStringStartsWith('reader ', (string) $payload['time']);
+        self::assertStringContainsString('(' . $payload['time'] . ', developer)', (string) $payload['summary']);
+
+        $summary = $client->request('GET', '/admin/settings/sections/providers')->filter('.nowo-instance-settings-test__summary')->eq(0);
+        self::assertSame($payload['summary'], $summary->text());
+        self::assertSame($payload['time'], $summary->filter('time')->text());
+        self::assertStringStartsWith('reader ', (string) $summary->filter('time')->attr('title'));
     }
 
     /**

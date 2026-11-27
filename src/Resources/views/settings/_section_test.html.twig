@@ -31,7 +31,10 @@
     {%- for button in section_test.buttons %}
     <div class="nowo-instance-settings-test__result" id="{{ _id }}-result-{{ button.idSuffix }}" role="status" aria-live="polite" data-nowo-instance-settings-test-result data-group="{{ button.group ?? '' }}" data-testid="instance-settings-test-result">
         {%- if button.last %}
-        <p class="nowo-instance-settings-test__summary" data-status="{{ button.last.status }}">{{ button.last.summary }}</p>
+        {#- 1.24: the time is a date for people (the host's UiKit date formatter), wrapped in <time datetime>. -#}
+        {%- set _time = button.last.time ?? '' -%}
+        {%- set _parts = _time != '' and _time in button.last.summary ? button.last.summary|split(_time, 2) : [button.last.summary] %}
+        <p class="nowo-instance-settings-test__summary" data-status="{{ button.last.status }}">{{ _parts[0] }}{% if _parts|length > 1 %}{{ button.last.testedAt|nowo_time_tag('datetime', true) }}{{ _parts[1] }}{% endif %}</p>
         <ul class="nowo-instance-settings-test__checks">
             {%- for check in button.last.checks %}
             <li class="nowo-instance-settings-test__check" data-status="{{ check.status }}"><span class="nowo-instance-settings-test__badge">{{ check.statusLabel }}</span> <span class="nowo-instance-settings-test__label">{{ check.label }}</span>{% if check.hint is not null %} <span class="nowo-instance-settings-test__hint">{{ check.hint }}</span>{% endif %}</li>

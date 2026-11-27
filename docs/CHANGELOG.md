@@ -44,7 +44,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Dates for people: the time of a section test summary (page and test endpoint) and the day of an expiring secret (the expiry row's warning and the notice above the form) are formatted through UiKit's `DateFormatterInterface` (UiKit 2.75), so they follow the host's formatter when it aliases the interface (the reader's date order, clock and time zone). Without one, UiKit's default prints the same ISO-style text as before (`2026-11-27 16:14 UTC`, `2026-11-27`). The test answer gains `time` (the formatted time inside `summary`) next to `testedAt` (ISO-8601); the page wraps the time with `nowo_time_tag` and the script builds the same `<time datetime>` element (text nodes only). New optional constructor arguments `?DateFormatterInterface $dates` on `SectionTestRunner`, `SettingsSectionEmbedder` and `SettingsSectionType`, and on `SectionTestView::json()`.
+
 ### Changed
+
+- Requires `nowo-tech/ui-kit-bundle` ^2.75 (was ^2.47) for the date formatter contract.
+- The summary time is shown in the application's time zone (`date_default_timezone_get()`, the zone of Twig's `|date` by default) instead of the stored offset.
+
+### Deprecated
+
+- `SectionTestView::TIME_FORMAT`: the summary goes through `DateFormatterInterface` (kind `datetime`, zone on).
 
 - Dev: Igor 0.11 (REQ-CS-008) — `SectionActionContext::$request` is a per-call value object, never a shared service; documented `@igor-ignore` (false positive). `igor-php/igor-php` accepts `^0.11.0` (supersedes #65).
 - Demo: runs in UiKit's demo platform shell (`nowo-tech/ui-kit-bundle` ^2.60; shared top bar, aside, page header and section cards; no demo stylesheet or `<style>`). Demo only, no bundle change.
