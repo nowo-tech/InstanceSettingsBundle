@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2c0cae23f13d251a90b188248acfcb9d",
+    "content-hash": "5fc2c6571d72b5c6624ffffe09926a27",
     "packages": [
         {
             "name": "doctrine/collections",
@@ -1406,16 +1406,16 @@
         },
         {
             "name": "nowo-tech/ui-kit-bundle",
-            "version": "v2.59.0",
+            "version": "v2.75.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nowo-tech/UiKitBundle.git",
-                "reference": "580b05d1d70a010e249aa9ff3ec6265436d9f4d5"
+                "reference": "ab31d73fcab54bd3af462fa2e20955d7ba40a02c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/580b05d1d70a010e249aa9ff3ec6265436d9f4d5",
-                "reference": "580b05d1d70a010e249aa9ff3ec6265436d9f4d5",
+                "url": "https://api.github.com/repos/nowo-tech/UiKitBundle/zipball/ab31d73fcab54bd3af462fa2e20955d7ba40a02c",
+                "reference": "ab31d73fcab54bd3af462fa2e20955d7ba40a02c",
                 "shasum": ""
             },
             "require": {
@@ -1436,7 +1436,7 @@
             },
             "require-dev": {
                 "friendsofphp/php-cs-fixer": "^3.0",
-                "igor-php/igor-php": "^0.9.7 || ^0.10.0",
+                "igor-php/igor-php": "^0.9.7 || ^0.10.0 || ^0.11.0",
                 "nowo-tech/brand-contracts": "^1.0",
                 "nowo-tech/phpstan-frankenphp": "^1.0",
                 "phpstan/extension-installer": "^1.0",
@@ -1462,7 +1462,8 @@
                 "symfony/validator": "Colour validation in the optional appearance forms"
             },
             "bin": [
-                "bin/nowo-ui-token-lint"
+                "bin/nowo-ui-token-lint",
+                "bin/nowo-ui-demo-style-lint"
             ],
             "type": "symfony-bundle",
             "autoload": {
@@ -1504,7 +1505,8 @@
                 "issues": "https://github.com/nowo-tech/UiKitBundle/issues",
                 "source": "https://github.com/nowo-tech/UiKitBundle"
             },
-            "time": "2026-11-19T21:24:18+00:00"
+            "time": "2026-11-27T19:20:29+00:00",
+            "published-time": "2026-11-27T19:23:45+00:00"
         },
         {
             "name": "paragonie/constant_time_encoding",
@@ -11187,5 +11189,5 @@
     "platform-overrides": {
         "php": "8.2.0"
     },
-    "plugin-api-version": "2.9.0"
+    "plugin-api-version": "2.11.0"
 }

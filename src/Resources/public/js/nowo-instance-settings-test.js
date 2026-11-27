@@ -16,7 +16,8 @@
  *   so (Test uses the stored values, save first); it never disables anything.
  * - A click POSTs to data-url with the section's CSRF token (data-token) and the group, one call at a time per button,
  *   and writes the answer into the button's result region (role="status", aria-live="polite") with textContent only:
- *   nothing from the server is ever parsed as HTML. A refusal (rate limit, test already running) shows the server's
+ *   nothing from the server is ever parsed as HTML (1.24: the time of the summary goes in a <time datetime> element built
+ *   with textContent). A refusal (rate limit, test already running) shows the server's
  *   translated message; anything else shows data-error-label.
  * - Turbo Drive's turbo:before-cache and pagehide clear every result region and the hint, and drop any call still in
  *   flight (its late answer is ignored), so neither Turbo's snapshot nor the back / forward cache shows a stale result.
@@ -175,12 +176,32 @@
         return typeof value === 'string' ? value : '';
     }
 
+    // 1.24: the time of the summary becomes <time datetime="testedAt" title="time">time</time> at the place the server
+    // gives (summaryParts: the text before and after it), like the server-rendered summary; text nodes only, nothing is
+    // parsed as HTML. Without parts (redacted, or a translation without a single %time%) the summary stays plain text.
+    function summarize(summary, data) {
+        var parts = data.summaryParts;
+        var time = text(data.time);
+        var testedAt = text(data.testedAt);
+        if (!Array.isArray(parts) || parts.length !== 2 || typeof parts[0] !== 'string' || typeof parts[1] !== 'string' || time === '' || testedAt === '') {
+            summary.textContent = text(data.summary);
+            return;
+        }
+        var tag = document.createElement('time');
+        tag.setAttribute('datetime', testedAt);
+        tag.setAttribute('title', time);
+        tag.textContent = time;
+        summary.appendChild(document.createTextNode(parts[0]));
+        summary.appendChild(tag);
+        summary.appendChild(document.createTextNode(parts[1]));
+    }
+
     function report(result, data) {
         clear(result);
         var summary = document.createElement('p');
         summary.className = 'nowo-instance-settings-test__summary';
         summary.setAttribute('data-status', statusOf(data.status));
-        summary.textContent = text(data.summary);
+        summarize(summary, data);
         result.appendChild(summary);
         var list = document.createElement('ul');
         list.className = 'nowo-instance-settings-test__checks';

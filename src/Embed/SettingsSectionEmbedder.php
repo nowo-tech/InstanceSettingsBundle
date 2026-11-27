@@ -46,6 +46,8 @@ use Nowo\InstanceSettingsBundle\Ui\SectionTestButton;
 use Nowo\InstanceSettingsBundle\Ui\SectionTestControls;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPageFactory;
 use Nowo\InstanceSettingsBundle\Ui\SettingsPages;
+use Nowo\UiKitBundle\Date\DateFormatterInterface;
+use Nowo\UiKitBundle\Date\IsoDateFormatter;
 use Nowo\UiKitBundle\View\Label;
 use Symfony\Component\Form\FormError;
 use Symfony\Component\Form\FormFactoryInterface;
@@ -163,6 +165,7 @@ final readonly class SettingsSectionEmbedder
         private ?ExpiringSecrets $expiringSecrets = null,
         private bool $revealInInput = false,
         private ?SectionTestRunner $tester = null,
+        private ?DateFormatterInterface $dates = null,
     ) {
     }
 
@@ -370,7 +373,7 @@ final readonly class SettingsSectionEmbedder
             // escaped with the notice when the page renders it.
             $notices[] = new Label($warning->isExpired() ? self::SECRET_EXPIRED_NOTICE : self::SECRET_EXPIRING_NOTICE, NowoInstanceSettingsBundle::TRANSLATION_DOMAIN, [
                 '%field%' => $this->trans($fields[$name]->labelKey(), [], $definition->getTranslationDomain()),
-                '%date%'  => $warning->expiresOnString(),
+                '%date%'  => ($this->dates ?? new IsoDateFormatter())->format($warning->expiresOn, DateFormatterInterface::DATE),
                 '%days%'  => abs($warning->daysLeft),
             ]);
         }

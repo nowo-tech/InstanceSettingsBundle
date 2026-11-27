@@ -453,6 +453,19 @@ calendar_oauth:
   redacted checks are stored per section / group in the settings table under the reserved section
   `_section_test_report` (no new table, no migration) and shown under the button. Exports, seeds, the settings reads
   and `SettingRowReaderInterface::findAllRows()` never include the `_section_test_*` rows.
+- **Dates for people (1.24)**: the time of the summary goes through UiKit's `DateFormatterInterface` (kind `datetime`
+  with the zone, in the application's time zone); without a host formatter UiKit's default prints the same
+  `2026-11-27 16:14 UTC` as before. The answer carries that text as `time` and the instant as `testedAt` (ISO-8601):
+  `summaryParts` gives the summary before and after the time, so the page and the script print that same text as
+  `<time datetime="…" title="…">…</time>` at exactly its place (the script with `textContent`), never formatting it
+  again. The expiry row and the expiry notice of an expiring secret format their day the
+  same way (kind `date`). To show your people's own date order, clock and zone, alias the interface to your formatter:
+
+  ```yaml
+  services:
+      Nowo\UiKitBundle\Date\DateFormatterInterface: '@App\Format\ReaderDateFormatter'
+  ```
+
 - **`Event\SettingsTestedEvent`** (`section`, `group`, `status`, `actor`, `testedAt`) is dispatched after every test,
   and an `info` line `Instance settings: section tested` is logged — names and status only.
 - **Page**: `settings/_section_test.html.twig` (reserved variable `section_test`, `Ui\SectionTestControls`) and
