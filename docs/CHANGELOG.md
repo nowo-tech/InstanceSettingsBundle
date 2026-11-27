@@ -46,6 +46,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
+- PHP 8.6: `composer.json` allows PHP below 8.7 (was below 8.6). CI adds a forward-compatibility workflow with a
+  PHP 8.6 cell and a Symfony 8.2 cell (release candidates, allowed to fail until 8.2.0 is stable).
 - Dev: Igor 0.11 (REQ-CS-008) — `SectionActionContext::$request` is a per-call value object, never a shared service; documented `@igor-ignore` (false positive). `igor-php/igor-php` accepts `^0.11.0` (supersedes #65).
 - Demo: runs in UiKit's demo platform shell (`nowo-tech/ui-kit-bundle` ^2.60; shared top bar, aside, page header and section cards; no demo stylesheet or `<style>`). Demo only, no bundle change.
 
