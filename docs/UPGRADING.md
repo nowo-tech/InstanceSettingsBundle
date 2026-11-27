@@ -59,6 +59,12 @@
 
 ## To 1.24.0
 
+From **1.23.1**:
+
+```bash
+composer update nowo-tech/instance-settings-bundle
+```
+
 From **1.23.x**:
 
 ```bash
