@@ -13,7 +13,10 @@ use Nowo\UiKitBundle\Date\DateFormatterInterface;
 use Nowo\UiKitBundle\Date\IsoDateFormatter;
 use Symfony\Contracts\Translation\TranslatorInterface;
 
+use function count;
 use function date_default_timezone_get;
+use function explode;
+use function implode;
 use function is_bool;
 
 /**
@@ -25,8 +28,9 @@ use function is_bool;
  *
  * 1.24: the time of the summary is a date for people, formatted by the host's UiKit {@see DateFormatterInterface}
  * (kind `datetime` with the zone; UiKit's {@see IsoDateFormatter} without one: `2026-11-27 16:14 UTC`, the 1.18 text).
- * `time` carries that text, in the application's time zone, and `testedAt` the ISO-8601 instant, so the page wraps the
- * time in `<time datetime>` (`nowo_time_tag`) and the script does the same with the endpoint's answer.
+ * `time` carries that text, in the application's time zone, `testedAt` the ISO-8601 instant and `summaryParts` the
+ * summary before and after the time (null when the translation has no single `%time%`), so the page and the script
+ * print `<time datetime="testedAt" title="time">time</time>` at exactly that place, without formatting it again.
  */
 final class SectionTestView
 {
@@ -38,11 +42,14 @@ final class SectionTestView
      */
     public const TIME_FORMAT = 'Y-m-d H:i T';
 
+    /** 1.24: stands for `%time%` while the summary is translated (a private-use character, never in a translation). */
+    private const TIME_MARKER = "\u{E000}";
+
     /**
      * @param string $domain translation domain of the section (checks without a domain of their own)
      * @param DateFormatterInterface|null $dates the host's date formatter (null: UiKit's ISO default)
      *
-     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
+     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, summaryParts: array{string, string}|null, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
      */
     public static function json(StoredTestReport $report, string $domain, ?TranslatorInterface $translator, ?DateFormatterInterface $dates = null): array
     {
@@ -57,20 +64,24 @@ final class SectionTestView
             ];
         }
         $status = self::trans($translator, 'test.status.' . $report->status->value);
-        // In the application's zone, as `|date` and `nowo_time_tag` show it on the page.
+        // In the application's zone; the page and the script print this text as it is (never re-formatted).
         $time = ($dates ?? new IsoDateFormatter())->format($report->testedAt->setTimezone(new DateTimeZone(date_default_timezone_get())), DateFormatterInterface::DATETIME, true);
+        // The time's position: translated with a marker, so the page wraps exactly that span (not a look-alike text).
+        $line = $report->actor === null
+            ? self::trans($translator, 'test.summary_anonymous', ['%status%' => $status, '%time%' => self::TIME_MARKER])
+            : self::trans($translator, 'test.summary', ['%status%' => $status, '%time%' => self::TIME_MARKER, '%actor%' => $report->actor]);
+        $parts = explode(self::TIME_MARKER, $line);
 
         return [
-            'section'     => $report->section,
-            'group'       => $report->group,
-            'status'      => $report->status->value,
-            'statusLabel' => $status,
-            'testedAt'    => $report->testedAt->format(DateTimeImmutable::ATOM),
-            'time'        => $time,
-            'summary'     => $report->actor === null
-                ? self::trans($translator, 'test.summary_anonymous', ['%status%' => $status, '%time%' => $time])
-                : self::trans($translator, 'test.summary', ['%status%' => $status, '%time%' => $time, '%actor%' => $report->actor]),
-            'checks' => $checks,
+            'section'      => $report->section,
+            'group'        => $report->group,
+            'status'       => $report->status->value,
+            'statusLabel'  => $status,
+            'testedAt'     => $report->testedAt->format(DateTimeImmutable::ATOM),
+            'time'         => $time,
+            'summary'      => implode($time, $parts),
+            'summaryParts' => count($parts) === 2 ? [$parts[0], $parts[1]] : null,
+            'checks'       => $checks,
         ];
     }
 

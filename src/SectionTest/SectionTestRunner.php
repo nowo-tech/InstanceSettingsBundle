@@ -244,7 +244,7 @@ final readonly class SectionTestRunner
      *
      * @param string $domain translation domain of the section
      *
-     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
+     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, summaryParts: array{string, string}|null, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
      */
     public function view(StoredTestReport $report, string $domain): array
     {
@@ -257,7 +257,8 @@ final readonly class SectionTestRunner
             }
         }
         if ($guard->matches($view['summary'])) {
-            $view['summary'] = LeakGuard::REDACTED;
+            $view['summary']      = LeakGuard::REDACTED;
+            $view['summaryParts'] = null;
         }
 
         return $view;

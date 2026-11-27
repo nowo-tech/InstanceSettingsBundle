@@ -17,8 +17,8 @@ final readonly class SectionTestButton
     /**
      * @param string|null $group group code (null = the whole section)
      * @param Label|null $groupLabel label of the group (null for the section tester)
-     * @param array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}|null $last
-     *                                                                                                                                                                                                                                                the last report, translated ({@see SectionTestView::json()}; null = never tested)
+     * @param array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, summaryParts: array{string, string}|null, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}|null $last
+     *                                                                                                                                                                                                                                                                                          the last report, translated ({@see SectionTestView::json()}; null = never tested)
      */
     public function __construct(
         public ?string $group,

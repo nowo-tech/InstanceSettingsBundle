@@ -159,7 +159,9 @@ final class SectionTestTest extends KernelTestCase
         $time = $result->filter('.nowo-instance-settings-test__summary time');
         self::assertCount(1, $time, 'the time of the summary is a <time> element');
         self::assertSame($payload['time'], $time->text());
-        self::assertSame((new DateTimeImmutable((string) $payload['testedAt']))->getTimestamp(), (new DateTimeImmutable((string) $time->attr('datetime')))->getTimestamp());
+        self::assertSame($payload['time'], $time->attr('title'));
+        self::assertSame($payload['testedAt'], $time->attr('datetime'));
+        self::assertSame(['Last test: Passed (', ', admin)'], $payload['summaryParts']);
         self::assertSame($payload['summary'], $result->filter('.nowo-instance-settings-test__summary')->text());
         self::assertCount(2, $result->filter('li'));
         self::assertSame('ok', $result->filter('li')->eq(0)->attr('data-status'));
@@ -540,7 +542,21 @@ final class SectionTestTest extends KernelTestCase
         $summary = $client->request('GET', '/admin/settings/sections/providers')->filter('.nowo-instance-settings-test__summary')->eq(0);
         self::assertSame($payload['summary'], $summary->text());
         self::assertSame($payload['time'], $summary->filter('time')->text());
-        self::assertStringStartsWith('reader ', (string) $summary->filter('time')->attr('title'));
+        self::assertSame($payload['time'], $summary->filter('time')->attr('title'));
+    }
+
+    public function testThePageShowsTheSameTimeAsTheEndpointWhateverTwigsZone(): void
+    {
+        // Audit ZDK-IS-L2: Twig's zone differs from the process zone; the page prints the endpoint's text as it is.
+        $kernel = $this->boot(extensions: ['twig' => ['date' => ['timezone' => 'Pacific/Kiritimati']]]);
+        $this->settings($kernel)->save('calendar_oauth', ['google_client_id' => 'client-1', 'google_client_secret' => self::GOOGLE_SECRET, 'microsoft_client_secret' => self::MICROSOFT_SECRET]);
+        $client = $this->client($kernel);
+        $client->request('POST', self::URL, ['_token' => $this->token($client->request('GET', self::PAGE))]);
+        $payload = $this->json($client);
+
+        $summary = $client->request('GET', self::PAGE)->filter('.nowo-instance-settings-test__summary')->eq(0);
+        self::assertSame($payload['summary'], $summary->text());
+        self::assertSame($payload['time'], $summary->filter('time')->text());
     }
 
     /**

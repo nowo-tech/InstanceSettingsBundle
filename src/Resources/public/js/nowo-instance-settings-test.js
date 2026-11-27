@@ -176,20 +176,24 @@
         return typeof value === 'string' ? value : '';
     }
 
-    // 1.24: the time inside the summary becomes <time datetime="testedAt">, like the server-rendered summary; text
-    // nodes only, nothing is parsed as HTML. A summary without that time (redacted) stays plain text.
-    function summarize(summary, line, time, testedAt) {
-        var at = time === '' || testedAt === '' ? -1 : line.indexOf(time);
-        if (at === -1) {
-            summary.textContent = line;
+    // 1.24: the time of the summary becomes <time datetime="testedAt" title="time">time</time> at the place the server
+    // gives (summaryParts: the text before and after it), like the server-rendered summary; text nodes only, nothing is
+    // parsed as HTML. Without parts (redacted, or a translation without a single %time%) the summary stays plain text.
+    function summarize(summary, data) {
+        var parts = data.summaryParts;
+        var time = text(data.time);
+        var testedAt = text(data.testedAt);
+        if (!Array.isArray(parts) || parts.length !== 2 || typeof parts[0] !== 'string' || typeof parts[1] !== 'string' || time === '' || testedAt === '') {
+            summary.textContent = text(data.summary);
             return;
         }
         var tag = document.createElement('time');
         tag.setAttribute('datetime', testedAt);
+        tag.setAttribute('title', time);
         tag.textContent = time;
-        summary.appendChild(document.createTextNode(line.slice(0, at)));
+        summary.appendChild(document.createTextNode(parts[0]));
         summary.appendChild(tag);
-        summary.appendChild(document.createTextNode(line.slice(at + time.length)));
+        summary.appendChild(document.createTextNode(parts[1]));
     }
 
     function report(result, data) {
@@ -197,7 +201,7 @@
         var summary = document.createElement('p');
         summary.className = 'nowo-instance-settings-test__summary';
         summary.setAttribute('data-status', statusOf(data.status));
-        summarize(summary, text(data.summary), text(data.time), text(data.testedAt));
+        summarize(summary, data);
         result.appendChild(summary);
         var list = document.createElement('ul');
         list.className = 'nowo-instance-settings-test__checks';

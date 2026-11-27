@@ -456,8 +456,9 @@ calendar_oauth:
 - **Dates for people (1.24)**: the time of the summary goes through UiKit's `DateFormatterInterface` (kind `datetime`
   with the zone, in the application's time zone); without a host formatter UiKit's default prints the same
   `2026-11-27 16:14 UTC` as before. The answer carries that text as `time` and the instant as `testedAt` (ISO-8601):
-  the page wraps the time with `nowo_time_tag` (`<time datetime="…" title="…">…</time>`) and the script builds the same
-  `<time datetime>` with `textContent`. The expiry row and the expiry notice of an expiring secret format their day the
+  `summaryParts` gives the summary before and after the time, so the page and the script print that same text as
+  `<time datetime="…" title="…">…</time>` at exactly its place (the script with `textContent`), never formatting it
+  again. The expiry row and the expiry notice of an expiring secret format their day the
   same way (kind `date`). To show your people's own date order, clock and zone, alias the interface to your formatter:
 
   ```yaml

@@ -3,6 +3,7 @@
 ## Table of contents
 
 - [Unreleased](#unreleased)
+- [To 1.24.0](#to-1240)
 - [To 1.23.1](#to-1231)
 - [To 1.23.0](#to-1230)
 - [To 1.22.0](#to-1220)
@@ -55,6 +56,28 @@
   - [Breaking changes](#breaking-changes)
 
 ## Unreleased
+
+## To 1.24.0
+
+From **1.23.x**:
+
+```bash
+composer update nowo-tech/ui-kit-bundle nowo-tech/instance-settings-bundle
+```
+
+- **UiKit floor**: the bundle now requires `nowo-tech/ui-kit-bundle` ^2.75 (was ^2.47) for its `DateFormatterInterface`.
+- **Dates for people**: the section test summary time and the expiry day of an expiring secret go through UiKit's
+  `DateFormatterInterface`. Without your own formatter nothing changes in the text (`2026-11-27 16:14 UTC`,
+  `2026-11-27`). To follow your people's date order, clock and time zone, alias the interface to your formatter.
+- **Zone of the summary time**: it is now shown in the application's time zone (`date_default_timezone_get()`)
+  instead of the offset stored with the report. With a `UTC` application zone the text is the same.
+- **Deprecated**: `SectionTestView::TIME_FORMAT` (kept; the summary no longer uses it).
+- **Test answer**: new keys `time` and `summaryParts` next to `testedAt`. A host template that copies
+  `settings/_section_test.html.twig` can keep printing `summary`; to wrap the time, print `summaryParts[0]`,
+  `<time datetime="{{ testedAt }}" title="{{ time }}">{{ time }}</time>` and `summaryParts[1]` when `summaryParts` is
+  not null.
+- **Constructors**: `SectionTestRunner`, `SettingsSectionEmbedder`, `SettingsSectionType` and `SectionTestView::json()`
+  gain an optional trailing `?DateFormatterInterface $dates` argument; existing calls keep working.
 
 ## To 1.23.1
 
