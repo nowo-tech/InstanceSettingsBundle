@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows
 ## Table of contents
 
 - [[Unreleased]](#unreleased)
+- [[1.24.0] - 2026-11-27](#1240---2026-11-27)
 - [[1.23.1] - 2026-11-21](#1231---2026-11-21)
 - [[1.23.0] - 2026-11-20](#1230---2026-11-20)
 - [[1.22.0] - 2026-11-18](#1220---2026-11-18)
@@ -47,9 +48,24 @@ All notable changes to this project are documented here. The format follows
 ### Changed
 
 - PHP 8.6: `composer.json` allows PHP below 8.7 (was below 8.6). CI adds a forward-compatibility workflow with a
-  PHP 8.6 cell and a Symfony 8.2 cell (release candidates, allowed to fail until 8.2.0 is stable).
+  PHP 8.6 cell and a Symfony 8.2 cell (stable Symfony 8.2.0).
+
+## [1.24.0] - 2026-11-27
+
+### Added
+
+- Dates for people: the time of a section test summary (page and test endpoint) and the day of an expiring secret (the expiry row's warning and the notice above the form) are formatted through UiKit's `DateFormatterInterface` (UiKit 2.75), so they follow the host's formatter when it aliases the interface (the reader's date order, clock and time zone). Without one, UiKit's default prints the same ISO-style text as before (`2026-11-27 16:14 UTC`, `2026-11-27`). The test answer gains `time` (the formatted time inside `summary`, in the application's time zone) and `summaryParts` (the summary before and after the time, null when redacted or when the translation has no single `%time%`) next to `testedAt` (ISO-8601); the page and the script print that same `time` text, never re-formatted, as `<time datetime="testedAt" title="time">` at exactly that place (the script with text nodes only). New optional constructor arguments `?DateFormatterInterface $dates` on `SectionTestRunner`, `SettingsSectionEmbedder` and `SettingsSectionType`, and on `SectionTestView::json()`.
+
+### Changed
+
+- Requires `nowo-tech/ui-kit-bundle` ^2.75 (was ^2.47) for the date formatter contract.
+- The summary time is shown in the application's time zone (`date_default_timezone_get()`) instead of the stored offset.
 - Dev: Igor 0.11 (REQ-CS-008) — `SectionActionContext::$request` is a per-call value object, never a shared service; documented `@igor-ignore` (false positive). `igor-php/igor-php` accepts `^0.11.0` (supersedes #65).
 - Demo: runs in UiKit's demo platform shell (`nowo-tech/ui-kit-bundle` ^2.60; shared top bar, aside, page header and section cards; no demo stylesheet or `<style>`). Demo only, no bundle change.
+
+### Deprecated
+
+- `SectionTestView::TIME_FORMAT`: the summary goes through `DateFormatterInterface` (kind `datetime`, zone on).
 
 ## [1.23.1] - 2026-11-21
 

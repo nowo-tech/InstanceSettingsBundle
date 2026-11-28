@@ -13,6 +13,7 @@ use Nowo\InstanceSettingsBundle\Security\AccessGuard;
 use Nowo\InstanceSettingsBundle\Security\InstanceSettingsAccessCheckerInterface;
 use Nowo\InstanceSettingsBundle\Settings\InstanceSettingsInterface;
 use Nowo\InstanceSettingsBundle\Ui\SectionTestView;
+use Nowo\UiKitBundle\Date\DateFormatterInterface;
 use Psr\Clock\ClockInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
@@ -122,6 +123,7 @@ final readonly class SectionTestRunner
         private string $keySalt = '',
         private ?RequestStack $requestStack = null,
         private ?TranslatorInterface $translator = null,
+        private ?DateFormatterInterface $dates = null,
     ) {
     }
 
@@ -242,12 +244,12 @@ final readonly class SectionTestRunner
      *
      * @param string $domain translation domain of the section
      *
-     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, summary: string, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
+     * @return array{section: string, group: string|null, status: string, statusLabel: string, testedAt: string, time: string, summary: string, summaryParts: array{string, string}|null, checks: list<array{status: string, statusLabel: string, label: string, hint: string|null}>}
      */
     public function view(StoredTestReport $report, string $domain): array
     {
         $guard = LeakGuard::of($this->secrets($report->section));
-        $view  = SectionTestView::json($report, $domain, $this->translator);
+        $view  = SectionTestView::json($report, $domain, $this->translator, $this->dates);
         foreach ($view['checks'] as $index => $check) {
             if ($guard->matches($check['label']) || ($check['hint'] !== null && $guard->matches($check['hint']))) {
                 $view['checks'][$index]['label'] = $this->trans(LeakGuard::REDACTED_LABEL, [], NowoInstanceSettingsBundle::TRANSLATION_DOMAIN);
@@ -255,7 +257,8 @@ final readonly class SectionTestRunner
             }
         }
         if ($guard->matches($view['summary'])) {
-            $view['summary'] = LeakGuard::REDACTED;
+            $view['summary']      = LeakGuard::REDACTED;
+            $view['summaryParts'] = null;
         }
 
         return $view;
