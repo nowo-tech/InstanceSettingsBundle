@@ -97,7 +97,7 @@ Open `/admin/settings`: one tab per section, the form built from the fields.
 
 ## Requirements
 
-- PHP **8.2+** (`>=8.2 <8.6`; Symfony 8.x requires PHP 8.4+)
+- PHP **8.2+** (`>=8.2 <8.7`; Symfony 8.x requires PHP 8.4+)
 - Symfony **7.4**, **8.0** or **8.1** (FrameworkBundle, Form, Validator, Security CSRF, TwigBundle; SecurityBundle for the admin UI)
 - `ext-gd` with PNG, JPEG and WebP support, only with `files.enabled: true` (image fields, 1.4) or `brand.enabled: true` (1.5)
 - `nowo-tech/brand-contracts` **^1.0**, only with `brand.enabled: true` (1.5)
