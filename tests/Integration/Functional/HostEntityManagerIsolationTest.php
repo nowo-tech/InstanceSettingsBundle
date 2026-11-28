@@ -20,6 +20,7 @@ use Nowo\InstanceSettingsBundle\Tests\Fixtures\HostXml\HostXmlNote;
 use Nowo\InstanceSettingsBundle\Tests\Fixtures\WorkerProbeController;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\InstanceSettingsTestKernel;
 use Nowo\InstanceSettingsBundle\Tests\Integration\Kernel\KernelTestCase;
+use Nowo\InstanceSettingsBundle\Tests\Support\NativeFileStreams;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
@@ -29,6 +30,7 @@ use Symfony\Component\HttpKernel\TerminableInterface;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
 
 use function array_map;
+use function gc_collect_cycles;
 use function json_decode;
 use function memory_get_usage;
 
@@ -147,12 +149,24 @@ final class HostEntityManagerIsolationTest extends KernelTestCase
         self::assertSame(['host_open' => true, 'host_pending' => 2, 'host_rows' => 0, 'site_name' => 'two'], $request('/probe/save?value=two'), 'next request: a fresh bundle manager');
 
         // Flat memory over many requests in the same kernel (no rows kept by the bundle manager).
+        // The measured requests run on PHP's native file wrapper: BypassFinals leaks one resource per file operation
+        // (a harness artefact, see NativeFileStreams), which would show up as a jump unrelated to the bundle.
         $request('/probe/save?value=warm');
-        $before = memory_get_usage();
-        for ($i = 0; $i < 300; ++$i) {
-            $request('/probe/save?value=v' . ($i % 2));
+        $nativeStreams = NativeFileStreams::begin();
+
+        try {
+            gc_collect_cycles();
+            $before = memory_get_usage();
+            for ($i = 0; $i < 300; ++$i) {
+                $request('/probe/save?value=v' . ($i % 2));
+            }
+            gc_collect_cycles();
+            $used = memory_get_usage() - $before;
+        } finally {
+            NativeFileStreams::end($nativeStreams);
         }
-        self::assertLessThan(4 * 1024 * 1024, memory_get_usage() - $before);
+
+        self::assertLessThan(4 * 1024 * 1024, $used);
     }
 
     public function testDedicatedManagerWithAutoMappingOnTheDefaultOne(): void
